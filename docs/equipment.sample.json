@@ -1,0 +1,135 @@
+[
+  {
+    "equipmentId": "EQ-N-001",
+    "region": "北區",
+    "customer": "客戶A",
+    "site": "竹科Fab1",
+    "model": "FlexTRAK-S",
+    "serialNo": "P160623",
+    "statusMain": "裝機",
+    "statusSub": "配管配線",
+    "owner": "PM-Allen",
+    "milestones": {
+      "installStart": "2026-02-10"
+    },
+    "blocking": {
+      "reasonCode": "料件未到",
+      "detail": "真空閥件缺料，等待到貨",
+      "owner": "SCM-Judy",
+      "eta": "2026-03-01"
+    },
+    "capacity": {
+      "utilization": 0,
+      "uph": 0,
+      "targetUph": 0,
+      "level": "紅",
+      "trend7d": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    "updatedAt": "2026-02-25T02:00:00.000Z"
+  },
+  {
+    "equipmentId": "EQ-N-002",
+    "region": "北區",
+    "customer": "客戶B",
+    "site": "南港Fab2",
+    "model": "AP-100",
+    "serialNo": "AP100-8831",
+    "statusMain": "試產",
+    "statusSub": "試產調整中",
+    "owner": "FAE-Kevin",
+    "milestones": {
+      "trialStart": "2026-02-01"
+    },
+    "blocking": {
+      "reasonCode": "良率未達",
+      "detail": "需調整 recipe 參數與清洗條件",
+      "owner": "FAE-Kevin",
+      "eta": "2026-02-28"
+    },
+    "capacity": {
+      "utilization": 72,
+      "uph": 92,
+      "targetUph": 120,
+      "level": "黃",
+      "trend7d": [
+        68,
+        70,
+        71,
+        72,
+        69,
+        73,
+        72
+      ]
+    },
+    "updatedAt": "2026-02-25T03:10:00.000Z"
+  },
+  {
+    "equipmentId": "EQ-C-003",
+    "region": "中區",
+    "customer": "客戶C",
+    "site": "台中Fab3",
+    "model": "FlexTRAK-S",
+    "serialNo": "FTS-2219",
+    "statusMain": "正式上產中",
+    "statusSub": "Ramp up",
+    "owner": "PM-Lily",
+    "milestones": {
+      "prodStart": "2026-01-20"
+    },
+    "capacity": {
+      "utilization": 88,
+      "uph": 132,
+      "targetUph": 140,
+      "level": "綠",
+      "trend7d": [
+        84,
+        86,
+        87,
+        89,
+        88,
+        90,
+        88
+      ]
+    },
+    "updatedAt": "2026-02-25T01:05:00.000Z"
+  },
+  {
+    "equipmentId": "EQ-S-004",
+    "region": "南區",
+    "customer": "客戶D",
+    "site": "高雄Fab5",
+    "model": "AP-100",
+    "serialNo": "AP100-9942",
+    "statusMain": "正式上產中",
+    "statusSub": "達標維持",
+    "owner": "FAE-Nina",
+    "milestones": {
+      "prodStart": "2025-12-18",
+      "reachTargetDate": "2026-01-05"
+    },
+    "capacity": {
+      "utilization": 93,
+      "uph": 155,
+      "targetUph": 150,
+      "level": "綠",
+      "trend7d": [
+        91,
+        92,
+        93,
+        94,
+        93,
+        92,
+        93
+      ]
+    },
+    "updatedAt": "2026-02-25T02:40:00.000Z"
+  }
+]

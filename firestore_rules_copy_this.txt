@@ -1,0 +1,74 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isPremtek() {
+      return request.auth != null
+        && request.auth.token.email != null
+        && request.auth.token.email.matches('.*@premtek\\.com\\.tw$');
+    }
+
+    function isAdmin() {
+      return isPremtek()
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == "admin";
+    }
+
+    function isNumber(v) {
+      return (v is int) || (v is float);
+    }
+
+    function isPct(v) {
+      return isNumber(v) && v >= 0 && v <= 100;
+    }
+
+    function isSelfUpdate(uid) {
+      return isPremtek()
+        && request.auth.uid == uid
+        && request.resource.data.diff(resource.data).affectedKeys()
+           .hasOnly(['mustChangePassword', 'updatedAt']);
+    }
+
+    match /users/{uid} {
+      allow read: if (isPremtek() && request.auth.uid == uid) || isAdmin();
+      allow create: if isAdmin()
+        || (isPremtek() && request.auth.uid == uid && request.resource.data.role == "user");
+      allow update: if isAdmin() || isSelfUpdate(uid);
+      allow delete: if isAdmin();
+    }
+
+    match /settings/{docId} {
+      allow read: if isPremtek();
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /installations/{docId} {
+      allow read: if isPremtek();
+      allow create, update: if isPremtek() && isPct(request.resource.data.progress);
+      allow delete: if isPremtek();
+    }
+
+    match /equipments/{docId} {
+      allow read: if isPremtek();
+      allow create, update, delete: if isPremtek();
+    }
+
+    match /auditLogs/{docId} {
+      allow read: if isPremtek();
+      allow create: if isPremtek();
+      allow delete: if isAdmin();
+      allow update: if false;
+    }
+
+    match /events/{docId} {
+      allow read: if isAdmin();
+      allow create: if isPremtek();
+      allow delete: if isAdmin();
+      allow update: if false;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

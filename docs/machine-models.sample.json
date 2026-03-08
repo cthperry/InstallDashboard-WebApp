@@ -1,0 +1,53 @@
+{
+  "version": "2026-02-28",
+  "models": [
+    {
+      "code": "FlexTRAK-S",
+      "displayName": "FlexTRAK-S",
+      "category": "Plasma",
+      "vendor": "Nordson MARCH",
+      "defaultStages": [
+        "裝機",
+        "Hook-up",
+        "試產",
+        "Qual",
+        "量產"
+      ],
+      "tags": [
+        "FT"
+      ]
+    },
+    {
+      "code": "AP-1000",
+      "displayName": "AP-1000",
+      "category": "Plasma",
+      "vendor": "Nordson MARCH",
+      "defaultStages": [
+        "裝機",
+        "Hook-up",
+        "試產",
+        "Qual",
+        "量產"
+      ],
+      "tags": [
+        "AP"
+      ]
+    },
+    {
+      "code": "ExoSPHERE",
+      "displayName": "ExoSPHERE",
+      "category": "Process",
+      "vendor": "Nordson MARCH",
+      "defaultStages": [
+        "裝機",
+        "Hook-up",
+        "試產",
+        "Qual",
+        "量產"
+      ],
+      "tags": [
+        "Exo"
+      ]
+    }
+  ]
+}
