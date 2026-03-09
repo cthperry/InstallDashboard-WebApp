@@ -226,7 +226,7 @@ export default function DashboardPage() {
     if (eKeyword) {
       const kw = eKeyword.toLowerCase();
       result = result.filter(
-        r => r.equipmentId.toLowerCase().includes(kw) || r.customer.toLowerCase().includes(kw) || r.serialNo.toLowerCase().includes(kw)
+        r => (r.equipmentId || "").toLowerCase().includes(kw) || r.customer.toLowerCase().includes(kw) || r.serialNo.toLowerCase().includes(kw)
       );
     }
     return result;
@@ -549,7 +549,9 @@ export default function DashboardPage() {
 
   const openEditEq = useCallback((r: Equipment) => {
     setEqEditId(r.id);
-    setEqForm({ ...r });
+    // 舊資料的 blocking 可能是 boolean false，需清理為 undefined
+    const blocking = r.blocking && typeof r.blocking === "object" ? r.blocking : undefined;
+    setEqForm({ ...r, blocking });
     setEqDrawerOpen(false);
     setEqModal(true);
   }, []);
@@ -557,7 +559,7 @@ export default function DashboardPage() {
   const saveEq = useCallback(async () => {
     try {
       const eqErrors: string[] = [];
-      if (!eqForm.equipmentId?.trim()) eqErrors.push("設備ID");
+      if (!eqForm.serialNo?.trim()) eqErrors.push("序號");
       if (!eqForm.customer) eqErrors.push("客戶");
       if (eqErrors.length > 0) {
         showToast(`⚠️ 請填寫：${eqErrors.join("、")}`);
@@ -571,11 +573,11 @@ export default function DashboardPage() {
       const parsed = equipmentSchema.parse(safedEqForm as Omit<Equipment, "id">);
       if (eqEditId) {
         await updateEquipment(eqEditId, parsed);
-        writeAuditLog("UPDATE_EQUIPMENT", eqEditId, parsed.equipmentId, user?.email || "");
+        writeAuditLog("UPDATE_EQUIPMENT", eqEditId, parsed.equipmentId || "", user?.email || "");
         showToast("已更新");
       } else {
         await createEquipment(parsed as any);
-        writeAuditLog("CREATE_EQUIPMENT", "", parsed.equipmentId, user?.email || "");
+        writeAuditLog("CREATE_EQUIPMENT", "", parsed.equipmentId || "", user?.email || "");
         showToast("已新增");
       }
       setEqModal(false);
@@ -587,10 +589,10 @@ export default function DashboardPage() {
 
   const delEq = useCallback(
     async (r: Equipment) => {
-      if (!confirm(`確認刪除「${r.equipmentId}」？`)) return;
+      if (!confirm(`確認刪除「${r.equipmentId || r.id}」？`)) return;
       try {
         await removeEquipment(r.id);
-        writeAuditLog("DELETE_EQUIPMENT", r.id, r.equipmentId, user?.email || "");
+        writeAuditLog("DELETE_EQUIPMENT", r.id, r.equipmentId || "", user?.email || "");
         showToast("已刪除");
       } catch (err) {
         console.error(err);
@@ -890,6 +892,7 @@ export default function DashboardPage() {
             onSave={saveEq}
             onDelete={() => delEq(equipments.find(r => r.id === eqEditId)!)}
             customers={customers}
+            customerRegionMap={customerRegionMap}
             machineModels={machineModels}
             equipments={equipments}
           />

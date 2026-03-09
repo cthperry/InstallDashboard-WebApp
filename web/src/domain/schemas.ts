@@ -43,7 +43,7 @@ export const installationSchema = z.object({
 
 
 export const equipmentSchema = z.object({
-  equipmentId: z.string().min(1).max(40),
+  equipmentId: z.string().max(40).optional().or(z.literal("")),
   region: z.enum(["north","central","south"]),
   customer: z.string().min(1).max(80),
   site: z.string().min(1).max(80),

@@ -24,7 +24,7 @@ export function EquipmentDrawer({
   if (!open || !equipment) return null;
 
   return (
-    <Drawer title={equipment.equipmentId} open={open} onClose={onClose}>
+    <Drawer title={equipment.equipmentId || equipment.id} open={open} onClose={onClose}>
       <div style={{ fontSize: 13, color: colors.text1 }}>
         <div style={{ marginBottom: 16 }}>
           <div style={{ fontSize: 11, color: colors.text3, marginBottom: 4 }}>客戶</div>

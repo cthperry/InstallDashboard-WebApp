@@ -75,7 +75,7 @@ export type CapacityLevel = "綠" | "黃" | "紅";
 
 export type Equipment = {
   id: string; // Firestore docId
-  equipmentId: string; // 顯示用 ID（可與 docId 不同）
+  equipmentId?: string; // 顯示用 ID（可與 docId 不同，非必填）
   region: RegionKey;
   customer: string;
   site: string;

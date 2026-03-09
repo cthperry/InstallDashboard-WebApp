@@ -15,6 +15,7 @@ export type EquipmentModalProps = {
   onSave: () => void;
   onDelete: () => void;
   customers: string[];
+  customerRegionMap: Record<string, string>;
   machineModels: any[];
   equipments: Equipment[];
 };
@@ -29,9 +30,17 @@ export function EquipmentModal({
   onSave,
   onDelete,
   customers,
+  customerRegionMap,
   machineModels,
   equipments,
 }: EquipmentModalProps) {
+  // 根據選擇的地區過濾客戶：無對應地區的客戶仍顯示；有對應但不同地區的才隱藏
+  const filteredCustomers = eqForm.region
+    ? customers.filter(c => {
+        const mapped = customerRegionMap[c];
+        return !mapped || mapped === eqForm.region;
+      })
+    : customers;
   if (!open) return null;
 
   return (
@@ -48,11 +57,11 @@ export function EquipmentModal({
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 14 }}>
         <div>
           <label style={{ display: "block", fontSize: 11, color: colors.text3, marginBottom: 3 }}>
-            設備 ID *
+            設備 ID
           </label>
           <input
             type="text"
-            placeholder="例：EQ-001"
+            placeholder="例：EQ-001（選填）"
             value={eqForm.equipmentId}
             onChange={e => setEqForm({ ...eqForm, equipmentId: e.target.value })}
             className="input"
@@ -60,7 +69,7 @@ export function EquipmentModal({
         </div>
         <div>
           <label style={{ display: "block", fontSize: 11, color: colors.text3, marginBottom: 3 }}>
-            序號 (S/N)
+            序號 (S/N) *
           </label>
           <input
             type="text"
@@ -99,7 +108,7 @@ export function EquipmentModal({
             className="input"
           >
             <option value="">選擇客戶</option>
-            {customers.map(c => (
+            {filteredCustomers.map(c => (
               <option key={c} value={c}>
                 {c}
               </option>
