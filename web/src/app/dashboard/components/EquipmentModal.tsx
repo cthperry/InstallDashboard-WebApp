@@ -195,8 +195,15 @@ export function EquipmentModal({
         >
           <input
             type="checkbox"
-            checked={eqForm.blocking || false}
-            onChange={e => setEqForm({ ...eqForm, blocking: e.target.checked })}
+            checked={!!eqForm.blocking}
+            onChange={e => setEqForm({
+              ...eqForm,
+              blocking: e.target.checked
+                ? (eqForm.blocking && typeof eqForm.blocking === "object"
+                    ? eqForm.blocking
+                    : { reasonCode: "", detail: "", owner: "", eta: "" })
+                : undefined,
+            })}
             style={{ cursor: "pointer", accentColor: "#f43f5e", width: 16, height: 16 }}
           />
           <span style={{ fontSize: 12, color: colors.text1 }}>設備已阻塞</span>
