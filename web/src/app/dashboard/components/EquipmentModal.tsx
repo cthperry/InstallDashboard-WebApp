@@ -20,6 +20,27 @@ export type EquipmentModalProps = {
   equipments: Equipment[];
 };
 
+/** 根據使用率自動推算產能等級 */
+function autoLevel(uph: number, targetUph: number): CapacityLevel {
+  if (!targetUph || targetUph <= 0) return "綠";
+  const pct = uph / targetUph;
+  if (pct >= 0.8) return "綠";
+  if (pct >= 0.5) return "黃";
+  return "紅";
+}
+
+/** 更新 UPH 或 targetUph 時，同步換算 utilization 與 level */
+function updateCapacity(
+  prev: any,
+  patch: { uph?: number; targetUph?: number }
+): any {
+  const uph = patch.uph ?? prev?.uph ?? 0;
+  const targetUph = patch.targetUph ?? prev?.targetUph ?? 0;
+  const utilization = targetUph > 0 ? Math.min(100, Math.round((uph / targetUph) * 100)) : 0;
+  const level = autoLevel(uph, targetUph);
+  return { ...prev, uph, targetUph, utilization, level };
+}
+
 export function EquipmentModal({
   C: colors,
   open,
@@ -234,11 +255,12 @@ export function EquipmentModal({
           <input
             type="number"
             placeholder="0"
-            value={eqForm.capacity?.uph || 0}
+            min="0"
+            value={eqForm.capacity?.uph ?? 0}
             onChange={e =>
               setEqForm({
                 ...eqForm,
-                capacity: { ...eqForm.capacity, uph: parseInt(e.target.value) },
+                capacity: updateCapacity(eqForm.capacity, { uph: parseInt(e.target.value) || 0 }),
               })
             }
             className="input"
@@ -251,11 +273,12 @@ export function EquipmentModal({
           <input
             type="number"
             placeholder="0"
-            value={eqForm.capacity?.targetUph || 0}
+            min="0"
+            value={eqForm.capacity?.targetUph ?? 0}
             onChange={e =>
               setEqForm({
                 ...eqForm,
-                capacity: { ...eqForm.capacity, targetUph: parseInt(e.target.value) },
+                capacity: updateCapacity(eqForm.capacity, { targetUph: parseInt(e.target.value) || 0 }),
               })
             }
             className="input"
@@ -263,7 +286,7 @@ export function EquipmentModal({
         </div>
         <div>
           <label style={{ display: "block", fontSize: 11, color: colors.text3, marginBottom: 3 }}>
-            產能等級
+            產能等級（自動 / 可覆寫）
           </label>
           <select
             value={eqForm.capacity?.level || "綠"}
@@ -282,23 +305,34 @@ export function EquipmentModal({
             ))}
           </select>
         </div>
+        {/* 使用率：唯讀，自動換算 */}
         <div style={{ gridColumn: "1 / -1" }}>
-          <label style={{ display: "block", fontSize: 11, color: colors.text3, marginBottom: 3 }}>
-            使用率：{eqForm.capacity?.utilization || 0}%
+          <label style={{ display: "block", fontSize: 11, color: colors.text3, marginBottom: 4 }}>
+            使用率（自動換算）
           </label>
-          <input
-            type="range"
-            min="0"
-            max="100"
-            value={eqForm.capacity?.utilization || 0}
-            onChange={e =>
-              setEqForm({
-                ...eqForm,
-                capacity: { ...eqForm.capacity, utilization: parseInt(e.target.value) },
-              })
-            }
-            style={{ width: "100%" }}
-          />
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div style={{ flex: 1, background: colors.panelHigh, borderRadius: 4, height: 20, overflow: "hidden", position: "relative" }}>
+              <div
+                style={{
+                  height: "100%",
+                  width: `${eqForm.capacity?.utilization ?? 0}%`,
+                  background:
+                    (eqForm.capacity?.level || "綠") === "綠" ? colors.success :
+                    (eqForm.capacity?.level || "綠") === "黃" ? colors.warning :
+                    colors.danger,
+                  transition: "width 0.3s",
+                }}
+              />
+            </div>
+            <span style={{ minWidth: 36, textAlign: "right", fontWeight: 600, fontSize: 13, color: colors.text1 }}>
+              {eqForm.capacity?.utilization ?? 0}%
+            </span>
+          </div>
+          {(!eqForm.capacity?.targetUph || eqForm.capacity.targetUph === 0) && (
+            <div style={{ fontSize: 11, color: colors.text3, marginTop: 4 }}>
+              請填入目標 UPH 以自動計算使用率
+            </div>
+          )}
         </div>
       </div>
 
