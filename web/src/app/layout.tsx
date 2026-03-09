@@ -4,6 +4,7 @@ import Script from "next/script";
 import { Noto_Sans_TC } from "next/font/google";
 
 import { Providers } from "@/app/providers";
+import { APP_VERSION } from "@/version";
 
 const notoSansTC = Noto_Sans_TC({
   weight: ["400", "500", "700"],
@@ -19,7 +20,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   const gaId = process.env.NEXT_PUBLIC_GA_MEASUREMENT_ID;
-  const appVersion = process.env.NEXT_PUBLIC_APP_VERSION ?? "20260228-F9";
+  const appVersion = process.env.NEXT_PUBLIC_APP_VERSION ?? APP_VERSION;
 
   return (
     <html lang="zh-Hant" suppressHydrationWarning>

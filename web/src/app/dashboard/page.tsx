@@ -559,8 +559,10 @@ export default function DashboardPage() {
   const saveEq = useCallback(async () => {
     try {
       const eqErrors: string[] = [];
-      if (!eqForm.serialNo?.trim()) eqErrors.push("序號");
-      if (!eqForm.customer) eqErrors.push("客戶");
+      if (!eqForm.serialNo?.trim())  eqErrors.push("序號");
+      if (!eqForm.customer)          eqErrors.push("客戶");
+      if (!eqForm.site?.trim())      eqErrors.push("工廠/裝機地點");
+      if (!eqForm.owner?.trim())     eqErrors.push("設備所有人");
       if (eqErrors.length > 0) {
         showToast(`⚠️ 請填寫：${eqErrors.join("、")}`);
         return;
@@ -623,6 +625,7 @@ export default function DashboardPage() {
             <div style={{ fontSize: 24, fontWeight: 700 }}>⚡</div>
             <h1 style={{ margin: 0, color: C.text1, fontSize: 18, fontWeight: 700, flex: 1 }}>PREMTEK 裝機戰情室</h1>
             <div style={{ fontSize: 13, color: C.text2, fontWeight: 500 }}>{clock}</div>
+            <div style={{ fontSize: 11, color: C.text3, letterSpacing: "0.04em" }}>v{appVersion}</div>
             <div style={{ fontSize: 13, color: C.text2 }}>{user?.email || "—"}</div>
             <button
               onClick={signOutNow}

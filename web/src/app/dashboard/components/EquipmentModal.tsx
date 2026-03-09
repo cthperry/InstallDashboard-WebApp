@@ -100,7 +100,7 @@ export function EquipmentModal({
         </div>
         <div>
           <label style={{ display: "block", fontSize: 11, color: colors.text3, marginBottom: 3 }}>
-            客戶
+            客戶 *
           </label>
           <select
             value={eqForm.customer}
@@ -117,7 +117,7 @@ export function EquipmentModal({
         </div>
         <div>
           <label style={{ display: "block", fontSize: 11, color: colors.text3, marginBottom: 3 }}>
-            工廠 / 裝機地點
+            工廠 / 裝機地點 *
           </label>
           <input
             type="text"
@@ -129,7 +129,7 @@ export function EquipmentModal({
         </div>
         <div>
           <label style={{ display: "block", fontSize: 11, color: colors.text3, marginBottom: 3 }}>
-            機型
+            機型 *
           </label>
           <select
             value={eqForm.modelCode}
@@ -145,7 +145,7 @@ export function EquipmentModal({
         </div>
         <div>
           <label style={{ display: "block", fontSize: 11, color: colors.text3, marginBottom: 3 }}>
-            設備所有人
+            設備所有人 *
           </label>
           <input
             type="text"
