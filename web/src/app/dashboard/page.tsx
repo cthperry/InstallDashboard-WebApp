@@ -568,7 +568,7 @@ export default function DashboardPage() {
       const safedEqForm = {
         ...eqForm,
         statusSub: eqForm.statusSub || "",
-        blocking: eqForm.blocking ?? false,
+        blocking: (eqForm.blocking && typeof eqForm.blocking === "object") ? eqForm.blocking : undefined,
       } as Omit<Equipment, "id">;
       const parsed = equipmentSchema.parse(safedEqForm as Omit<Equipment, "id">);
       if (eqEditId) {
