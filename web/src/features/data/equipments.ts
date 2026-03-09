@@ -26,17 +26,28 @@ export function listenEquipments(onData: (rows: Equipment[]) => void, onError?: 
   }, (e) => onError?.(e));
 }
 
+/** Strip top-level undefined values so Firestore doesn't reject them */
+function stripUndefined(obj: Record<string, unknown>): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(obj)) {
+    if (v !== undefined) result[k] = v;
+  }
+  return result;
+}
+
 export async function createEquipment(data: Omit<Equipment, "id">) {
+  const cleaned = stripUndefined(data as unknown as Record<string, unknown>);
   await addDoc(collection(db, COL), {
-    ...data,
+    ...cleaned,
     createdAt: Date.now(),
     updatedAt: Date.now()
   });
 }
 
 export async function updateEquipment(id: string, patch: Partial<Omit<Equipment, "id">>) {
+  const cleaned = stripUndefined(patch as unknown as Record<string, unknown>);
   await updateDoc(doc(db, COL, id), {
-    ...patch,
+    ...cleaned,
     updatedAt: Date.now()
   });
 }
