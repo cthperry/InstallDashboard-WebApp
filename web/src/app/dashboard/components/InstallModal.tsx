@@ -191,7 +191,7 @@ export function InstallModal({
         </div>
         <div>
           <label style={{ display: "block", fontSize: 11, color: colors.text3, marginBottom: 3 }}>
-            預計到貨
+            預計出貨
           </label>
           <input
             type="date"
