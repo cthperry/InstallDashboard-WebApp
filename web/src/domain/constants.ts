@@ -51,8 +51,8 @@ export const DEFAULT_CUSTOMERS = [
 
 // ── 各階段標準 Checklist 項目 ────────────────────────────────────
 export const PHASE_CHECKLISTS: Record<string, string[]> = {
-  ordered:    ["確認 PO 編號與金額", "確認預計交期", "通知客戶聯絡人", "建立裝機案資料"],
-  shipping:   ["確認出貨清單（BOM）", "確認運輸單號", "通知客戶預計到廠日期", "確認保險與包裝"],
+  ordered:    [],
+  shipping:   ["通知客戶預計到廠日期"],
   arrived:    ["清點入庫清單", "外觀損傷確認", "通知客戶到廠", "排定裝機時程"],
   installing: ["機台定位 / 水平調整", "配管完成", "配線完成", "Leak Check 洩漏測試", "基本功能確認"],
   hookup:     ["Gas Line 連接確認", "排氣管路確認", "電氣連接與接地確認", "安全連鎖（Interlock）確認"],
