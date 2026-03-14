@@ -45,56 +45,56 @@
 /* ─── Design Tokens ─────────────────────────────────────────────── */
 /*
    配色方針：
-   - 背景：深灰底 #15191f（中性不帶藍調，不過暗）
-   - 面板：#1d2330（稍淺，清晰分層）
-   - 頂欄：#1d2330（與面板一致，簡潔）
+   - 背景：淡綠白 #eaf0ea（柔和不刺眼，帶一點自然綠調）
+   - 面板：純白 #ffffff（清晰分層，卡片感）
+   - 頂欄：深色 #1d2330（與亮色頁面形成對比，專業感）
    - 主色：#76b900（NVIDIA 綠，鮮明辨識）
-   - 文字：#edf2f7 主文字，#8fa3b8 輔助
-   - 邊框：rgba(118,185,0,0.12)（淡綠，不搶眼）
+   - 文字：深 #1a2533 主文字，#4b6070 輔助
+   - 邊框：rgba(118,185,0,0.18)（淡綠，自然融合）
 */
 :root {
   --radius: 0.55rem;
 
-  /* Shadcn token mapping — NVIDIA 綠主題 */
-  --background:           #15191f;
-  --foreground:           #edf2f7;
-  --card:                 #1d2330;
-  --card-foreground:      #edf2f7;
-  --popover:              #1d2330;
-  --popover-foreground:   #edf2f7;
+  /* Shadcn token mapping — 亮色 NVIDIA 綠主題 */
+  --background:           #eaf0ea;
+  --foreground:           #1a2533;
+  --card:                 #ffffff;
+  --card-foreground:      #1a2533;
+  --popover:              #ffffff;
+  --popover-foreground:   #1a2533;
   --primary:              #76b900;
-  --primary-foreground:   #0d1200;
-  --secondary:            #26303f;
-  --secondary-foreground: #8fa3b8;
-  --muted:                #26303f;
-  --muted-foreground:     #5a7080;
-  --accent:               #26303f;
-  --accent-foreground:    #b8d860;
-  --destructive:          #f43f5e;
+  --primary-foreground:   #ffffff;
+  --secondary:            #f4f8f4;
+  --secondary-foreground: #4b6070;
+  --muted:                #f4f8f4;
+  --muted-foreground:     #8fa3b1;
+  --accent:               #f4f8f4;
+  --accent-foreground:    #1a2533;
+  --destructive:          #ef4444;
   --destructive-foreground: #ffffff;
-  --border:               rgba(118,185,0,0.12);
-  --input:                rgba(255,255,255,0.07);
+  --border:               rgba(118,185,0,0.18);
+  --input:                rgba(118,185,0,0.12);
   --ring:                 #76b900;
 
   /* Chart */
   --chart-1: #76b900;
-  --chart-2: #4ade80;
-  --chart-3: #fbbf24;
-  --chart-4: #f43f5e;
-  --chart-5: #a78bfa;
+  --chart-2: #22c55e;
+  --chart-3: #f59e0b;
+  --chart-4: #ef4444;
+  --chart-5: #8b5cf6;
 
   /* Sidebar */
-  --sidebar:            #1d2330;
-  --sidebar-foreground: #edf2f7;
+  --sidebar:            #ffffff;
+  --sidebar-foreground: #1a2533;
   --sidebar-primary:    #76b900;
-  --sidebar-primary-foreground: #0d1200;
-  --sidebar-accent:     #26303f;
-  --sidebar-accent-foreground: #edf2f7;
-  --sidebar-border:     rgba(118,185,0,0.12);
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent:     #f4f8f4;
+  --sidebar-accent-foreground: #1a2533;
+  --sidebar-border:     rgba(118,185,0,0.18);
   --sidebar-ring:       #76b900;
 
   /* ── 客製工業配色 Token ─────────── */
-  --topbar-bg:   #1d2330;
+  --topbar-bg:   #1d2330;   /* 深色頂欄（與亮色頁面對比）*/
   --topbar-text: #edf2f7;
   --topbar-sub:  #8fa3b8;
 
@@ -103,13 +103,13 @@
   --status-prod:    #76b900;  /* 量產   → NVIDIA 綠 */
   --status-overdue: #dc2626;  /* 逾期   → 紅 */
 
-  --phase-ordered:    #8fa3b8;
-  --phase-shipping:   #a78bfa;
-  --phase-arrived:    #38bdf8;
+  --phase-ordered:    #94a3b8;
+  --phase-shipping:   #8b5cf6;
+  --phase-arrived:    #0ea5e9;
   --phase-installing: #f59e0b;
-  --phase-hookup:     #f472b6;
-  --phase-trial:      #22d3ee;
-  --phase-qual:       #a4d400;
+  --phase-hookup:     #ec4899;
+  --phase-trial:      #06b6d4;
+  --phase-qual:       #84cc16;
   --phase-released:   #76b900;
 }
 
@@ -121,8 +121,8 @@
     outline-color: color-mix(in srgb, var(--ring) 50%, transparent);
   }
   body {
-    background-color: #15191f;
-    color: #edf2f7;
+    background-color: #eaf0ea;
+    color: #1a2533;
     font-family: var(--font-sans, "Noto Sans TC", "Microsoft JhengHei", system-ui, sans-serif);
     font-size: 14px;
     line-height: 1.55;
@@ -166,7 +166,7 @@
 
   .flex { min-height: 0; min-width: 0; }
 
-  /* KPI stat grid — 4 欄 → 2 欄（768px）→ 1 欄（480px） */
+  /* KPI stat grid */
   .gridStats {
     display: grid;
     gap: 12px;
@@ -176,14 +176,14 @@
   @media (max-width: 520px)  { .gridStats { grid-template-columns: 1fr; } }
 }
 
-/* ─── Topbar ─────────────────────────────────────────────────────── */
+/* ─── Topbar（深色頂欄 — 與亮色頁面對比）────────────────────────── */
 @layer components {
   .topbar {
     position: sticky;
     top: 0;
     z-index: 50;
     background: var(--topbar-bg);
-    box-shadow: 0 1px 0 rgba(118,185,0,0.12), 0 2px 8px rgba(0,0,0,0.32);
+    box-shadow: 0 1px 0 rgba(118,185,0,0.15), 0 2px 8px rgba(0,0,0,0.18);
   }
   .topbarInner {
     @apply container;
@@ -206,7 +206,7 @@
     color: #0d1200;
     flex-shrink: 0;
     background: linear-gradient(135deg, #5e9200 0%, #a4d400 100%);
-    box-shadow: 0 2px 8px rgba(118,185,0,0.45);
+    box-shadow: 0 2px 8px rgba(118,185,0,0.50);
   }
   .topbarTitle {
     font-size: 14px;
@@ -227,11 +227,12 @@
   }
 }
 
-/* ─── Tabs ───────────────────────────────────────────────────────── */
+/* ─── Tabs（深色 Tab — 緊貼 topbar）─────────────────────────────── */
 @layer components {
   .tabs {
     background: var(--topbar-bg);
     border-top: 1px solid rgba(118,185,0,0.10);
+    border-bottom: 2px solid rgba(118,185,0,0.18);
     @apply container;
     display: flex;
     gap: 0;
@@ -251,6 +252,7 @@
     background: transparent;
     border: none;
     border-bottom: 2px solid transparent;
+    margin-bottom: -2px;
     border-radius: 0;
     transition: color 0.14s, border-color 0.14s;
     cursor: pointer;
@@ -267,10 +269,10 @@
 /* ─── Card ──────────────────────────────────────────────────────── */
 @layer components {
   .card {
-    background: #1d2330;
-    border: 1px solid rgba(118,185,0,0.12);
+    background: #ffffff;
+    border: 1px solid rgba(118,185,0,0.18);
     border-radius: 10px;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.35);
+    box-shadow: 0 1px 4px rgba(0,0,0,0.06), 0 4px 12px rgba(0,0,0,0.04);
   }
 
   .panelHeader {
@@ -279,15 +281,15 @@
     justify-content: space-between;
     gap: 10px;
     padding: 12px 16px;
-    border-bottom: 1px solid rgba(118,185,0,0.12);
+    border-bottom: 1px solid rgba(118,185,0,0.15);
     flex-wrap: wrap;
-    background: #26303f;
+    background: #f4f8f4;
     border-radius: 10px 10px 0 0;
   }
   .panelTitle {
     font-weight: 800;
     font-size: 13px;
-    color: #edf2f7;
+    color: #1a2533;
   }
 }
 
@@ -301,54 +303,55 @@
     padding: 7px 14px;
     font-size: 12.5px;
     font-weight: 600;
-    color: #8fa3b8;
-    background: #26303f;
-    border: 1px solid rgba(118,185,0,0.14);
+    color: #4b6070;
+    background: #ffffff;
+    border: 1px solid rgba(118,185,0,0.22);
     border-radius: 7px;
     transition: background 0.12s, box-shadow 0.12s, color 0.12s;
     white-space: nowrap;
     cursor: pointer;
     text-decoration: none;
-    box-shadow: none;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.05);
   }
   .btn:hover {
-    background: #2e3a4c;
-    border-color: rgba(118,185,0,0.30);
-    color: #edf2f7;
+    background: #f4f8f4;
+    border-color: rgba(118,185,0,0.40);
+    color: #1a2533;
+    box-shadow: 0 2px 6px rgba(118,185,0,0.12);
   }
-  .btn:disabled { opacity: 0.4; pointer-events: none; }
+  .btn:disabled { opacity: 0.45; pointer-events: none; }
 
   .btnSmall  { padding: 5px 11px; font-size: 11.5px; border-radius: 6px; }
   .btnAccent {
     background: #76b900;
     color: #0d1200;
     border-color: #5e9200;
-    box-shadow: 0 0 12px rgba(118,185,0,0.30);
+    box-shadow: 0 1px 3px rgba(118,185,0,0.30);
     font-weight: 700;
   }
   .btnAccent:hover {
     background: #8fd200;
     color: #0d1200;
     border-color: #76b900;
-    box-shadow: 0 0 18px rgba(118,185,0,0.50);
+    box-shadow: 0 2px 10px rgba(118,185,0,0.40);
   }
   .btnGhost  {
     background: transparent;
     border-color: transparent;
     box-shadow: none;
-    color: #8fa3b8;
+    color: #4b6070;
   }
   .btnGhost:hover {
     background: rgba(118,185,0,0.06);
-    border-color: rgba(118,185,0,0.14);
-    color: #edf2f7;
+    border-color: rgba(118,185,0,0.18);
+    color: #1a2533;
   }
   .btnDanger {
-    background: rgba(244,63,94,0.12);
-    color: #f43f5e;
-    border-color: rgba(244,63,94,0.3);
+    background: rgba(239,68,68,0.08);
+    color: #dc2626;
+    border-color: rgba(239,68,68,0.25);
   }
-  .btnDanger:hover { background: rgba(244,63,94,0.20); border-color: rgba(244,63,94,0.5); }
+  .btnDanger:hover { background: rgba(239,68,68,0.14); border-color: rgba(239,68,68,0.40); }
 }
 
 /* ─── Form Controls ─────────────────────────────────────────────── */
@@ -362,9 +365,9 @@
     padding: 7px 10px;
     font-size: 13px;
     font-family: inherit;
-    color: #edf2f7;
-    background: #15191f;
-    border: 1px solid rgba(118,185,0,0.14);
+    color: #1a2533;
+    background: #ffffff;
+    border: 1px solid rgba(118,185,0,0.22);
     border-radius: 7px;
     outline: none;
     transition: border-color 0.15s, box-shadow 0.15s;
@@ -375,17 +378,17 @@
   select:focus,
   textarea:focus {
     border-color: #76b900;
-    box-shadow: 0 0 0 3px rgba(118,185,0,0.18);
+    box-shadow: 0 0 0 3px rgba(118,185,0,0.15);
   }
   select option {
-    background: #1d2330;
-    color: #edf2f7;
+    background: #ffffff;
+    color: #1a2533;
   }
   input::placeholder,
-  textarea::placeholder { color: #4a5a6a; }
+  textarea::placeholder { color: #9cb4bf; }
   textarea { resize: vertical; min-height: 80px; }
   select {
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%238fa3b8' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%234b6070' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
     background-repeat: no-repeat;
     background-position: right 10px center;
     padding-right: 28px;
@@ -411,7 +414,7 @@
   .label {
     font-size: 10.5px;
     font-weight: 700;
-    color: #5a7080;
+    color: #8fa3b1;
     text-transform: uppercase;
     letter-spacing: 0.05em;
   }
@@ -423,7 +426,7 @@
     align-items: flex-end;
     gap: 10px;
     padding: 14px 16px;
-    background: #1a2028;
+    background: #f4f8f4;
     border-radius: 0 0 10px 10px;
   }
   .filters .field { min-width: 130px; }
@@ -435,7 +438,7 @@
     height: 6px;
     overflow: hidden;
     border-radius: 99px;
-    background: rgba(118,185,0,0.12);
+    background: rgba(118,185,0,0.14);
   }
   .progressInner {
     height: 100%;
@@ -467,9 +470,9 @@
     font-size: 11.5px;
     font-weight: 700;
     border-radius: 99px;
-    background: #26303f;
-    border: 1px solid rgba(118,185,0,0.18);
-    color: #8fa3b8;
+    background: #f4f8f4;
+    border: 1px solid rgba(118,185,0,0.22);
+    color: #4b6070;
   }
 }
 
@@ -493,20 +496,20 @@
     border-bottom: 1px solid rgba(118,185,0,0.10);
     vertical-align: middle;
     font-size: 13px;
-    color: #edf2f7;
+    color: #1a2533;
   }
   .table th {
     position: sticky;
     top: 0;
     z-index: 5;
-    background: #1d2330;
+    background: #f4f8f4;
     font-size: 11px;
     font-weight: 700;
-    color: #8fa3b8;
+    color: #4b6070;
     text-transform: uppercase;
     letter-spacing: 0.05em;
     white-space: nowrap;
-    border-bottom: 1px solid rgba(118,185,0,0.14);
+    border-bottom: 1px solid rgba(118,185,0,0.18);
   }
   .table tbody tr:hover td { background: rgba(118,185,0,0.04); }
   .table tbody tr:last-child td { border-bottom: none; }
@@ -528,29 +531,30 @@
     padding-left: 0;
   }
   .kanban::-webkit-scrollbar { height: 5px; }
-  .kanban::-webkit-scrollbar-track { background: #26303f; border-radius: 99px; }
-  .kanban::-webkit-scrollbar-thumb { background: #4a5a6a; border-radius: 99px; }
+  .kanban::-webkit-scrollbar-track { background: #dce8dc; border-radius: 99px; }
+  .kanban::-webkit-scrollbar-thumb { background: #a0bca0; border-radius: 99px; }
   .kanbanCol {
     flex: 0 0 220px;
-    background: #1d2330;
-    border: 1px solid rgba(118,185,0,0.11);
+    background: #ffffff;
+    border: 1px solid rgba(118,185,0,0.18);
     border-radius: 10px;
     overflow: hidden;
     min-height: 260px;
     display: flex;
     flex-direction: column;
     scroll-snap-align: start;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.05);
   }
   .kanbanColHead {
     display: flex;
     align-items: center;
     justify-content: space-between;
     padding: 8px 12px;
-    border-bottom: 1px solid rgba(118,185,0,0.11);
+    border-bottom: 1px solid rgba(118,185,0,0.15);
     font-size: 12px;
     font-weight: 700;
-    color: #edf2f7;
-    background: #26303f;
+    color: #1a2533;
+    background: #f4f8f4;
   }
   .kanbanColBody {
     padding: 10px;
@@ -560,16 +564,17 @@
     flex: 1;
   }
   .kanbanCard {
-    background: #26303f;
-    border: 1px solid rgba(118,185,0,0.11);
+    background: #f9fcf9;
+    border: 1px solid rgba(118,185,0,0.15);
     border-radius: 8px;
     padding: 10px 12px;
     cursor: pointer;
-    transition: box-shadow 0.14s, border-color 0.14s;
-    color: #edf2f7;
+    transition: box-shadow 0.14s, border-color 0.14s, background 0.14s;
+    color: #1a2533;
   }
   .kanbanCard:hover {
-    box-shadow: 0 2px 10px rgba(118,185,0,0.20);
+    background: #ffffff;
+    box-shadow: 0 3px 12px rgba(118,185,0,0.18);
     border-color: rgba(118,185,0,0.42);
   }
 }
@@ -580,8 +585,8 @@
     display: flex;
     gap: 3px;
     padding: 4px;
-    background: #26303f;
-    border: 1px solid rgba(118,185,0,0.14);
+    background: #eaf0ea;
+    border: 1px solid rgba(118,185,0,0.22);
     border-radius: 9px;
     overflow-x: auto;
     scrollbar-width: none;
@@ -592,20 +597,20 @@
     padding: 5px 12px;
     font-size: 11.5px;
     font-weight: 600;
-    color: #8fa3b8;
+    color: #4b6070;
     background: transparent;
     border: 1px solid transparent;
     border-radius: 6px;
     cursor: pointer;
     transition: background 0.12s, color 0.12s;
   }
-  .segTab:hover { background: #2e3a4c; color: #edf2f7; }
+  .segTab:hover { background: #f4f8f4; color: #1a2533; }
   .segTabActive {
-    background: #2e3a4c;
+    background: #ffffff;
     border-color: rgba(118,185,0,0.30);
-    color: #76b900;
+    color: #5e9200;
     font-weight: 700;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.30);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
   }
 }
 
@@ -616,8 +621,8 @@
     gap: 8px;
     justify-content: flex-end;
     padding: 14px 18px;
-    border-top: 1px solid rgba(118,185,0,0.12);
-    background: #1a2028;
+    border-top: 1px solid rgba(118,185,0,0.15);
+    background: #f4f8f4;
     border-radius: 0 0 10px 10px;
     margin-top: 4px;
   }
@@ -633,8 +638,8 @@
   .ganttHeader {
     display: flex;
     height: 30px;
-    background: #1a2028;
-    border-bottom: 2px solid rgba(118,185,0,0.16);
+    background: #f4f8f4;
+    border-bottom: 2px solid rgba(118,185,0,0.20);
     position: sticky;
     top: 0;
     z-index: 3;
@@ -642,10 +647,10 @@
   .ganttHeaderLabel {
     width: 155px;
     min-width: 155px;
-    border-right: 1px solid rgba(118,185,0,0.12);
+    border-right: 1px solid rgba(118,185,0,0.15);
     font-size: 10px;
     font-weight: 700;
-    color: #5a7080;
+    color: #8fa3b1;
     padding: 0 12px;
     display: flex;
     align-items: center;
@@ -662,11 +667,11 @@
     position: absolute;
     top: 0;
     bottom: 0;
-    border-left: 1px dashed rgba(118,185,0,0.14);
+    border-left: 1px dashed rgba(118,185,0,0.20);
     padding-left: 5px;
     font-size: 10px;
     font-weight: 600;
-    color: #8fa3b8;
+    color: #4b6070;
     display: flex;
     align-items: center;
     white-space: nowrap;
@@ -675,14 +680,14 @@
   .ganttRow {
     display: flex;
     height: 44px;
-    border-bottom: 1px solid rgba(118,185,0,0.08);
+    border-bottom: 1px solid rgba(118,185,0,0.10);
     transition: background 0.1s;
   }
   .ganttRow:hover { background: rgba(118,185,0,0.04); }
   .ganttRowLabel {
     width: 155px;
     min-width: 155px;
-    border-right: 1px solid rgba(118,185,0,0.08);
+    border-right: 1px solid rgba(118,185,0,0.10);
     padding: 0 12px;
     display: flex;
     flex-direction: column;
@@ -714,15 +719,15 @@
     min-width: 6px;
     cursor: pointer;
     transition: opacity 0.14s, box-shadow 0.14s;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.30);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.18);
   }
-  .ganttBar:hover { opacity: 0.82; box-shadow: 0 2px 6px rgba(0,0,0,0.40); }
+  .ganttBar:hover { opacity: 0.82; box-shadow: 0 2px 6px rgba(0,0,0,0.28); }
   .ganttToday {
     position: absolute;
     top: 0;
     bottom: 0;
     width: 2px;
-    background: #f43f5e;
+    background: #ef4444;
     opacity: 0.70;
     pointer-events: none;
     z-index: 2;
@@ -732,7 +737,7 @@
     top: 0;
     bottom: 0;
     width: 1px;
-    background: rgba(118,185,0,0.07);
+    background: rgba(118,185,0,0.10);
     pointer-events: none;
     opacity: 0.8;
   }
@@ -746,44 +751,45 @@
     gap: 8px;
     padding: 6px 10px;
     border-radius: 7px;
-    border: 1px solid rgba(118,185,0,0.11);
-    background: #26303f;
+    border: 1px solid rgba(118,185,0,0.15);
+    background: #f4f8f4;
     cursor: pointer;
     transition: background 0.12s, border-color 0.12s;
     font-size: 12.5px;
-    color: #8fa3b8;
+    color: #4b6070;
   }
-  .checklistItem:hover { background: #2e3a4c; border-color: rgba(118,185,0,0.25); }
+  .checklistItem:hover { background: #eaf0ea; border-color: rgba(118,185,0,0.30); }
   .checklistItem.done {
-    background: rgba(118,185,0,0.06);
-    border-color: rgba(118,185,0,0.18);
+    background: rgba(118,185,0,0.05);
+    border-color: rgba(118,185,0,0.20);
   }
-  .checklistItem.done span { text-decoration: line-through; color: #4a5a6a; }
+  .checklistItem.done span { text-decoration: line-through; color: #8fa3b1; }
 }
 
 /* ─── Utility ───────────────────────────────────────────────────── */
 .row { display: flex; flex-wrap: wrap; gap: 10px; }
 
-/* ─── ShadCN Dialog dark override ───────────────────────────────── */
+/* ─── ShadCN Dialog override ─────────────────────────────────────── */
 [role="dialog"],
 [data-slot="dialog-content"] {
-  background: #1d2330 !important;
-  color: #edf2f7 !important;
-  border: 1px solid rgba(118,185,0,0.16) !important;
+  background: #ffffff !important;
+  color: #1a2533 !important;
+  border: 1px solid rgba(118,185,0,0.22) !important;
+  box-shadow: 0 8px 30px rgba(0,0,0,0.12) !important;
 }
 [data-slot="dialog-content"] label {
-  color: #8fa3b8;
+  color: #4b6070;
 }
 [data-slot="dialog-content"] h2,
 [data-slot="dialog-content"] h3,
 [data-slot="dialog-content"] [data-slot="dialog-title"] {
-  color: #edf2f7 !important;
+  color: #1a2533 !important;
 }
 [data-radix-popper-content-wrapper] {
   z-index: 9999 !important;
 }
-/* 確保 placeholder 文字可讀 */
+/* placeholder */
 ::placeholder {
-  color: #4a5a6a !important;
+  color: #9cb4bf !important;
   opacity: 1;
 }

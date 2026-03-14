@@ -213,7 +213,7 @@ export function ImportDialog({
           onClick={onConfirmImport}
           disabled={importSaving}
           style={{
-            background: importSaving ? "#2e3a4c" : colors.success,
+            background: importSaving ? "#c8d8c8" : colors.success,
             border: "none",
             color: "#0d1200",
             padding: "7px 20px",

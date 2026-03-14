@@ -2,24 +2,24 @@ import type { Installation, RegionKey, PhaseKey } from "@/domain/types";
 import { PHASES, REGIONS } from "@/domain/constants";
 
 const C = {
-  bg: "#15191f",           // 深灰底（中性不帶藍調）
-  panel: "#1d2330",        // 主面板
-  panelHigh: "#26303f",    // 卡片/hover
-  border: "rgba(118,185,0,0.12)",
-  borderMed: "rgba(118,185,0,0.28)",
+  bg: "#eaf0ea",           // 淡綠白底（柔和不刺眼）
+  panel: "#ffffff",        // 白色面板
+  panelHigh: "#f4f8f4",   // 卡片/hover
+  border: "rgba(118,185,0,0.18)",
+  borderMed: "rgba(118,185,0,0.38)",
   accent: "#76b900",       // NVIDIA 綠主色
-  accentDim: "rgba(118,185,0,0.15)",
-  success: "#4ade80",      // 翠綠成功
-  successDim: "rgba(74,222,128,0.12)",
-  warning: "#fbbf24",      // 琥珀警告
-  warningDim: "rgba(251,191,36,0.12)",
-  danger: "#f43f5e",       // 紅色危險
-  dangerDim: "rgba(244,63,94,0.12)",
-  info: "#38bdf8",         // 天藍資訊
-  infoDim: "rgba(56,189,248,0.12)",
-  text1: "#edf2f7",        // 主文字
-  text2: "#8fa3b8",        // 輔助文字
-  text3: "#4e6480",        // 三級文字
+  accentDim: "rgba(118,185,0,0.10)",
+  success: "#22c55e",      // 翠綠成功
+  successDim: "rgba(34,197,94,0.10)",
+  warning: "#f59e0b",      // 琥珀警告
+  warningDim: "rgba(245,158,11,0.10)",
+  danger: "#ef4444",       // 紅色危險
+  dangerDim: "rgba(239,68,68,0.10)",
+  info: "#0ea5e9",         // 天藍資訊
+  infoDim: "rgba(14,165,233,0.10)",
+  text1: "#1a2533",        // 主文字（深）
+  text2: "#4b6070",        // 輔助文字
+  text3: "#8fa3b1",        // 三級文字
 } as const;
 
 export function todayYYYYMMDD(): string {
