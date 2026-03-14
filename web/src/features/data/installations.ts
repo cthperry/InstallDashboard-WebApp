@@ -14,12 +14,22 @@ export function listenInstallations(onData: (rows: Installation[]) => void, onEr
   }, (e) => onError?.(e));
 }
 
-export async function createInstallation(data: Omit<Installation, "id">) {
-  // Firestore rejects `undefined` field values — strip them before writing
-  const cleaned: Record<string, any> = {};
-  for (const [k, v] of Object.entries(data as Record<string, any>)) {
-    if (v !== undefined) cleaned[k] = v;
+/** 深層去除所有 undefined，避免 Firestore 拒絕（含 nested objects）*/
+function stripUndefined(obj: Record<string, unknown>): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(obj)) {
+    if (v === undefined) continue;
+    if (v !== null && typeof v === "object" && !Array.isArray(v)) {
+      result[k] = stripUndefined(v as Record<string, unknown>);
+    } else {
+      result[k] = v;
+    }
   }
+  return result;
+}
+
+export async function createInstallation(data: Omit<Installation, "id">) {
+  const cleaned = stripUndefined(data as unknown as Record<string, unknown>);
   const progress = typeof cleaned.progress === "number" ? Math.max(0, Math.min(100, cleaned.progress)) : 0;
   await addDoc(collection(db, COL), {
     ...cleaned,
@@ -32,12 +42,8 @@ export async function createInstallation(data: Omit<Installation, "id">) {
 }
 
 export async function updateInstallation(id: string, patch: Partial<Omit<Installation, "id">>) {
-  // Firestore rejects `undefined` field values — strip them before writing
-  const out: Record<string, any> = {};
-  for (const [k, v] of Object.entries(patch as Record<string, any>)) {
-    if (v !== undefined) out[k] = v;
-  }
-  if (typeof out.progress === "number") out.progress = Math.max(0, Math.min(100, out.progress));
+  const out = stripUndefined(patch as unknown as Record<string, unknown>) as Record<string, unknown>;
+  if (typeof out.progress === "number") out.progress = Math.max(0, Math.min(100, out.progress as number));
   await updateDoc(doc(db, COL, id), {
     ...out,
     updatedAt: Date.now(),

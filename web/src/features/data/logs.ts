@@ -9,7 +9,8 @@ export type AuditLogRow = {
   target: string;
   detail: string;
   actorEmail: string;
-  createdAt?: Timestamp;
+  timestamp?: number;    // client ms（顯示用）
+  createdAt?: Timestamp; // server timestamp（排序用）
 };
 
 export type EventRow = {

@@ -211,6 +211,7 @@ export function EquipmentModal({
             className="input"
           />
         </div>
+        {/* 阻塞 checkbox */}
         <div
           style={{
             gridColumn: "1 / -1",
@@ -220,7 +221,7 @@ export function EquipmentModal({
             padding: "8px 10px",
             background: colors.panelHigh,
             borderRadius: 4,
-            border: `1px solid ${colors.border}`,
+            border: `1px solid ${eqForm.blocking ? colors.danger : colors.border}`,
           }}
         >
           <input
@@ -236,11 +237,108 @@ export function EquipmentModal({
             })}
             style={{ cursor: "pointer", accentColor: "#f43f5e", width: 16, height: 16 }}
           />
-          <span style={{ fontSize: 12, color: colors.text1 }}>設備已阻塞</span>
-          <span style={{ fontSize: 11, color: colors.text3 }}>
-            （勾選後會在設備列表標示警示）
+          <span style={{ fontSize: 12, color: eqForm.blocking ? colors.danger : colors.text1, fontWeight: eqForm.blocking ? 600 : 400 }}>
+            🚧 設備已阻塞
           </span>
+          <span style={{ fontSize: 11, color: colors.text3 }}>（勾選後展開詳情）</span>
         </div>
+
+        {/* 阻塞詳情展開區塊 */}
+        {eqForm.blocking && typeof eqForm.blocking === "object" && (
+          <div
+            style={{
+              gridColumn: "1 / -1",
+              padding: "12px",
+              background: `rgba(244,63,94,0.06)`,
+              border: `1px solid ${colors.danger}`,
+              borderRadius: 4,
+              display: "grid",
+              gridTemplateColumns: "1fr 1fr",
+              gap: 10,
+            }}
+          >
+            <div>
+              <label style={{ display: "block", fontSize: 11, color: colors.text3, marginBottom: 3 }}>
+                阻塞原因類別 *
+              </label>
+              <select
+                value={eqForm.blocking.reasonCode || ""}
+                onChange={e => setEqForm({ ...eqForm, blocking: { ...eqForm.blocking, reasonCode: e.target.value } })}
+                className="input"
+              >
+                <option value="">選擇原因</option>
+                {["料件未到", "人力不足", "環境未備", "客戶延遲", "技術問題", "其他"].map(r => (
+                  <option key={r} value={r}>{r}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label style={{ display: "block", fontSize: 11, color: colors.text3, marginBottom: 3 }}>
+                預計解除日期 (ETA)
+              </label>
+              <input
+                type="date"
+                value={eqForm.blocking.eta || ""}
+                onChange={e => setEqForm({ ...eqForm, blocking: { ...eqForm.blocking, eta: e.target.value } })}
+                className="input"
+              />
+            </div>
+            <div>
+              <label style={{ display: "block", fontSize: 11, color: colors.text3, marginBottom: 3 }}>
+                負責跟進人員 *
+              </label>
+              <input
+                type="text"
+                placeholder="例：SCM-Judy"
+                value={eqForm.blocking.owner || ""}
+                onChange={e => setEqForm({ ...eqForm, blocking: { ...eqForm.blocking, owner: e.target.value } })}
+                className="input"
+              />
+            </div>
+            <div style={{ gridColumn: "1 / -1" }}>
+              <label style={{ display: "block", fontSize: 11, color: colors.text3, marginBottom: 3 }}>
+                阻塞詳細說明
+              </label>
+              <input
+                type="text"
+                placeholder="說明阻塞狀況..."
+                value={eqForm.blocking.detail || ""}
+                onChange={e => setEqForm({ ...eqForm, blocking: { ...eqForm.blocking, detail: e.target.value } })}
+                className="input"
+              />
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ── 里程碑 ── */}
+      <div style={{ marginBottom: 6, fontSize: 11, fontWeight: 700, color: colors.accent, letterSpacing: "0.06em", textTransform: "uppercase" }}>
+        里程碑日期
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 14 }}>
+        {([
+          { key: "installStart",     label: "開始裝機" },
+          { key: "installDone",      label: "裝機完成" },
+          { key: "trialStart",       label: "開始試產" },
+          { key: "trialPass",        label: "試產通過" },
+          { key: "prodStart",        label: "正式上產" },
+          { key: "reachTargetDate",  label: "達標日期" },
+        ] as const).map(({ key, label }) => (
+          <div key={key}>
+            <label style={{ display: "block", fontSize: 11, color: colors.text3, marginBottom: 3 }}>
+              {label}
+            </label>
+            <input
+              type="date"
+              value={eqForm.milestones?.[key] || ""}
+              onChange={e => setEqForm({
+                ...eqForm,
+                milestones: { ...eqForm.milestones, [key]: e.target.value || undefined },
+              })}
+              className="input"
+            />
+          </div>
+        ))}
       </div>
 
       {/* ── 產能 ── */}

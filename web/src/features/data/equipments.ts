@@ -26,11 +26,16 @@ export function listenEquipments(onData: (rows: Equipment[]) => void, onError?: 
   }, (e) => onError?.(e));
 }
 
-/** Strip top-level undefined values so Firestore doesn't reject them */
+/** 深層去除所有 undefined，避免 Firestore 拒絕（含 nested objects）*/
 function stripUndefined(obj: Record<string, unknown>): Record<string, unknown> {
   const result: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(obj)) {
-    if (v !== undefined) result[k] = v;
+    if (v === undefined) continue;
+    if (v !== null && typeof v === "object" && !Array.isArray(v)) {
+      result[k] = stripUndefined(v as Record<string, unknown>);
+    } else {
+      result[k] = v;
+    }
   }
   return result;
 }

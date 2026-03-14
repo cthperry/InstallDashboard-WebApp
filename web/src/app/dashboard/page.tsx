@@ -13,6 +13,7 @@ import { trackEvent } from "@/features/telemetry/track";
 import type { AppVariablesDoc, CapacityLevel, Equipment, EquipmentMainStatus, Installation, PhaseKey, RegionKey } from "@/domain/types";
 import { DEFAULT_CUSTOMERS, DEFAULT_ENGINEERS, DEFAULT_MACHINE_MODELS } from "@/domain/constants";
 import { equipmentSchema, installationSchema } from "@/domain/schemas";
+import { inferRegionFromCustomer } from "@/domain/regionUtils";
 
 import {
   C,
@@ -58,6 +59,7 @@ export default function DashboardPage() {
     new Date().toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit", second: "2-digit" })
   );
   const [toast, setToast] = useState("");
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [alertDismissed, setAlertDismissed] = useState(false);
   const notifiedRef = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -246,9 +248,13 @@ export default function DashboardPage() {
     return auditLogs.filter(log => !logsClearedAt || (log.timestamp && log.timestamp > logsClearedAt));
   }, [auditLogs, logsClearedAt]);
 
+  // cleanup on unmount
+  useEffect(() => () => { if (toastTimerRef.current) clearTimeout(toastTimerRef.current); }, []);
+
   const showToast = useCallback((msg: string, duration = 3000) => {
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     setToast(msg);
-    setTimeout(() => setToast(""), duration);
+    toastTimerRef.current = setTimeout(() => setToast(""), duration);
   }, []);
 
   const inferModelCode = (productName: string): string => {
@@ -269,16 +275,9 @@ export default function DashboardPage() {
     return "ordered";
   };
 
-  const inferRegion = (customer: string): RegionKey => {
-    const map = customerRegionMap as Record<string, string>;
-    if (map && map[customer]) return map[customer] as RegionKey;
-    const text = customer.toLowerCase();
-    const southKeywords = ["高雄", "台南", "臺南", "屏東", "嘉義", "南部", "kaohsiung", "tainan", "pingtung", "chiayi"];
-    const northKeywords = ["台北", "臺北", "桃園", "新竹", "基隆", "宜蘭", "北部", "taipei", "taoyuan", "hsinchu"];
-    if (southKeywords.some(k => text.includes(k))) return "south";
-    if (northKeywords.some(k => text.includes(k))) return "north";
-    return "central";
-  };
+  // 使用 domain/regionUtils 的共用版本（與 API route 邏輯一致）
+  const inferRegion = (customer: string): RegionKey =>
+    inferRegionFromCustomer(customer, customerRegionMap);
 
   const processExcelFile = useCallback(async (file: File) => {
     showToast("⏳ 正在解析 Excel…");
@@ -286,7 +285,13 @@ export default function DashboardPage() {
       const formData = new FormData();
       formData.append("file", file);
 
-      const res = await fetch("/api/parse-excel", { method: "POST", body: formData });
+      // 帶 Firebase ID token 供 API 驗證身份
+      const idToken = await user?.getIdToken?.() ?? "";
+      const res = await fetch("/api/parse-excel", {
+        method: "POST",
+        body: formData,
+        headers: idToken ? { Authorization: `Bearer ${idToken}` } : {},
+      });
       const json = await res.json();
 
       if (!res.ok) {
@@ -681,27 +686,35 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* TOAST */}
-        {toast && (
-          <div
-            style={{
-              position: "fixed",
-              bottom: 80,
-              left: "50%",
-              transform: "translateX(-50%)",
-              zIndex: 9998,
-              background: C.panelHigh,
-              border: `1px solid ${C.accent}`,
-              color: C.accent,
-              padding: "12px 20px",
-              borderRadius: 4,
-              fontWeight: 500,
-              boxShadow: `0 4px 12px rgba(129,140,248,0.2)`,
-            }}
-          >
-            {toast}
-          </div>
-        )}
+        {/* TOAST — 顏色依前綴自動決定：✅綠 ⚠️黃 ❌紅 其他藍 */}
+        {toast && (() => {
+          const toastColor = toast.startsWith("✅") ? C.success
+            : toast.startsWith("⚠️") ? C.warning
+            : toast.startsWith("❌") ? C.danger
+            : C.accent;
+          return (
+            <div
+              style={{
+                position: "fixed",
+                bottom: 80,
+                left: "50%",
+                transform: "translateX(-50%)",
+                zIndex: 9998,
+                background: C.panelHigh,
+                border: `1px solid ${toastColor}`,
+                color: toastColor,
+                padding: "12px 20px",
+                borderRadius: 4,
+                fontWeight: 500,
+                boxShadow: `0 4px 12px ${toastColor}33`,
+                maxWidth: "80vw",
+                textAlign: "center",
+              }}
+            >
+              {toast}
+            </div>
+          );
+        })()}
 
         {/* MAIN CONTENT */}
         <div style={{ flex: 1, overflow: "auto", minHeight: 0 }}>

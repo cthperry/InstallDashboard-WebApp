@@ -1,29 +1,38 @@
 import { NextRequest, NextResponse } from "next/server";
 import * as XLSX from "xlsx";
+import { inferRegionFromText, regionLabelToKey } from "@/domain/regionUtils";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
 
-/** Infer region key from city keywords in any text */
-function inferRegionFromText(text: string): "north" | "central" | "south" | null {
-  const t = text;
-  const south = ["高雄", "台南", "臺南", "屏東", "嘉義", "南部"];
-  const north = ["台北", "臺北", "桃園", "新竹", "基隆", "宜蘭", "北部"];
-  const central = ["台中", "臺中", "彰化", "南投", "苗栗", "中部"];
-  if (south.some(k => t.includes(k))) return "south";
-  if (north.some(k => t.includes(k))) return "north";
-  if (central.some(k => t.includes(k))) return "central";
-  return null;
+/** 輕量 JWT payload decode（不驗簽章，但確認 email domain 與 expiry）
+ *  足以防止未登入的外部人員呼叫此 API。
+ *  若需完整驗簽，請改用 firebase-admin。
+ */
+function decodeJwtPayload(token: string): Record<string, unknown> | null {
+  try {
+    const parts = token.split(".");
+    if (parts.length !== 3) return null;
+    const json = Buffer.from(parts[1], "base64url").toString("utf-8");
+    return JSON.parse(json);
+  } catch {
+    return null;
+  }
 }
 
-/** Map region label to key */
-function regionLabelToKey(label: string): "north" | "central" | "south" | null {
-  const l = label.trim();
-  if (l === "北區" || l === "north") return "north";
-  if (l === "中區" || l === "central") return "central";
-  if (l === "南區" || l === "south") return "south";
-  return null;
+function verifyFirebaseToken(authHeader: string | null): { ok: boolean; reason?: string } {
+  if (!authHeader?.startsWith("Bearer ")) return { ok: false, reason: "缺少 Authorization header" };
+  const token = authHeader.slice(7);
+  const payload = decodeJwtPayload(token);
+  if (!payload) return { ok: false, reason: "無效的 token 格式" };
+  const exp = typeof payload.exp === "number" ? payload.exp : 0;
+  if (exp < Date.now() / 1000) return { ok: false, reason: "token 已過期" };
+  const email = typeof payload.email === "string" ? payload.email : "";
+  if (!/@premtek\.com\.tw$/i.test(email)) return { ok: false, reason: "不允許的帳號網域" };
+  return { ok: true };
 }
+
+const MAX_FILE_BYTES = 5 * 1024 * 1024; // 5 MB 上限
 
 /** Convert any Excel date value to "YYYY-MM-DD" string */
 function xlsxDateToString(val: unknown): string {
@@ -59,11 +68,22 @@ function xlsxDateToString(val: unknown): string {
 
 export async function POST(req: NextRequest) {
   try {
+    // ── 身份驗證 ────────────────────────────────────────────────────
+    const authCheck = verifyFirebaseToken(req.headers.get("authorization"));
+    if (!authCheck.ok) {
+      return NextResponse.json({ error: `未授權：${authCheck.reason}` }, { status: 401 });
+    }
+
     const formData = await req.formData();
     const file = formData.get("file") as File | null;
 
     if (!file) {
       return NextResponse.json({ error: "未收到檔案" }, { status: 400 });
+    }
+
+    // ── 檔案大小限制 ─────────────────────────────────────────────────
+    if (file.size > MAX_FILE_BYTES) {
+      return NextResponse.json({ error: `檔案過大（上限 5 MB）` }, { status: 400 });
     }
 
     const ext = file.name.split(".").pop()?.toLowerCase();

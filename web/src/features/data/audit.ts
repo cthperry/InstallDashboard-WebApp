@@ -10,7 +10,8 @@ export async function writeAuditLog(action: string, target: string, detail: stri
       target,
       detail,
       actorEmail,
-      createdAt: serverTimestamp()
+      timestamp: Date.now(),          // client ms — WarroomPanel / LogsPanel 用此欄位顯示
+      createdAt: serverTimestamp(),   // server timestamp — listenAuditLogs orderBy 用此欄位
     });
   } catch {
     // 不阻斷主流程

@@ -84,10 +84,10 @@ export function LogsPanel({
             {visibleLogs.map((log, i) => (
               <tr key={i} style={{ borderBottom: `1px solid ${colors.border}` }}>
                 <td style={{ padding: "8px 12px", color: colors.text2 }}>{fmtDate(log.timestamp)}</td>
-                <td style={{ padding: "8px 12px", color: colors.text2 }}>{log.userId || "—"}</td>
+                <td style={{ padding: "8px 12px", color: colors.text2 }}>{log.actorEmail || "—"}</td>
                 <td style={{ padding: "8px 12px", color: colors.text1 }}>{log.action}</td>
                 <td style={{ padding: "8px 12px", color: colors.text3, fontSize: 11 }}>
-                  {log.details ? JSON.stringify(log.details).slice(0, 50) : "—"}
+                  {log.detail || "—"}
                 </td>
               </tr>
             ))}
