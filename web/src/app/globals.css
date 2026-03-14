@@ -107,10 +107,23 @@
   --phase-shipping:   #8b5cf6;
   --phase-arrived:    #0ea5e9;
   --phase-installing: #f59e0b;
-  --phase-hookup:     #ec4899;
   --phase-trial:      #06b6d4;
   --phase-qual:       #84cc16;
   --phase-released:   #76b900;
+
+  /* ── 間距 Token ────────────────── */
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 14px;
+  --space-lg: 20px;
+  --space-xl: 28px;
+
+  /* ── 字級 Token ────────────────── */
+  --text-xs:  10.5px;
+  --text-sm:  12px;
+  --text-md:  13px;
+  --text-lg:  16px;
+  --text-xl:  24px;
 }
 
 /* ─── Base ──────────────────────────────────────────────────────── */

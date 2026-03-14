@@ -20,6 +20,16 @@ export const appVariablesDocSchema = z.object({
   customers: z.array(z.string().min(1).max(80)).default([])
 });
 
+/**
+ * 裝機案驗證 schema
+ * 欄位名稱 → UI 標籤對照：
+ *   estArrival  → 預計出貨
+ *   actArrival  → 實際出貨
+ *   estComplete → 預計完工 (SLA依據)
+ *   actComplete → 實際完工
+ *
+ * 已移除：orderDate（v1.2.0）
+ */
 export const installationSchema = z.object({
   name: z.string().min(1).max(80),
   modelCode: z.string().min(1).max(60),
@@ -28,15 +38,14 @@ export const installationSchema = z.object({
   phase: z.enum(["ordered","shipping","arrived","installing","trial","qual","released"]),
   engineer: z.string().max(40).optional().or(z.literal("")),
 
-  serialNo: z.string().max(60).optional().or(z.literal("")),
+  serialNo: z.string().max(60).optional().or(z.literal("")),   // 備貨出貨後必填
 
   custContact: z.string().max(40).optional().or(z.literal("")),
   custPhone: z.string().max(40).optional().or(z.literal("")),
-  orderDate: z.string().max(20).optional().or(z.literal("")),
-  estArrival: z.string().max(20).optional().or(z.literal("")),
-  actArrival: z.string().max(20).optional().or(z.literal("")),
-  estComplete: z.string().max(20).optional().or(z.literal("")),
-  actComplete: z.string().max(20).optional().or(z.literal("")),
+  estArrival: z.string().max(20).optional().or(z.literal("")),  // 預計出貨
+  actArrival: z.string().max(20).optional().or(z.literal("")),  // 實際出貨
+  estComplete: z.string().max(20).optional().or(z.literal("")), // 預計完工
+  actComplete: z.string().max(20).optional().or(z.literal("")), // 實際完工
 
   notes: z.string().max(400).optional().or(z.literal("")),
   progress: z.number().min(0).max(100),

@@ -10,7 +10,8 @@ import { listenAppVariables, listenMachineModels, saveAppVariables, saveMachineM
 import { listenAuditLogs } from "@/features/data/logs";
 import { writeAuditLog } from "@/features/data/audit";
 import { trackEvent } from "@/features/telemetry/track";
-import type { AppVariablesDoc, CapacityLevel, Equipment, EquipmentMainStatus, Installation, PhaseKey, RegionKey } from "@/domain/types";
+import type { AppVariablesDoc, CapacityLevel, Equipment, EquipmentFormData, EquipmentMainStatus, Installation, InstallFormData, MachineModel, PhaseKey, RegionKey } from "@/domain/types";
+import { INSTALL_FORM_DEFAULTS, EQUIPMENT_FORM_DEFAULTS } from "@/domain/types";
 import { DEFAULT_CUSTOMERS, DEFAULT_ENGINEERS, DEFAULT_MACHINE_MODELS } from "@/domain/constants";
 import { equipmentSchema, installationSchema } from "@/domain/schemas";
 import { inferRegionFromCustomer } from "@/domain/regionUtils";
@@ -52,8 +53,8 @@ export default function DashboardPage() {
   const [installations, setInstallations] = useState<Installation[]>([]);
   const [equipments, setEquipments] = useState<Equipment[]>([]);
   const [appVars, setAppVars] = useState<AppVariablesDoc | null>(null);
-  const [machineModels, setMachineModels] = useState(DEFAULT_MACHINE_MODELS as any);
-  const [auditLogs, setAuditLogs] = useState<any[]>([]);
+  const [machineModels, setMachineModels] = useState<MachineModel[]>(DEFAULT_MACHINE_MODELS as unknown as MachineModel[]);
+  const [auditLogs, setAuditLogs] = useState<Record<string, unknown>[]>([]);
 
   const [clock, setClock] = useState(() =>
     new Date().toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit", second: "2-digit" })
@@ -94,43 +95,14 @@ export default function DashboardPage() {
 
   const [installModal, setInstallModal] = useState(false);
   const [installEditId, setInstallEditId] = useState<string | null>(null);
-  const [installForm, setInstallForm] = useState<any>({
-    name: "",
-    modelCode: "FlexTRAK-S",
-    region: "north",
-    customer: "",
-    phase: "ordered",
-    engineer: "",
-    serialNo: "",
-    custContact: "",
-    custPhone: "",
-    orderDate: "",
-    estArrival: "",
-    actArrival: "",
-    estComplete: "",
-    actComplete: "",
-    notes: "",
-    progress: 0,
-  });
+  const [installForm, setInstallForm] = useState<InstallFormData>({ ...INSTALL_FORM_DEFAULTS });
   const [installSaving, setInstallSaving] = useState(false);
 
   const [eqDrawerOpen, setEqDrawerOpen] = useState(false);
   const [eqSelected, setEqSelected] = useState<Equipment | null>(null);
   const [eqModal, setEqModal] = useState(false);
   const [eqEditId, setEqEditId] = useState<string | null>(null);
-  const [eqForm, setEqForm] = useState<any>({
-    equipmentId: "",
-    region: "north",
-    customer: "",
-    site: "",
-    modelCode: "FlexTRAK-S",
-    serialNo: "",
-    statusMain: "裝機",
-    statusSub: "",
-    owner: "",
-    milestones: {},
-    capacity: { utilization: 0, uph: 0, targetUph: 0, level: "綠", trend7d: [0, 0, 0, 0, 0, 0, 0] },
-  });
+  const [eqForm, setEqForm] = useState<EquipmentFormData>({ ...EQUIPMENT_FORM_DEFAULTS });
 
   // Clock
   useEffect(() => {
@@ -173,7 +145,7 @@ export default function DashboardPage() {
   useEffect(() => {
     const unsubs = [
       listenAppVariables(doc => setAppVars(doc)),
-      listenMachineModels(doc => setMachineModels(doc?.models?.length ? doc.models : (DEFAULT_MACHINE_MODELS as any))),
+      listenMachineModels(doc => setMachineModels(doc?.models?.length ? doc.models : DEFAULT_MACHINE_MODELS as unknown as MachineModel[])),
       listenInstallations(rows => setInstallations(rows), e => console.error(e)),
       listenEquipments(rows => setEquipments(rows), e => console.error(e)),
       listenAuditLogs(rows => setAuditLogs(rows)),
@@ -246,7 +218,7 @@ export default function DashboardPage() {
   }, [customers, customerRegionMap, installForm.region]);
 
   const visibleLogs = useMemo(() => {
-    return auditLogs.filter(log => !logsClearedAt || (log.timestamp && log.timestamp > logsClearedAt));
+    return auditLogs.filter(log => !logsClearedAt || (typeof log.timestamp === "number" && log.timestamp > logsClearedAt));
   }, [auditLogs, logsClearedAt]);
 
   // cleanup on unmount
@@ -362,29 +334,26 @@ export default function DashboardPage() {
 
   const openAddInstall = useCallback(() => {
     setInstallEditId(null);
-    setInstallForm({
-      name: "",
-      modelCode: "FlexTRAK-S",
-      region: "north",
-      customer: "",
-      phase: "ordered",
-      engineer: "",
-      custContact: "",
-      custPhone: "",
-      orderDate: "",
-      estArrival: "",
-      actArrival: "",
-      estComplete: "",
-      actComplete: "",
-      notes: "",
-      progress: 0,
-    });
+    setInstallForm({ ...INSTALL_FORM_DEFAULTS });
     setInstallModal(true);
   }, []);
 
   const openEditInstall = useCallback((r: Installation) => {
     setInstallEditId(r.id);
-    setInstallForm({ ...r });
+    const { id, createdAt, updatedAt, orderDate, ...formFields } = r;
+    setInstallForm({
+      ...INSTALL_FORM_DEFAULTS,
+      ...formFields,
+      engineer: formFields.engineer ?? "",
+      serialNo: formFields.serialNo ?? "",
+      custContact: formFields.custContact ?? "",
+      custPhone: formFields.custPhone ?? "",
+      estArrival: formFields.estArrival ?? "",
+      actArrival: formFields.actArrival ?? "",
+      estComplete: formFields.estComplete ?? "",
+      actComplete: formFields.actComplete ?? "",
+      notes: formFields.notes ?? "",
+    });
     setInstallModal(true);
   }, []);
 
@@ -508,11 +477,11 @@ export default function DashboardPage() {
     const code = settingModelCode.trim();
     const displayName = settingModelName.trim();
     if (!code || !displayName) return;
-    if ((machineModels as any[]).some((m: any) => m.code === code)) {
+    if (machineModels.some(m => m.code === code)) {
       showToast("⚠️ 機型代碼已存在");
       return;
     }
-    const newModels = [...(machineModels as any[]), { code, displayName }];
+    const newModels: MachineModel[] = [...machineModels, { code, displayName }];
     await saveMachineModels({ version: "1", models: newModels, updatedAt: Date.now(), updatedBy: user?.email || "" });
     setSettingModelCode("");
     setSettingModelName("");
@@ -522,7 +491,7 @@ export default function DashboardPage() {
   const removeMachineModel = useCallback(
     async (code: string) => {
       if (!confirm(`確認刪除機型「${code}」？`)) return;
-      const newModels = (machineModels as any[]).filter((m: any) => m.code !== code);
+      const newModels = machineModels.filter(m => m.code !== code);
       await saveMachineModels({ version: "1", models: newModels, updatedAt: Date.now(), updatedBy: user?.email || "" });
       showToast("機型已刪除");
     },
@@ -539,19 +508,7 @@ export default function DashboardPage() {
 
   const openAddEq = useCallback(() => {
     setEqEditId(null);
-    setEqForm({
-      equipmentId: "",
-      region: "north",
-      customer: "",
-      site: "",
-      modelCode: "FlexTRAK-S",
-      serialNo: "",
-      statusMain: "裝機",
-      statusSub: "",
-      owner: "",
-      milestones: {},
-      capacity: { utilization: 0, uph: 0, targetUph: 0, level: "綠", trend7d: [0, 0, 0, 0, 0, 0, 0] },
-    });
+    setEqForm({ ...EQUIPMENT_FORM_DEFAULTS });
     setEqModal(true);
   }, []);
 
@@ -559,7 +516,8 @@ export default function DashboardPage() {
     setEqEditId(r.id);
     // 舊資料的 blocking 可能是 boolean false，需清理為 undefined
     const blocking = r.blocking && typeof r.blocking === "object" ? r.blocking : undefined;
-    setEqForm({ ...r, blocking });
+    const { id, createdAt, updatedAt, ...formFields } = r;
+    setEqForm({ ...EQUIPMENT_FORM_DEFAULTS, ...formFields, blocking });
     setEqDrawerOpen(false);
     setEqModal(true);
   }, []);
@@ -575,18 +533,18 @@ export default function DashboardPage() {
         showToast(`⚠️ 請填寫：${eqErrors.join("、")}`);
         return;
       }
-      const safedEqForm = {
+      const safedEqForm: Omit<Equipment, "id"> = {
         ...eqForm,
         statusSub: eqForm.statusSub || "",
         blocking: (eqForm.blocking && typeof eqForm.blocking === "object") ? eqForm.blocking : undefined,
-      } as Omit<Equipment, "id">;
-      const parsed = equipmentSchema.parse(safedEqForm as Omit<Equipment, "id">);
+      };
+      const parsed = equipmentSchema.parse(safedEqForm) as Omit<Equipment, "id">;
       if (eqEditId) {
         await updateEquipment(eqEditId, parsed);
         writeAuditLog("UPDATE_EQUIPMENT", eqEditId, parsed.equipmentId || "", user?.email || "");
         showToast("已更新");
       } else {
-        await createEquipment(parsed as any);
+        await createEquipment(parsed);
         writeAuditLog("CREATE_EQUIPMENT", "", parsed.equipmentId || "", user?.email || "");
         showToast("已新增");
       }

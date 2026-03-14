@@ -9,6 +9,12 @@ export type PhaseKey =
   | "qual"
   | "released";
 
+/**
+ * Firestore 中舊資料可能包含已移除的階段（如 "hookup"），
+ * 讀取時用此寬鬆型別接收，再在 UI 層映射至有效 PhaseKey。
+ */
+export type PhaseKeyLegacy = PhaseKey | "hookup";
+
 export type Installation = {
   id: string;
   name: string;
@@ -22,20 +28,92 @@ export type Installation = {
 
   serialNo?: string;   // 機器序號：備貨出貨後必填，訂單確認階段選填
 
+  /** @deprecated 已於 v1.2.0 移除表單欄位，保留向後相容讀取 */
   orderDate?: string;
-  estArrival?: string;
-  actArrival?: string;
+  estArrival?: string;  // UI 標籤「預計出貨」
+  actArrival?: string;  // UI 標籤「實際出貨」
   estComplete?: string;
   actComplete?: string;
 
   notes?: string;
   progress: number;
 
-  /** 各階段 checklist 完成狀態，key = "${phaseKey}_${index}" */
+  /** 各階段 checklist 完成狀態，key = "${phaseKey}_${checkItemSlug}" */
   checklist?: Record<string, boolean>;
 
   createdAt?: number;
   updatedAt?: number;
+};
+
+// ── 表單專用型別（不含 id / timestamps） ─────────────────────────
+/** 裝機案表單資料：提交至 Firestore 前的欄位集合 */
+export type InstallFormData = {
+  name: string;
+  modelCode: string;
+  region: RegionKey;
+  customer: string;
+  phase: PhaseKey;
+  engineer: string;
+  serialNo: string;
+  custContact: string;
+  custPhone: string;
+  estArrival: string;
+  actArrival: string;
+  estComplete: string;
+  actComplete: string;
+  notes: string;
+  progress: number;
+  checklist?: Record<string, boolean>;
+};
+
+/** 裝機案表單初始值 */
+export const INSTALL_FORM_DEFAULTS: InstallFormData = {
+  name: "",
+  modelCode: "FlexTRAK-S",
+  region: "north",
+  customer: "",
+  phase: "ordered",
+  engineer: "",
+  serialNo: "",
+  custContact: "",
+  custPhone: "",
+  estArrival: "",
+  actArrival: "",
+  estComplete: "",
+  actComplete: "",
+  notes: "",
+  progress: 0,
+};
+
+/** 設備表單資料 */
+export type EquipmentFormData = {
+  equipmentId: string;
+  region: RegionKey;
+  customer: string;
+  site: string;
+  modelCode: string;
+  serialNo: string;
+  statusMain: EquipmentMainStatus;
+  statusSub: string;
+  owner: string;
+  milestones: Equipment["milestones"];
+  blocking?: Equipment["blocking"];
+  capacity: Equipment["capacity"];
+};
+
+/** 設備表單初始值 */
+export const EQUIPMENT_FORM_DEFAULTS: EquipmentFormData = {
+  equipmentId: "",
+  region: "north",
+  customer: "",
+  site: "",
+  modelCode: "FlexTRAK-S",
+  serialNo: "",
+  statusMain: "裝機",
+  statusSub: "",
+  owner: "",
+  milestones: {},
+  capacity: { utilization: 0, uph: 0, targetUph: 0, level: "綠", trend7d: [0, 0, 0, 0, 0, 0, 0] },
 };
 
 export type UserProfile = {

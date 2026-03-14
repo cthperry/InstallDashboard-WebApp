@@ -1,7 +1,8 @@
 "use client";
 
 import { PHASES, PHASE_CHECKLISTS, REGIONS } from "@/domain/constants";
-import type { Installation, RegionKey } from "@/domain/types";
+import { getCheckValue, setCheckValue } from "@/domain/checklistUtils";
+import type { Installation, InstallFormData, MachineModel, RegionKey } from "@/domain/types";
 import { Modal } from "@/features/ui/Modal";
 import { C } from "../utils";
 
@@ -10,12 +11,12 @@ export type InstallModalProps = {
   open: boolean;
   onClose: () => void;
   installEditId: string | null;
-  installForm: any;
-  setInstallForm: (form: any) => void;
+  installForm: InstallFormData;
+  setInstallForm: (form: InstallFormData) => void;
   installSaving: boolean;
   onSave: () => void;
   onDelete: () => void;
-  machineModels: any[];
+  machineModels: MachineModel[];
   engineers: string[];
   formCustomers: string[];
   installations: Installation[];
@@ -71,7 +72,7 @@ export function InstallModal({
             onChange={e => setInstallForm({ ...installForm, modelCode: e.target.value })}
             className="input"
           >
-            {machineModels?.map((m: any) => (
+            {machineModels.map(m => (
               <option key={m.code} value={m.code}>
                 {m.displayName || m.code}
               </option>
@@ -96,7 +97,7 @@ export function InstallModal({
           </label>
           <select
             value={installForm.region}
-            onChange={e => setInstallForm({ ...installForm, region: e.target.value })}
+            onChange={e => setInstallForm({ ...installForm, region: e.target.value as RegionKey })}
             className="input"
           >
             {Object.keys(REGIONS).map(key => {
@@ -149,7 +150,7 @@ export function InstallModal({
           </label>
           <select
             value={installForm.phase}
-            onChange={e => setInstallForm({ ...installForm, phase: e.target.value })}
+            onChange={e => setInstallForm({ ...installForm, phase: e.target.value as import("@/domain/types").PhaseKey })}
             className="input"
           >
             {PHASES.map(p => (
@@ -278,14 +279,11 @@ export function InstallModal({
               >
                 <input
                   type="checkbox"
-                  checked={installForm.checklist?.[`${installForm.phase}_${idx}`] || false}
+                  checked={getCheckValue(installForm.checklist, installForm.phase, idx, item)}
                   onChange={e =>
                     setInstallForm({
                       ...installForm,
-                      checklist: {
-                        ...installForm.checklist,
-                        [`${installForm.phase}_${idx}`]: e.target.checked,
-                      },
+                      checklist: setCheckValue(installForm.checklist, installForm.phase, idx, item, e.target.checked),
                     })
                   }
                   style={{ cursor: "pointer", accentColor: C.accent }}

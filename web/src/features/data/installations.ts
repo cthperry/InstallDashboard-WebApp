@@ -3,14 +3,16 @@
 import { collection, addDoc, deleteDoc, doc, onSnapshot, orderBy, query, updateDoc, serverTimestamp } from "firebase/firestore";
 import { db } from "@/lib/firebase/client";
 import type { Installation } from "@/domain/types";
+import { normalizeInstallations } from "@/domain/migrations";
 
 const COL = "installations";
 
 export function listenInstallations(onData: (rows: Installation[]) => void, onError?: (e: unknown) => void) {
   const q = query(collection(db, COL), orderBy("updatedAt", "desc"));
   return onSnapshot(q, (snap) => {
-    const rows: Installation[] = snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Installation, "id">) }));
-    onData(rows);
+    const raw: Installation[] = snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Installation, "id">) }));
+    // 自動修正舊版資料（如 hookup → installing）
+    onData(normalizeInstallations(raw));
   }, (e) => onError?.(e));
 }
 
