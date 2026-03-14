@@ -28,6 +28,8 @@ export const installationSchema = z.object({
   phase: z.enum(["ordered","shipping","arrived","installing","hookup","trial","qual","released"]),
   engineer: z.string().max(40).optional().or(z.literal("")),
 
+  serialNo: z.string().max(60).optional().or(z.literal("")),
+
   custContact: z.string().max(40).optional().or(z.literal("")),
   custPhone: z.string().max(40).optional().or(z.literal("")),
   orderDate: z.string().max(20).optional().or(z.literal("")),

@@ -101,6 +101,7 @@ export default function DashboardPage() {
     customer: "",
     phase: "ordered",
     engineer: "",
+    serialNo: "",
     custContact: "",
     custPhone: "",
     orderDate: "",
@@ -396,6 +397,8 @@ export default function DashboardPage() {
       if (!installForm.customer)                  errors.push("客戶");
       if (!installForm.modelCode)                 errors.push("機型");
       if (isInstalling && !installForm.engineer)  errors.push("工程師（安裝中以後必填）");
+      const needsSerial = installForm.phase !== "ordered";
+      if (needsSerial && !installForm.serialNo?.trim()) errors.push("機器序號（備貨出貨後必填）");
       if (errors.length > 0) {
         showToast(`⚠️ 請填寫：${errors.join("、")}`);
         return;

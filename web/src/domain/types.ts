@@ -21,6 +21,8 @@ export type Installation = {
   custContact?: string;
   custPhone?: string;
 
+  serialNo?: string;   // 機器序號：備貨出貨後必填，訂單確認階段選填
+
   orderDate?: string;
   estArrival?: string;
   actArrival?: string;

@@ -78,6 +78,18 @@ export function InstallModal({
             ))}
           </select>
         </div>
+        <div style={{ gridColumn: "1 / -1" }}>
+          <label style={{ display: "block", fontSize: 11, color: colors.text3, marginBottom: 3 }}>
+            機器序號 (S/N){installForm.phase !== "ordered" ? <span style={{ color: colors.danger }}> *</span> : <span style={{ color: colors.text3 }}> （備貨出貨後必填）</span>}
+          </label>
+          <input
+            type="text"
+            placeholder="例：SN-20260101-001"
+            value={installForm.serialNo ?? ""}
+            onChange={e => setInstallForm({ ...installForm, serialNo: e.target.value })}
+            className="input"
+          />
+        </div>
         <div>
           <label style={{ display: "block", fontSize: 11, color: colors.text3, marginBottom: 3 }}>
             地區
