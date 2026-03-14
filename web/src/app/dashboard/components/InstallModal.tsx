@@ -177,18 +177,7 @@ export function InstallModal({
       <div style={{ marginBottom: 6, fontSize: 11, fontWeight: 700, color: colors.accent, letterSpacing: "0.06em", textTransform: "uppercase" }}>
         日期
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 14 }}>
-        <div>
-          <label style={{ display: "block", fontSize: 11, color: colors.text3, marginBottom: 3 }}>
-            訂單日期
-          </label>
-          <input
-            type="date"
-            value={installForm.orderDate}
-            onChange={e => setInstallForm({ ...installForm, orderDate: e.target.value })}
-            className="input"
-          />
-        </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 14 }}>
         <div>
           <label style={{ display: "block", fontSize: 11, color: colors.text3, marginBottom: 3 }}>
             預計出貨
