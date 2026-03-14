@@ -287,7 +287,7 @@ export function InstallModal({
                       },
                     })
                   }
-                  style={{ cursor: "pointer", accentColor: "#60a5fa" }}
+                  style={{ cursor: "pointer", accentColor: C.accent }}
                 />
                 {item}
               </label>
@@ -311,7 +311,7 @@ export function InstallModal({
           style={{
             background: colors.accent,
             border: "none",
-            color: "#fff",
+            color: "#0d1200",
             padding: "6px 12px",
             borderRadius: 4,
             cursor: "pointer",

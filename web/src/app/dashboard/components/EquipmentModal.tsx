@@ -235,7 +235,7 @@ export function EquipmentModal({
                     : { reasonCode: "", detail: "", owner: "", eta: "" })
                 : undefined,
             })}
-            style={{ cursor: "pointer", accentColor: "#f43f5e", width: 16, height: 16 }}
+            style={{ cursor: "pointer", accentColor: colors.danger, width: 16, height: 16 }}
           />
           <span style={{ fontSize: 12, color: eqForm.blocking ? colors.danger : colors.text1, fontWeight: eqForm.blocking ? 600 : 400 }}>
             🚧 設備已阻塞
@@ -440,7 +440,7 @@ export function EquipmentModal({
           style={{
             background: colors.accent,
             border: "none",
-            color: "#fff",
+            color: "#0d1200",
             padding: "6px 12px",
             borderRadius: 4,
             cursor: "pointer",

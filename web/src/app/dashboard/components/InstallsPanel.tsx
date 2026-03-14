@@ -127,7 +127,7 @@ export function InstallsPanel({
             pointerEvents: "none",
           }}
         >
-          <div style={{ textAlign: "center", color: "#10b981" }}>
+          <div style={{ textAlign: "center", color: colors.success }}>
             <div style={{ fontSize: 40 }}>📊</div>
             <div style={{ fontSize: 16, fontWeight: 700, marginTop: 8 }}>放開以匯入 Excel</div>
           </div>
@@ -150,7 +150,7 @@ export function InstallsPanel({
             style={{
               background: colors.accent,
               border: "none",
-              color: "#fff",
+              color: "#0d1200",
               padding: "6px 12px",
               borderRadius: 4,
               cursor: "pointer",
@@ -189,9 +189,9 @@ export function InstallsPanel({
             type="button"
             onClick={() => fileInputRef.current?.click()}
             style={{
-              background: "rgba(16,185,129,0.15)",
-              border: "1px solid #10b981",
-              color: "#10b981",
+              background: colors.successDim,
+              border: `1px solid ${colors.success}`,
+              color: colors.success,
               padding: "6px 12px",
               borderRadius: 4,
               cursor: "pointer",
@@ -484,7 +484,7 @@ export function InstallsPanel({
                     style={{
                       background: colors.accent,
                       border: "none",
-                      color: "#fff",
+                      color: "#0d1200",
                       padding: "4px 8px",
                       borderRadius: 3,
                       cursor: "pointer",

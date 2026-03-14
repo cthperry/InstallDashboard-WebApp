@@ -846,7 +846,7 @@ export default function DashboardPage() {
               style={{
                 background: view === n.key ? C.accent : "transparent",
                 border: `1px solid ${view === n.key ? C.accent : "transparent"}`,
-                color: view === n.key ? "#fff" : C.text2,
+                color: view === n.key ? "#0d1200" : C.text2,
                 padding: "6px 12px",
                 borderRadius: 4,
                 cursor: "pointer",

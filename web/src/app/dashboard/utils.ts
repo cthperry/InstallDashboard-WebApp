@@ -2,24 +2,24 @@ import type { Installation, RegionKey, PhaseKey } from "@/domain/types";
 import { PHASES, REGIONS } from "@/domain/constants";
 
 const C = {
-  bg: "#1e2433",           // 石板藍灰底
-  panel: "#252d3d",        // 主面板
-  panelHigh: "#2d3750",    // 卡片/hover
-  border: "rgba(255,255,255,0.08)",
-  borderMed: "rgba(255,255,255,0.15)",
-  accent: "#60a5fa",       // 天藍主色
-  accentDim: "rgba(96,165,250,0.15)",
-  success: "#34d399",      // 翠綠成功
-  successDim: "rgba(52,211,153,0.12)",
+  bg: "#15191f",           // 深灰底（中性不帶藍調）
+  panel: "#1d2330",        // 主面板
+  panelHigh: "#26303f",    // 卡片/hover
+  border: "rgba(118,185,0,0.12)",
+  borderMed: "rgba(118,185,0,0.28)",
+  accent: "#76b900",       // NVIDIA 綠主色
+  accentDim: "rgba(118,185,0,0.15)",
+  success: "#4ade80",      // 翠綠成功
+  successDim: "rgba(74,222,128,0.12)",
   warning: "#fbbf24",      // 琥珀警告
   warningDim: "rgba(251,191,36,0.12)",
   danger: "#f43f5e",       // 紅色危險
   dangerDim: "rgba(244,63,94,0.12)",
   info: "#38bdf8",         // 天藍資訊
   infoDim: "rgba(56,189,248,0.12)",
-  text1: "#e2e8f0",        // 主文字
-  text2: "#94a3b8",        // 輔助文字
-  text3: "#4b6484",        // 三級文字
+  text1: "#edf2f7",        // 主文字
+  text2: "#8fa3b8",        // 輔助文字
+  text3: "#4e6480",        // 三級文字
 } as const;
 
 export function todayYYYYMMDD(): string {

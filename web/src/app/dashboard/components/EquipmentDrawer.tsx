@@ -76,7 +76,7 @@ export function EquipmentDrawer({
           style={{
             background: colors.accent,
             border: "none",
-            color: "#fff",
+            color: "#0d1200",
             padding: "6px 12px",
             borderRadius: 4,
             cursor: "pointer",
