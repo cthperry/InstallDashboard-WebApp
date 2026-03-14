@@ -390,7 +390,7 @@ export default function DashboardPage() {
 
   const saveInstall = useCallback(async () => {
     try {
-      const installPhases = ["installing", "hookup", "trial", "qual", "released"];
+      const installPhases = ["installing", "trial", "qual", "released"];
       const isInstalling  = installPhases.includes(installForm.phase);
       const errors: string[] = [];
       if (!installForm.name?.trim())              errors.push("案件名稱");

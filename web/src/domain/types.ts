@@ -5,7 +5,6 @@ export type PhaseKey =
   | "shipping"
   | "arrived"
   | "installing"
-  | "hookup"
   | "trial"
   | "qual"
   | "released";

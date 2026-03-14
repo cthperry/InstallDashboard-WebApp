@@ -25,7 +25,7 @@ export const installationSchema = z.object({
   modelCode: z.string().min(1).max(60),
   region: z.enum(["north", "central", "south"]),
   customer: z.string().min(1).max(80),
-  phase: z.enum(["ordered","shipping","arrived","installing","hookup","trial","qual","released"]),
+  phase: z.enum(["ordered","shipping","arrived","installing","trial","qual","released"]),
   engineer: z.string().max(40).optional().or(z.literal("")),
 
   serialNo: z.string().max(60).optional().or(z.literal("")),
