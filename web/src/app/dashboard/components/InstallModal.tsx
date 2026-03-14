@@ -202,7 +202,7 @@ export function InstallModal({
         </div>
         <div>
           <label style={{ display: "block", fontSize: 11, color: colors.text3, marginBottom: 3 }}>
-            實際到貨
+            實際出貨
           </label>
           <input
             type="date"
