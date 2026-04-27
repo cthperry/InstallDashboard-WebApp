@@ -1,0 +1,11 @@
+const fs = require('fs');
+const path = require('path');
+const root = process.cwd();
+const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
+const version = String(pkg.version || '').trim();
+if (!version) throw new Error('package.json version 不可空白');
+fs.mkdirSync(path.join(root, 'src', 'generated'), { recursive: true });
+fs.writeFileSync(path.join(root, 'src', 'generated', 'appBuild.ts'), `// 此檔案由 scripts/sync-app-version.cjs 自動產生，請勿手動編輯。\nexport const APP_VERSION = ${JSON.stringify(version)} as const;\n`, 'utf8');
+fs.writeFileSync(path.join(root, 'public', 'version.json'), `${JSON.stringify({ version }, null, 2)}\n`, 'utf8');
+const swTemplate = fs.readFileSync(path.join(root, 'scripts', 'sw.template.js'), 'utf8');
+fs.writeFileSync(path.join(root, 'public', 'sw.js'), `${swTemplate.replaceAll('__APP_VERSION__', version)}\n`, 'utf8');

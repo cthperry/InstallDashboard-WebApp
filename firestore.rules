@@ -1,0 +1,125 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isSignedIn()
+          && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+          && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    function isRegion(value) {
+      return value == 'north' || value == 'central' || value == 'south';
+    }
+
+    function isPhase(value) {
+      return value == 'ordered' || value == 'shipping' || value == 'arrived' || value == 'installing' || value == 'trial' || value == 'qual' || value == 'released';
+    }
+
+    function isEquipmentStatus(value) {
+      return value == '裝機' || value == '試產' || value == '正式生產中';
+    }
+
+    function isOptionalShortString(value, maxLen) {
+      return value == null || (value is string && value.size() <= maxLen);
+    }
+
+    function isNumberLike(value) {
+      return value is int || value is float;
+    }
+
+    function isValidInstallation(data) {
+      return data.name is string
+        && data.name.size() <= 80
+        && data.modelCode is string
+        && data.modelCode.size() > 0
+        && data.modelCode.size() <= 60
+        && isRegion(data.region)
+        && data.customer is string
+        && data.customer.size() > 0
+        && data.customer.size() <= 80
+        && isPhase(data.phase)
+        && data.engineer is string
+        && data.engineer.size() <= 40
+        && isOptionalShortString(data.custContact, 40)
+        && isOptionalShortString(data.custPhone, 40)
+        && isOptionalShortString(data.orderDate, 20)
+        && isOptionalShortString(data.estArrival, 20)
+        && isOptionalShortString(data.estComplete, 20)
+        && isOptionalShortString(data.actArrival, 20)
+        && isOptionalShortString(data.actComplete, 20)
+        && isOptionalShortString(data.notes, 400)
+        && isNumberLike(data.progress)
+        && data.progress >= 0
+        && data.progress <= 100
+        && (data.checklist == null || data.checklist is map);
+    }
+
+    function isValidEquipment(data) {
+      return data.equipmentId is string
+        && data.equipmentId.size() > 0
+        && data.equipmentId.size() <= 40
+        && isRegion(data.region)
+        && data.customer is string
+        && data.customer.size() > 0
+        && data.customer.size() <= 80
+        && isOptionalShortString(data.site, 80)
+        && data.modelCode is string
+        && data.modelCode.size() > 0
+        && data.modelCode.size() <= 60
+        && data.serialNo is string
+        && data.serialNo.size() > 0
+        && data.serialNo.size() <= 60
+        && isEquipmentStatus(data.statusMain)
+        && isOptionalShortString(data.statusSub, 80)
+        && isOptionalShortString(data.owner, 60)
+        && data.milestones is map
+        && data.capacity is map;
+    }
+
+    match /installations/{docId} {
+      allow read: if isSignedIn();
+      allow create, update: if isSignedIn() && isValidInstallation(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    match /equipments/{docId} {
+      allow read: if isSignedIn();
+      allow create, update: if isSignedIn() && isValidEquipment(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    match /settings/{settingId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    match /auditLogs/{logId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow delete: if isAdmin();
+      allow update: if false;
+    }
+
+    match /events/{eventId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow delete: if isAdmin();
+      allow update: if false;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
