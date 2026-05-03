@@ -91,7 +91,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             <NavLink href="/dashboard/warroom"   label="營運中樞"   active={isWarRoom} tone="live" />
             <NavLink href="/dashboard/install"   label="任務流"     active={pathname?.startsWith("/dashboard/install")  ?? false} />
             <NavLink href="/dashboard/equipment" label="設備台帳"   active={pathname?.startsWith("/dashboard/equipment") ?? false} />
-            <NavLink href="/dashboard/insights"  label="洞察紀錄"   active={pathname?.startsWith("/dashboard/insights") ?? false} />
+            <NavLink href="/dashboard/insights"  label="洞察與紀錄" active={pathname?.startsWith("/dashboard/insights") ?? false} />
             <NavLink href="/dashboard/system"    label="系統版本"   active={isSystem} tone="system" />
           </div>
         </div>

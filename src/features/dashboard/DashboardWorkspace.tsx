@@ -54,7 +54,6 @@ import { formatUphValue } from "@/domain/capacity";
 
 import { Modal } from "@/features/ui/Modal";
 import { DateInput } from "@/features/ui/DateInput";
-import { StatCard } from "@/features/ui/StatCard";
 import { Badge } from "@/features/ui/Badge";
 import { Drawer } from "@/features/ui/Drawer";
 import { MiniTrend } from "@/features/ui/MiniTrend";
@@ -1483,24 +1482,6 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
     .slice(0, 5)
     .map(({ priority: _priority, ...item }) => item);
 
-  const heroMetrics = section === "install"
-    ? [
-        { label: "Action queue", value: installActionQueue.length, meta: "逾期、近七天、未指派" },
-        { label: "WIP", value: installStats.wip, meta: "尚未 released" },
-        { label: "Release ratio", value: installStats.total ? `${Math.round((installStats.released / installStats.total) * 100)}%` : "0%", meta: "目前篩選完成率" },
-      ]
-    : section === "equipment"
-      ? [
-          { label: "Action queue", value: equipmentActionQueue.length, meta: "阻塞、紅燈、高稼動" },
-          { label: "Blocked", value: equipStats.blocked, meta: "需要 Owner 排除" },
-          { label: "Red capacity", value: equipStats.byCap["紅"], meta: "容量風險燈號" },
-        ]
-      : [
-          { label: "Audit logs", value: auditLogs.length, meta: "操作留痕" },
-          { label: "Events", value: events.length, meta: "系統事件" },
-          { label: "Retention", value: retentionCfg.autoPurgeEnabled ? "Auto" : "Manual", meta: "紀錄保留策略" },
-        ];
-
   // ───────── Render helpers ─────────
   const installCard = (r: Installation) => {
     const phase = PHASE_MAP[r.phase];
@@ -1547,79 +1528,41 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
     );
   };
 
-  const todayLabel = new Intl.DateTimeFormat("zh-TW", {
-    month: "2-digit",
-    day: "2-digit",
-    weekday: "short",
-  }).format(new Date());
-
-  const hero = section === "install"
+  const workspaceIntro = section === "install"
     ? {
-        title: "裝機營運戰情室",
-        desc: "A 方案 Aurora：以淡色玻璃戰情室呈現裝機風險、產能、進度與台帳轉移狀態。",
-        chips: [
-          `${installStats.total} 筆裝機案`,
-          installView === "pipeline" ? "Pipeline 視圖" : installView === "gantt" ? "甘特圖視圖" : installView === "card" ? "卡片視圖" : "表格視圖",
-        ],
-        spotlightLabel: "風險優先",
-        spotlightValue: `${installStats.overdue} 筆逾期`,
-        spotlightHint: "優先處理會阻塞安裝、序號補齊或台帳轉移的案件",
+        eyebrow: "TASK FLOW",
+        title: "任務流",
+        desc: "處理裝機案件的篩選、推進、匯入與任務清單；跨頁 KPI 已集中在營運中樞。",
+        chips: [installView === "pipeline" ? "Pipeline" : installView === "gantt" ? "甘特圖" : installView === "card" ? "卡片" : "表格", "可匯入 / 可推進"],
       }
     : section === "equipment"
       ? {
-          title: "設備營運面板",
-          desc: "聚焦設備狀態、容量與阻塞，快速定位並執行更新。",
-          chips: [
-            `${equipStats.total} 台設備`,
-            `${equipStats.avgUtil}% 平均稼動率`,
-          ],
-          spotlightLabel: "待排除重點",
-          spotlightValue: `${equipStats.blocked} 台阻塞中`,
-          spotlightHint: "阻塞設備會優先影響產能與交付時程",
+          eyebrow: "EQUIPMENT LEDGER",
+          title: "設備台帳",
+          desc: "維護設備狀態、Owner、容量、產品產能與阻塞細節；總覽數字不在此重複呈現。",
+          chips: ["設備維護", "容量 / 阻塞"],
         }
       : {
+          eyebrow: "INSIGHTS / LOGS",
           title: "洞察與紀錄",
-          desc: "聚焦分析與操作軌跡，掌握整體健康度與決策依據。",
-          chips: [
-            insightsTab === "analytics" ? "分析視圖" : "紀錄視圖",
-            isAdmin ? `近 7 天事件 ${events.length}` : "一般使用者模式",
-          ],
-          spotlightLabel: "稽核紀錄",
-          spotlightValue: `${auditLogs.length} 筆`,
-          spotlightHint: "可於「紀錄」分頁查看完整異動與事件細節",
+          desc: "切換分析圖表與操作紀錄，避免和營運中樞重複，只保留決策追溯內容。",
+          chips: [insightsTab === "analytics" ? "分析" : "紀錄", isAdmin ? "Admin view" : "Engineer view"],
         };
 
   const equipSubStatusOptions = EQUIPMENT_SUB_STATUS_OPTIONS[(equipForm.statusMain as EquipmentMainStatus) || "裝機"] ?? [];
 
   return (
       <div className="container dashboardShell auroraDashboardShell" style={{ paddingTop: 14, paddingBottom: 24 }}>
-        <section className="dashboardHero">
-          <div className="heroGrid">
-            <div className="heroLead">
-              <div className="dashboardHeroTitle">{hero.title}</div>
-              <div className="dashboardHeroDesc">{hero.desc}</div>
-              <div className="dashboardHeroMeta">
-                <span className="dashboardHeroPill">{todayLabel}</span>
-                {hero.chips.map((chip) => (
-                  <span key={chip} className="dashboardHeroPill">{chip}</span>
-                ))}
-              </div>
-              <div className="heroCommandGrid">
-                {heroMetrics.map((metric) => (
-                  <div key={metric.label} className="heroCommandMetric">
-                    <span>{metric.label}</span>
-                    <strong>{metric.value}</strong>
-                    <small>{metric.meta}</small>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="heroSummary">
-              <div className="heroSummaryLabel">{hero.spotlightLabel}</div>
-              <div className="heroSummaryValue">{hero.spotlightValue}</div>
-              <div className="heroSummaryHint">{hero.spotlightHint}</div>
-            </div>
+        <section className="workspaceIntro" aria-labelledby={`${section}-workspace-title`}>
+          <div>
+            <div className="workspaceIntroEyebrow">{workspaceIntro.eyebrow}</div>
+            <h1 id={`${section}-workspace-title`}>{workspaceIntro.title}</h1>
+            <p>{workspaceIntro.desc}</p>
+          </div>
+          <div className="workspaceIntroChips" aria-label="目前工作區">
+            {workspaceIntro.chips.map((chip) => (
+              <span key={chip} className="workspaceIntroChip">{chip}</span>
+            ))}
           </div>
         </section>
 
@@ -1632,13 +1575,6 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
         {/* ───────── Section: Installations ───────── */}
         {section === "install" ? (
           <>
-            <div className="gridStats auroraStatsGrid">
-              <StatCard label="總裝機案" value={installStats.total} sub="以目前篩選條件計算" color="#3b82f6" icon="📌" />
-              <StatCard label="進行中" value={installStats.wip} sub="未到正式量產" color="#f59e0b" icon="🔧" />
-              <StatCard label="已量產" value={installStats.released} sub="released" color="#10b981" icon="✅" />
-              <StatCard label="平均進度" value={`${installStats.avgProg}%`} sub="平均" color="#3b82f6" icon="📈" />
-            </div>
-
             <MissionQueuePanel
               title="今日優先處理"
               subtitle={`${installActionQueue.length} 項需要確認`}
@@ -1946,13 +1882,6 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
                 {/* ───────── Section: Equipment ───────── */}
         {section === "equipment" ? (
           <>
-            <div className="gridStats">
-              <StatCard label="設備總數" value={equipStats.total} sub="以目前篩選條件計算" color="#3b82f6" icon="🧩" />
-              <StatCard label="平均稼動率" value={`${equipStats.avgUtil}%`} sub="utilization" color={pickColorByUtil(equipStats.avgUtil)} icon="📈" />
-              <StatCard label="阻塞中" value={equipStats.blocked} sub="有 blocking" color="#ef4444" icon="⛔" />
-              <StatCard label="紅燈" value={equipStats.byCap["紅"]} sub="容量風險" color="#ef4444" icon="🔴" />
-            </div>
-
             <MissionQueuePanel
               title="設備風險佇列"
               subtitle={`${equipmentActionQueue.length} 台需要確認`}
@@ -2167,13 +2096,6 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
         {/* ───────── Section: Insights / Analytics ───────── */}
         {section === "insights" && !insightsCollapsed.analytics && insightsTab === "analytics" ? (
           <>
-            <div className="card" style={{ padding: 14 }}>
-              <div style={{ fontWeight: 900 }}>分析總覽</div>
-              <div style={{ color: "#94a3b8", fontSize: 12, marginTop: 4 }}>
-                裝機進度、區域分佈、工程師負載與交期風險
-              </div>
-            </div>
-
             {filteredInstallations.length === 0 ? (
               <div className="card" style={{ padding: 14, marginTop: 12 }}>
                 <div style={{ color: "#94a3b8", fontSize: 12 }}>
