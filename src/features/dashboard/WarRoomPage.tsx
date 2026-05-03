@@ -452,27 +452,8 @@ export function WarRoomPage() {
 
   return (
     <main className="f66OpsPage">
-      <section className="f66Hero">
-        <div className="f66HeroCopy">
-          <span className="f66Eyebrow">INSTALL OPERATIONS {releaseLabel}</span>
-          <h1>裝機營運中樞</h1>
-          <p>
-            將裝機任務、設備阻塞、產品產能與權限治理整合成每日可執行的指揮面板；主管看風險，工程師看任務，admin 看資料完整度。
-          </p>
-          <div className="f66HeroActions">
-            <Link href="/dashboard/install?view=pipeline" className="f66PrimaryAction">處理任務流</Link>
-            <Link href="/dashboard/equipment" className="f66SecondaryAction">查看設備台帳</Link>
-            <Link href="/dashboard/system" className="f66SecondaryAction">版本與系統</Link>
-          </div>
-        </div>
-        <div className="f66HealthDial" aria-label="營運健康分數">
-          <span>OPS HEALTH</span>
-          <strong>{computed.healthScore}</strong>
-          <p>v{appVersion} · {today}</p>
-        </div>
-      </section>
-
       <section className="f66MetricGrid" aria-label="營運指標">
+        <ControlMetric label="OPS HEALTH" value={computed.healthScore} caption={`v${appVersion} · ${today}`} tone={computed.healthScore < 70 ? "warning" : "good"} />
         <ControlMetric label="WIP 裝機" value={computed.wip} unit="件" caption={`總案量 ${computed.total}，已 release ${computed.released}`} tone="info" />
         <ControlMetric label="逾期警戒" value={computed.overdue.length} unit="件" caption="超過預計安裝完成日" tone={computed.overdue.length > 0 ? "critical" : "good"} />
         <ControlMetric label="本週到期" value={computed.dueSoon.length} unit="件" caption="7 天內需要交付或更新" tone={computed.dueSoon.length > 0 ? "warning" : "good"} />

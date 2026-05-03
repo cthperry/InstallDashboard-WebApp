@@ -1537,44 +1537,10 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
     );
   };
 
-  const workspaceIntro = section === "install"
-    ? {
-        eyebrow: "TASK FLOW",
-        title: "任務流",
-        desc: "處理裝機案件的篩選、推進、匯入與任務清單；跨頁 KPI 已集中在營運中樞。",
-        chips: [installView === "pipeline" ? "Pipeline" : installView === "gantt" ? "甘特圖" : installView === "card" ? "卡片" : "表格", "可匯入 / 可推進"],
-      }
-    : section === "equipment"
-      ? {
-          eyebrow: "EQUIPMENT LEDGER",
-          title: "設備台帳",
-          desc: "維護設備狀態、Owner、容量、產品產能與阻塞細節；總覽數字不在此重複呈現。",
-          chips: ["設備維護", "容量 / 阻塞"],
-        }
-      : {
-          eyebrow: "INSIGHTS / LOGS",
-          title: "洞察與紀錄",
-          desc: "切換分析圖表與操作紀錄，避免和營運中樞重複，只保留決策追溯內容。",
-          chips: [insightsTab === "analytics" ? "分析" : "紀錄", isAdmin ? "Admin view" : "Engineer view"],
-        };
-
   const equipSubStatusOptions = EQUIPMENT_SUB_STATUS_OPTIONS[(equipForm.statusMain as EquipmentMainStatus) || "裝機"] ?? [];
 
   return (
       <div className="container dashboardShell auroraDashboardShell" style={{ paddingTop: 14, paddingBottom: 24 }}>
-        <section className="workspaceIntro" aria-labelledby={`${section}-workspace-title`}>
-          <div>
-            <div className="workspaceIntroEyebrow">{workspaceIntro.eyebrow}</div>
-            <h1 id={`${section}-workspace-title`}>{workspaceIntro.title}</h1>
-            <p>{workspaceIntro.desc}</p>
-          </div>
-          <div className="workspaceIntroChips" aria-label="目前工作區">
-            {workspaceIntro.chips.map((chip) => (
-              <span key={chip} className="workspaceIntroChip">{chip}</span>
-            ))}
-          </div>
-        </section>
-
         {toast ? (
           <div className="card toastBanner" style={{ padding: 10, marginBottom: 12 }}>
             <div style={{ fontSize: 13 }}>{toast}</div>

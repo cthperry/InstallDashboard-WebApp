@@ -328,17 +328,17 @@ body {
   }
   .table tbody tr:nth-child(even) td { background: rgba(124,58,237,0.04); }
   .table tr:hover td { background: rgba(124,58,237,0.10); }
-  .installListTable { min-width: 1440px; table-layout: fixed; }
-  .installListTable col.installListColSerial { width: 270px; }
-  .installListTable col.installListColCustomer { width: 135px; }
-  .installListTable col.installListColRegion { width: 78px; }
-  .installListTable col.installListColModel { width: 138px; }
-  .installListTable col.installListColPhase { width: 138px; }
-  .installListTable col.installListColEngineer { width: 96px; }
-  .installListTable col.installListColProgress { width: 116px; }
-  .installListTable col.installListColDueDate { width: 156px; }
-  .installListTable col.installListColUpdated { width: 122px; }
-  .installListTable col.installListColActions { width: 220px; }
+  .installListTable { min-width: 1320px; table-layout: fixed; }
+  .installListTable col.installListColSerial { width: 155px; }
+  .installListTable col.installListColCustomer { width: 230px; }
+  .installListTable col.installListColRegion { width: 70px; }
+  .installListTable col.installListColModel { width: 120px; }
+  .installListTable col.installListColPhase { width: 125px; }
+  .installListTable col.installListColEngineer { width: 86px; }
+  .installListTable col.installListColProgress { width: 100px; }
+  .installListTable col.installListColDueDate { width: 130px; }
+  .installListTable col.installListColUpdated { width: 110px; }
+  .installListTable col.installListColActions { width: 194px; }
   .installListTable th:nth-child(6),
   .installListTable td.installListEngineer,
   .installListTable th:nth-child(8),
@@ -1915,9 +1915,9 @@ body {
 
 .f66MetricGrid {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
   gap: 12px;
-  margin-top: 14px;
+  margin-top: 0;
 }
 
 .f66Metric,
