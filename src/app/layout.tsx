@@ -4,6 +4,8 @@ import Script from "next/script";
 import { Providers } from "@/app/providers";
 import { APP_VERSION } from "@/config/appVersion";
 
+export const dynamic = "force-dynamic";
+
 export const metadata: Metadata = {
   title: "裝機狀態 Dashboard",
   description: "Premtek 裝機進度追蹤（行動裝置/桌機 WebApp）",
