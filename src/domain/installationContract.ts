@@ -75,7 +75,8 @@ export function getInstallationPhaseGroup(phase: unknown): InstallationPhaseGrou
 }
 
 export function doesInstallationPhaseRequireSerial(phase: unknown): boolean {
-  return getInstallationPhaseGroup(phase) !== "preShip";
+  const normalized = normalizePhase(phase);
+  return normalized !== "ordered" && normalized !== "shipping";
 }
 
 export function doesInstallationPhaseRequireEngineer(phase: unknown): boolean {
@@ -161,7 +162,7 @@ export function getInstallationValidationIssues(
   if (doesInstallationPhaseRequireSerial(input.phase) && !serialNo) {
     issues.push({
       path: ["name"],
-      message: "出貨後階段需填寫機台序號",
+      message: "到廠後階段需填寫機台序號",
     });
   }
 

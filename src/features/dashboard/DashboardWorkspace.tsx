@@ -33,7 +33,8 @@ import {
   PHASE_CHECKLIST
 } from "@/domain/constants";
 import { equipmentSchema, installationSchema } from "@/domain/schemas";
-import { getInstallationDefaultDraft, INSTALLATION_DATE_FIELDS, normalizeInstallationDraft, doesInstallationPhaseRequireEngineer } from "@/domain/installationContract";
+import { getInstallationDefaultDraft, INSTALLATION_DATE_FIELDS, normalizeInstallationDraft, doesInstallationPhaseRequireEngineer, doesInstallationPhaseRequireSerial } from "@/domain/installationContract";
+import { getInstallationModelSerial, getInstallationSerial, getInstallationTaskTitle } from "@/domain/installationDisplay";
 import { buildOwnerListFromUserEmails, dedupeDisplayNames, toDisplayShortName } from "@/domain/personDisplay";
 
 import { useDashboardData } from "@/features/dashboard/hooks/useDashboardData";
@@ -382,13 +383,15 @@ function normalizeOptionList(rows: string[]): string[] {
 }
 
 function getInstallSerial(r: Installation): string {
-  const serial = safeStr((r as any).serialNo || r.name);
-  return serial || "-";
+  return getInstallationSerial(r);
 }
 
 function getInstallModelSerial(r: Installation): string {
-  const model = safeStr(r.modelCode) || "-";
-  return `${model} · ${getInstallSerial(r)}`;
+  return getInstallationModelSerial(r);
+}
+
+function getInstallTaskLabel(r: Installation): string {
+  return getInstallationTaskTitle(r);
 }
 
 function regionLabel(k: RegionKey): string {
@@ -1378,7 +1381,7 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
         const overdueDays = dueInDays == null ? "?" : String(Math.abs(dueInDays));
         return {
           id: `install-overdue-${r.id}`,
-          label: r.name || r.id,
+          label: getInstallTaskLabel(r),
           meta,
           value: `逾期 ${overdueDays} 天`,
           tone: "critical",
@@ -1390,7 +1393,7 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
       if (!toDisplayShortName(r.engineer) && doesInstallationPhaseRequireEngineer(r.phase)) {
         return {
           id: `install-owner-${r.id}`,
-          label: r.name || r.id,
+          label: getInstallTaskLabel(r),
           meta,
           value: "未指派",
           tone: "warning",
@@ -1402,7 +1405,7 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
       if (dueInDays != null && dueInDays >= 0 && dueInDays <= 7) {
         return {
           id: `install-due-${r.id}`,
-          label: r.name || r.id,
+          label: getInstallTaskLabel(r),
           meta,
           value: `${dueInDays} 天內`,
           tone: "info",
@@ -1414,7 +1417,7 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
       if (!r.estComplete && r.phase !== "ordered") {
         return {
           id: `install-date-${r.id}`,
-          label: r.name || r.id,
+          label: getInstallTaskLabel(r),
           meta,
           value: "缺預計日",
           tone: "warning",
@@ -1507,7 +1510,7 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
         <div className="installCaseGlow" aria-hidden style={{ background: `${phase.color}24` }} />
         <div className="installCaseHead">
           <div>
-            <div className="installCaseTitle mono">{r.name}</div>
+            <div className="installCaseTitle mono">{getInstallSerial(r)}</div>
             <div className="installCaseMeta">
               {regionLabel(r.region)} · {r.customer}
             </div>
@@ -1798,7 +1801,7 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
                         const overdue = isOverdueInstall(r, today);
                         return (
                           <tr key={r.id}>
-                            <td style={{ fontWeight: 900 }}>{r.name}</td>
+                            <td style={{ fontWeight: 900 }}>{getInstallSerial(r)}</td>
                             <td>{r.customer}</td>
                             <td><Badge text={REGIONS[r.region].label} color={REGIONS[r.region].color} subtle /></td>
                             <td><Badge text={r.modelCode} color="#3b82f6" subtle /></td>
@@ -1885,7 +1888,7 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
                       {rows.map((r) => (
                         <div key={r.id} className="kanbanCard" onClick={() => openEditInstall(r)} role="button">
                           <div className="kanbanCaseTop">
-                            <div className="mono kanbanCaseName">{r.name}</div>
+                            <div className="mono kanbanCaseName">{getInstallSerial(r)}</div>
                             <div className="kanbanCaseProgress mono">{r.progress ?? 0}%</div>
                           </div>
 
@@ -2578,12 +2581,12 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
           <div className="formGrid">
             <div className="field" ref={(node) => { installFieldRefs.current.name = node; }}>
               <div className="label">
-                {installForm.phase !== "ordered"
+                {doesInstallationPhaseRequireSerial(installForm.phase)
                   ? <span style={{color:"var(--destructive)"}}>* </span>
                   : null}
                 機台序號
-                {installForm.phase === "ordered"
-                  ? <span style={{color:"var(--muted-foreground)", fontSize: 11, fontWeight: 400}}> （訂單確認前可留空）</span>
+                {!doesInstallationPhaseRequireSerial(installForm.phase)
+                  ? <span style={{color:"var(--muted-foreground)", fontSize: 11, fontWeight: 400}}> （未到廠前可留空）</span>
                   : null}
               </div>
               <input value={installForm.name} onChange={(e) => updateInstallField("name", e.target.value)} aria-invalid={!!installErrors.name} placeholder="例如：P160623 / FT-S-001" />

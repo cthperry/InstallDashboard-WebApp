@@ -8,6 +8,7 @@ import { listenEquipments } from "@/features/data/equipments";
 import type { Equipment, Installation, PhaseKey, RegionKey } from "@/domain/types";
 import { PHASES, PHASE_MAP, REGIONS } from "@/domain/constants";
 import { formatUphValue, getLiveUtilization } from "@/domain/capacity";
+import { getInstallationSerial } from "@/domain/installationDisplay";
 import { normalizePersonKey, toDisplayShortName } from "@/domain/personDisplay";
 
 type Tone = "critical" | "warning" | "info" | "good";
@@ -66,7 +67,7 @@ function daysSinceUpdated(ts?: number): number {
 }
 
 function getInstallTitle(row: Installation) {
-  return safeStr(row.name) || `${safeStr(row.modelCode)} ${safeStr((row as any).serialNo)}`.trim() || row.id;
+  return getInstallationSerial(row) || safeStr(row.modelCode) || safeStr(row.customer) || row.id;
 }
 
 function ControlMetric({

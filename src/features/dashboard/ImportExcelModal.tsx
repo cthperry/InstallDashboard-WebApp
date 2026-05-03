@@ -235,7 +235,7 @@ export function ImportExcelModal({ open, onClose, onImported, customerRegionMap 
                     <td style={{ position: "sticky", left: 40, background: "var(--card)", padding: "8px 6px", borderTop: "1px solid var(--border)" }}>{r._idx + 1}</td>
                     <td style={{ padding: "8px 8px", borderTop: "1px solid var(--border)" }}>{r.customer || "-"}</td>
                     <td style={{ padding: "8px 8px", borderTop: "1px solid var(--border)" }}>{r.modelCode || "-"}</td>
-                    <td style={{ padding: "8px 8px", borderTop: "1px solid var(--border)" }}>{r.serialNo || "-"}</td>
+                    <td style={{ padding: "8px 8px", borderTop: "1px solid var(--border)" }}>{r.serialNo}</td>
                     <td style={{ padding: "8px 8px", borderTop: "1px solid var(--border)" }}><select style={{ width: 88, fontSize: 12 }} value={r._region} onChange={(e) => setRowRegion(r._idx, e.target.value as RegionKey)}>{(Object.entries(REGIONS) as [RegionKey, { label: string }][]).map(([key, meta]) => <option key={key} value={key}>{meta.label}</option>)}</select></td>
                     <td style={{ padding: "8px 8px", borderTop: "1px solid var(--border)" }}><select style={{ width: 118, fontSize: 12 }} value={r._phase} onChange={(e) => setRowPhase(r._idx, e.target.value as PhaseKey)}>{PHASES.map((phase) => <option key={phase.key} value={phase.key}>{phase.label}</option>)}</select></td>
                     <td style={{ padding: "8px 8px", borderTop: "1px solid var(--border)" }}>{r.estArrival || "-"}</td>

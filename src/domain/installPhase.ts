@@ -10,7 +10,6 @@ export type InstallationPhaseInput = {
 };
 
 export const PHASES_REQUIRE_SERIAL: ReadonlySet<PhaseKey> = new Set<PhaseKey>([
-  "shipping",
   "arrived",
   "installing",
   "trial",
