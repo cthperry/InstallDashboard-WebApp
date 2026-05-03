@@ -393,6 +393,18 @@ body {
     flex-wrap: nowrap;
     justify-content: flex-end;
   }
+  .tableLoadMore {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    padding: 12px;
+    color: #64748b;
+    font-size: 12px;
+    font-weight: 800;
+    border-top: 1px solid rgba(148, 163, 184, 0.22);
+  }
   .installListTable { min-width: 1240px; }
   .installListTable col.installListColSerial { width: 150px; }
   .installListTable col.installListColCustomer { width: 205px; }

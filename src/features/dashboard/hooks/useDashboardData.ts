@@ -89,31 +89,31 @@ export function useDashboardData({
   }, [section, insightsTab]);
 
   useEffect(() => {
-    if (!(isAdmin && section === "insights")) {
+    if (!(isAdmin && section === "insights" && insightsTab === "logs")) {
       setRetention(null);
       return;
     }
     const unsubRetention = listenRetentionSettings((doc) => setRetention(doc));
     return () => unsubRetention?.();
-  }, [isAdmin, section]);
+  }, [isAdmin, section, insightsTab]);
 
   useEffect(() => {
-    if (section !== "insights") {
+    if (!(isAdmin && section === "insights" && insightsTab === "logs")) {
       setAuditLogs([]);
       return;
     }
     const unsubAudit = listenAuditLogs((rows) => setAuditLogs(rows));
     return () => unsubAudit?.();
-  }, [section]);
+  }, [isAdmin, section, insightsTab]);
 
   useEffect(() => {
-    if (!(isAdmin && section === "insights")) {
+    if (!(isAdmin && section === "insights" && insightsTab === "logs")) {
       setEvents([]);
       return;
     }
     const unsubEvents = listenEventsLastDays(7, (rows) => setEvents(rows));
     return () => unsubEvents?.();
-  }, [isAdmin, section]);
+  }, [isAdmin, section, insightsTab]);
 
   return {
     machineModels,

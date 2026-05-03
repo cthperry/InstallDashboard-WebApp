@@ -9,7 +9,7 @@ import type { Equipment, Installation, PhaseKey, RegionKey } from "@/domain/type
 import { PHASES, PHASE_MAP, REGIONS } from "@/domain/constants";
 import { getLiveUtilization } from "@/domain/capacity";
 import { getInstallationSerial } from "@/domain/installationDisplay";
-import { normalizePersonKey, toDisplayShortName } from "@/domain/personDisplay";
+import { toDisplayShortName } from "@/domain/personDisplay";
 import { getAppReleaseLabel } from "@/config/appVersion";
 import { todayInTaipeiYmd } from "@/lib/utils";
 
@@ -191,48 +191,8 @@ function RegionCommand({
   );
 }
 
-function RoleConsole({
-  isAdmin,
-  myOpen,
-  myOverdue,
-  adminGaps,
-}: {
-  isAdmin: boolean;
-  myOpen: number;
-  myOverdue: number;
-  adminGaps: number;
-}) {
-  return (
-    <section className="f66Panel f66RoleConsole">
-      <div className="f66PanelHead">
-        <div>
-          <span className="f66Eyebrow">ROLE ROUTING</span>
-          <h2>角色入口</h2>
-        </div>
-      </div>
-      <div className="f66RoleGrid">
-        <Link href="/dashboard/install" className="f66RoleCard">
-          <span>ENGINEER</span>
-          <strong>我的裝機任務</strong>
-          <p>{myOpen} 件待推進，{myOverdue} 件逾期。</p>
-        </Link>
-        <Link href="/dashboard/equipment" className="f66RoleCard">
-          <span>OWNER</span>
-          <strong>設備阻塞與產能</strong>
-          <p>處理 blocking owner、UPH 與 target UPH 缺口。</p>
-        </Link>
-        <Link href={isAdmin ? "/admin/users" : "/dashboard/install?view=pipeline"} className="f66RoleCard">
-          <span>ADMIN</span>
-          <strong>{isAdmin ? "資料與權限治理" : "我的可操作任務"}</strong>
-          <p>{isAdmin ? `${adminGaps} 項資料治理待確認。` : "目前非 admin，只顯示可操作任務。"}</p>
-        </Link>
-      </div>
-    </section>
-  );
-}
-
 export function WarRoomPage() {
-  const { user, profile, isAdmin, appVersion } = useAuth();
+  const { user, appVersion } = useAuth();
   const releaseLabel = getAppReleaseLabel(appVersion);
   const [installs, setInstalls] = useState<Installation[]>([]);
   const [equips, setEquips] = useState<Equipment[]>([]);
@@ -372,18 +332,6 @@ export function WarRoomPage() {
     };
   }, [installs, equips, today]);
 
-  const myWork = useMemo(() => {
-    const userKey = normalizePersonKey(user?.email ?? profile?.email ?? "");
-    const rows = installs.filter((row) => {
-      const engineerKey = normalizePersonKey(row.engineer);
-      return userKey && engineerKey && engineerKey === userKey && !isReleased(row);
-    });
-    return {
-      open: rows.length,
-      overdue: rows.filter((row) => isOverdue(row, today)).length,
-    };
-  }, [installs, profile?.email, today, user?.email]);
-
   const briefLines = useMemo(() => {
     const lines: string[] = [];
     if (computed.overdue.length > 0) lines.push(`${computed.overdue.length} 件裝機逾期，先要求 owner 更新 ETA 與下一步。`);
@@ -414,9 +362,8 @@ export function WarRoomPage() {
         <ControlMetric label="平均稼動率" value={computed.avgUtilization} unit="%" caption="設備台帳即時計算" tone={computed.avgUtilization >= 80 ? "warning" : "good"} />
       </section>
 
-      <div className="f66MainGrid">
+      <div className="f66MainGrid f66MainGridWide">
         <ActionQueue items={computed.queue} />
-        <RoleConsole isAdmin={isAdmin} myOpen={myWork.open} myOverdue={myWork.overdue} adminGaps={computed.stale.length + computed.blocked.length} />
       </div>
 
       <div className="f66MainGrid f66MainGridWide">

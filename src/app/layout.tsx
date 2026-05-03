@@ -75,6 +75,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               });
 
               async function checkVersion(registration) {
+                if (document.visibilityState !== 'visible') return;
                 try {
                   const response = await fetch('/version.json?ts=' + Date.now(), { cache: 'no-store' });
                   if (!response.ok) return;
@@ -92,6 +93,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                   .then((registration) => {
                     checkVersion(registration);
                     window.setInterval(() => checkVersion(registration), 5 * 60 * 1000);
+                    document.addEventListener('visibilitychange', () => {
+                      if (document.visibilityState === 'visible') checkVersion(registration);
+                    });
                   })
                   .catch((err) => {
                     console.warn('[SW] registration failed', err);

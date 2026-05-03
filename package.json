@@ -1,6 +1,6 @@
 {
   "name": "install-dashboard-webapp",
-  "version": "20260503-F71",
+  "version": "20260503-F72",
   "private": true,
   "scripts": {
     "sync:version": "node scripts/sync-app-version.cjs",
@@ -12,7 +12,8 @@
     "prestart": "npm run sync:version && npm run verify:version && npm run verify:build",
     "start": "next start",
     "lint": "next lint",
-    "verify:build": "node scripts/verify-build-version.cjs"
+    "verify:build": "node scripts/verify-build-version.cjs",
+    "verify:production": "node scripts/verify-production.cjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",

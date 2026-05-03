@@ -33,10 +33,22 @@ service cloud.firestore {
       return value is int || value is float;
     }
 
+    function isOptionalNumber(value) {
+      return value == null || isNumberLike(value);
+    }
+
     function isValidInstallation(data) {
-      return data.name is string
+      return data.keys().hasOnly([
+          'name', 'serialKey', 'importKey', 'modelCode', 'region', 'customer',
+          'phase', 'engineer', 'custContact', 'custPhone', 'orderDate',
+          'estArrival', 'estComplete', 'actArrival', 'actComplete', 'notes',
+          'progress', 'checklist', 'createdAt', 'updatedAt',
+          'createdAtServer', 'updatedAtServer'
+        ])
+        && data.name is string
         && data.name.size() <= 80
         && isOptionalShortString(data.serialKey, 80)
+        && isOptionalShortString(data.importKey, 220)
         && data.modelCode is string
         && data.modelCode.size() > 0
         && data.modelCode.size() <= 60
@@ -58,11 +70,60 @@ service cloud.firestore {
         && isNumberLike(data.progress)
         && data.progress >= 0
         && data.progress <= 100
-        && (data.checklist == null || data.checklist is map);
+        && (data.checklist == null || data.checklist is map)
+        && isOptionalNumber(data.createdAt)
+        && isOptionalNumber(data.updatedAt);
+    }
+
+    function isValidMilestones(data) {
+      return data is map
+        && data.keys().hasOnly(['installStart', 'installDone', 'trialStart', 'trialPass', 'prodStart', 'reachTargetDate'])
+        && isOptionalShortString(data.installStart, 20)
+        && isOptionalShortString(data.installDone, 20)
+        && isOptionalShortString(data.trialStart, 20)
+        && isOptionalShortString(data.trialPass, 20)
+        && isOptionalShortString(data.prodStart, 20)
+        && isOptionalShortString(data.reachTargetDate, 20);
+    }
+
+    function isValidBlocking(data) {
+      return data == null || (
+        data is map
+        && data.keys().hasOnly(['reasonCode', 'detail', 'owner', 'eta'])
+        && isOptionalShortString(data.reasonCode, 40)
+        && isOptionalShortString(data.detail, 200)
+        && isOptionalShortString(data.owner, 60)
+        && isOptionalShortString(data.eta, 20)
+      );
+    }
+
+    function isCapacityLevel(value) {
+      return value == '綠' || value == '黃' || value == '紅';
+    }
+
+    function isValidCapacity(data) {
+      return data is map
+        && data.keys().hasOnly(['utilization', 'uph', 'targetUph', 'level', 'trend7d'])
+        && isNumberLike(data.utilization)
+        && data.utilization >= 0
+        && data.utilization <= 100
+        && isNumberLike(data.uph)
+        && data.uph >= 0
+        && isNumberLike(data.targetUph)
+        && data.targetUph >= 0
+        && isCapacityLevel(data.level)
+        && data.trend7d is list
+        && data.trend7d.size() == 7;
     }
 
     function isValidEquipment(data) {
-      return data.equipmentId is string
+      return data.keys().hasOnly([
+          'equipmentId', 'region', 'customer', 'site', 'modelCode', 'serialNo',
+          'serialKey', 'statusMain', 'statusSub', 'owner', 'milestones',
+          'blocking', 'capacity', 'products', 'createdAt', 'updatedAt',
+          'createdAtServer', 'updatedAtServer'
+        ])
+        && data.equipmentId is string
         && data.equipmentId.size() > 0
         && data.equipmentId.size() <= 40
         && isRegion(data.region)
@@ -80,8 +141,33 @@ service cloud.firestore {
         && isEquipmentStatus(data.statusMain)
         && isOptionalShortString(data.statusSub, 80)
         && isOptionalShortString(data.owner, 60)
-        && data.milestones is map
-        && data.capacity is map;
+        && isValidMilestones(data.milestones)
+        && isValidBlocking(data.blocking)
+        && isValidCapacity(data.capacity)
+        && (data.products == null || (data.products is list && data.products.size() <= 50))
+        && isOptionalNumber(data.createdAt)
+        && isOptionalNumber(data.updatedAt);
+    }
+
+    function isValidAuditLog(data) {
+      return data.keys().hasOnly(['action', 'target', 'detail', 'actorEmail', 'createdAt'])
+        && data.action is string
+        && data.action.size() > 0
+        && data.action.size() <= 80
+        && data.target is string
+        && data.target.size() <= 120
+        && data.detail is string
+        && data.detail.size() <= 500
+        && data.actorEmail is string
+        && data.actorEmail.size() <= 120;
+    }
+
+    function isValidEvent(data) {
+      return data.keys().hasOnly(['eventName', 'payload', 'createdAt'])
+        && data.eventName is string
+        && data.eventName.size() > 0
+        && data.eventName.size() <= 80
+        && (data.payload == null || data.payload is map);
     }
 
     match /installations/{docId} {
@@ -107,15 +193,15 @@ service cloud.firestore {
     }
 
     match /auditLogs/{logId} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn();
+      allow read: if isAdmin();
+      allow create: if isSignedIn() && isValidAuditLog(request.resource.data);
       allow delete: if isAdmin();
       allow update: if false;
     }
 
     match /events/{eventId} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn();
+      allow read: if isAdmin();
+      allow create: if isSignedIn() && isValidEvent(request.resource.data);
       allow delete: if isAdmin();
       allow update: if false;
     }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/features/auth/AuthProvider";
 
@@ -65,10 +65,11 @@ import { buildCapacitySnapshot, calculateUtilization, getLiveUtilization } from 
 
 type DashboardSection = "install" | "equipment" | "insights";
 type InsightsTab = "analytics" | "logs";
-type InstallView = "table" | "card" | "pipeline" | "gantt";
+type InstallView = "table" | "pipeline" | "gantt";
 type InstallSortKey = "updatedAt" | "estComplete" | "phase" | "customer" | "engineer" | "name";
 type EquipSortKey = "updatedAt" | "utilization" | "customer" | "owner" | "serialNo" | "statusMain";
 type SortDirection = "asc" | "desc";
+const TABLE_PAGE_SIZE = 120;
 
 function SortableTh({
   label,
@@ -179,7 +180,7 @@ function MissionQueuePanel({
 }
 
 function parseInstallView(v: string | null): InstallView {
-  if (v === "table" || v === "card" || v === "gantt") return v;
+  if (v === "table" || v === "gantt") return v;
   return "pipeline";
 }
 
@@ -483,8 +484,10 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
   const [fCustomer, setFCustomer] = useState<string>("");
   const [fEngineer, setFEngineer] = useState<string>("");
   const [keyword, setKeyword] = useState<string>("");
+  const deferredKeyword = useDeferredValue(keyword);
   const [installSortKey, setInstallSortKey] = useState<InstallSortKey>("updatedAt");
   const [installSortDir, setInstallSortDir] = useState<"asc" | "desc">("desc");
+  const [installVisibleCount, setInstallVisibleCount] = useState(TABLE_PAGE_SIZE);
   // ───────── Saved Filters ─────────
   const [savedFilters, setSavedFilters] = useState<SavedFilter[]>(() => loadSavedFilters());
   const [saveFilterName, setSaveFilterName] = useState<string>("");
@@ -495,8 +498,10 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
   const [eStatus, setEStatus] = useState<"" | EquipmentMainStatus>("");
   const [eCap, setECap] = useState<"" | CapacityLevel>("");
   const [eKeyword, setEKeyword] = useState<string>("");
+  const deferredEquipmentKeyword = useDeferredValue(eKeyword);
   const [equipSortKey, setEquipSortKey] = useState<EquipSortKey>("updatedAt");
   const [equipSortDir, setEquipSortDir] = useState<"asc" | "desc">("desc");
+  const [equipVisibleCount, setEquipVisibleCount] = useState(TABLE_PAGE_SIZE);
 
   // ───────── UI state ─────────
   const [toast, setToast] = useState<string>("");
@@ -568,6 +573,13 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
     setInsightsTab(parseInsightsTab(insightsTabParam));
   }, [section, insightsTabParam]);
 
+  useEffect(() => {
+    setInstallVisibleCount(TABLE_PAGE_SIZE);
+  }, [deferredKeyword, fRegion, fModel, fPhase, fCustomer, fEngineer, installSortKey, installSortDir]);
+
+  useEffect(() => {
+    setEquipVisibleCount(TABLE_PAGE_SIZE);
+  }, [deferredEquipmentKeyword, eRegion, eStatus, eCap, equipSortKey, equipSortDir]);
 
   const today = todayYYYYMMDD();
 
@@ -755,7 +767,7 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
   }, [appVars]);
 
   const filteredInstallations = useMemo(() => {
-    const k = keyword.trim().toLowerCase();
+    const k = deferredKeyword.trim().toLowerCase();
     const rows = installations.filter((r) => {
       if (fRegion && r.region !== fRegion) return false;
       if (fModel && r.modelCode !== fModel) return false;
@@ -815,12 +827,17 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
       }
       return result * direction;
     });
-  }, [installations, fRegion, fModel, fPhase, fCustomer, fEngineer, keyword, installSortDir, installSortKey]);
+  }, [installations, fRegion, fModel, fPhase, fCustomer, fEngineer, deferredKeyword, installSortDir, installSortKey]);
+
+  const visibleInstallations = useMemo(
+    () => filteredInstallations.slice(0, installVisibleCount),
+    [filteredInstallations, installVisibleCount],
+  );
 
   const installStats = useMemo(() => calcInstallStats(filteredInstallations, today), [filteredInstallations, today]);
 
   const filteredEquipments = useMemo(() => {
-    const k = eKeyword.trim().toLowerCase();
+    const k = deferredEquipmentKeyword.trim().toLowerCase();
     const rows = equipments.filter((r) => {
       if (eRegion && r.region !== eRegion) return false;
       if (eStatus && r.statusMain !== eStatus) return false;
@@ -882,7 +899,12 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
       }
       return result * direction;
     });
-  }, [equipments, eRegion, eStatus, eCap, eKeyword, equipSortDir, equipSortKey]);
+  }, [equipments, eRegion, eStatus, eCap, deferredEquipmentKeyword, equipSortDir, equipSortKey]);
+
+  const visibleEquipments = useMemo(
+    () => filteredEquipments.slice(0, equipVisibleCount),
+    [filteredEquipments, equipVisibleCount],
+  );
 
   const equipStats = useMemo(() => calcEquipmentStats(filteredEquipments), [filteredEquipments]);
 
@@ -1563,7 +1585,6 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
                   <div className="segTabs">
                     <button className={installView === "table" ? "segTab segTabActive" : "segTab"} onClick={() => switchInstallView("table")}>表格</button>
-                    <button className={installView === "card" ? "segTab segTabActive" : "segTab"} onClick={() => switchInstallView("card")}>卡片</button>
                     <button className={installView === "pipeline" ? "segTab segTabActive" : "segTab"} onClick={() => switchInstallView("pipeline")}>Pipeline</button>
                     <button className={installView === "gantt" ? "segTab segTabActive" : "segTab"} onClick={() => switchInstallView("gantt")}>甘特圖</button>
                   </div>
@@ -1684,11 +1705,7 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
               </div>
             ) : null}
 
-            {installView === "pipeline" || installView === "gantt" ? null : installView === "card" ? (
-              <div className="auroraInstallCardGrid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 12, marginTop: 12 }}>
-                {filteredInstallations.map(installCard)}
-              </div>
-            ) : (
+            {installView === "pipeline" || installView === "gantt" ? null : (
               <div className="card auroraTablePanel" style={{ marginTop: 12 }}>
                 <div className="tableWrap">
                   <table className="table dataTableDense installListTable">
@@ -1719,7 +1736,7 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
                       </tr>
                     </thead>
                     <tbody>
-                      {filteredInstallations.map((r) => {
+                      {visibleInstallations.map((r) => {
                         const phase = PHASE_MAP[r.phase];
                         const overdue = isOverdueInstall(r, today);
                         const serial = getInstallSerial(r);
@@ -1759,6 +1776,12 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
                     </tbody>
                   </table>
                 </div>
+                {filteredInstallations.length > visibleInstallations.length ? (
+                  <div className="tableLoadMore">
+                    <span>已顯示 {visibleInstallations.length} / {filteredInstallations.length} 筆，CSV 仍會匯出目前篩選的全部資料。</span>
+                    <button className="btn btnSmall" onClick={() => setInstallVisibleCount((value) => value + TABLE_PAGE_SIZE)}>載入更多</button>
+                  </div>
+                ) : null}
               </div>
             )}
           </>
@@ -1988,7 +2011,7 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredEquipments.map((r) => {
+                    {visibleEquipments.map((r) => {
                       const statusColor = STATUS_COLOR[r.statusMain];
                       // 即時重算容量等級，不依賴 Firestore 存的舊值
                       const liveLevel = calcCapacityLevel(r.capacity.uph, r.capacity.targetUph);
@@ -2038,6 +2061,12 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
                   </tbody>
                 </table>
               </div>
+              {filteredEquipments.length > visibleEquipments.length ? (
+                <div className="tableLoadMore">
+                  <span>已顯示 {visibleEquipments.length} / {filteredEquipments.length} 台，詳情與匯出仍以目前篩選結果為準。</span>
+                  <button className="btn btnSmall" onClick={() => setEquipVisibleCount((value) => value + TABLE_PAGE_SIZE)}>載入更多</button>
+                </div>
+              ) : null}
             </div>
           </>
         ) : null}
