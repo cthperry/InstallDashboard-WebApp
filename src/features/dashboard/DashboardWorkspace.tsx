@@ -1719,7 +1719,19 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
             ) : (
               <div className="card auroraTablePanel" style={{ marginTop: 12 }}>
                 <div className="tableWrap">
-                  <table className="table">
+                  <table className="table installListTable">
+                    <colgroup>
+                      <col className="installListColSerial" />
+                      <col className="installListColCustomer" />
+                      <col className="installListColRegion" />
+                      <col className="installListColModel" />
+                      <col className="installListColPhase" />
+                      <col className="installListColEngineer" />
+                      <col className="installListColProgress" />
+                      <col className="installListColDueDate" />
+                      <col className="installListColUpdated" />
+                      <col className="installListColActions" />
+                    </colgroup>
                     <thead>
                       <tr>
                         <SortableTh label="機台序號" active={installSortKey === "name"} dir={installSortDir} onClick={() => toggleInstallSort("name")} />
@@ -1745,7 +1757,7 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
                             <td><Badge text={REGIONS[r.region].label} color={REGIONS[r.region].color} subtle /></td>
                             <td><Badge text={r.modelCode} color="#3b82f6" subtle /></td>
                             <td><Badge text={`${phase.icon} ${phase.label}`} color={phase.color} subtle /></td>
-                            <td>{toDisplayShortName(r.engineer) || "-"}</td>
+                            <td className="installListEngineer">{toDisplayShortName(r.engineer) || "-"}</td>
                             <td>
                               <div className="progressOuter" style={{ maxWidth: 140 }}>
                                 <div className="progressInner" style={{ width: `${clamp(r.progress ?? 0, 0, 100)}%` }} />
@@ -1754,7 +1766,7 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
                                 {r.progress ?? 0}% {overdue ? <span style={{ color: "#ef4444", fontWeight: 900 }}>（逾期）</span> : null}
                               </div>
                             </td>
-                            <td>{r.estComplete || "-"}</td>
+                            <td className="installListDueDate">{r.estComplete || "-"}</td>
                             <td style={{ color: "#94a3b8", fontSize: 12 }}>{fmtDate(r.updatedAt)}</td>
                             <td>
                               <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>

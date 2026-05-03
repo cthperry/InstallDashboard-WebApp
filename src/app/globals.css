@@ -328,6 +328,26 @@ body {
   }
   .table tbody tr:nth-child(even) td { background: rgba(124,58,237,0.04); }
   .table tr:hover td { background: rgba(124,58,237,0.10); }
+  .installListTable { min-width: 1440px; table-layout: fixed; }
+  .installListTable col.installListColSerial { width: 270px; }
+  .installListTable col.installListColCustomer { width: 135px; }
+  .installListTable col.installListColRegion { width: 78px; }
+  .installListTable col.installListColModel { width: 138px; }
+  .installListTable col.installListColPhase { width: 138px; }
+  .installListTable col.installListColEngineer { width: 96px; }
+  .installListTable col.installListColProgress { width: 116px; }
+  .installListTable col.installListColDueDate { width: 156px; }
+  .installListTable col.installListColUpdated { width: 122px; }
+  .installListTable col.installListColActions { width: 220px; }
+  .installListTable th:nth-child(6),
+  .installListTable td.installListEngineer,
+  .installListTable th:nth-child(8),
+  .installListTable td.installListDueDate {
+    white-space: nowrap;
+  }
+  .installListTable td.installListDueDate {
+    font-variant-numeric: tabular-nums;
+  }
 
   .formGrid { @apply grid grid-cols-2 gap-3; }
   @media (max-width: 720px) {
