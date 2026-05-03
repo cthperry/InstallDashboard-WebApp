@@ -1,0 +1,25 @@
+# Local dependencies and build output
+node_modules/
+.next/
+out/
+build/
+dist/
+
+# Local environment and Vercel metadata
+.env
+.env.local
+.env.*.local
+.vercel/
+
+# Local archives and generated artifacts
+*.zip
+*.tar
+*.tar.gz
+*.tsbuildinfo
+tsconfig.temp.json
+
+# Git metadata and logs
+.git/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*

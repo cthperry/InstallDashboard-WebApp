@@ -34,3 +34,5 @@ tsconfig.temp.tsbuildinfo
 # Misc
 .DS_Store
 *.pem
+
+.vercel/
