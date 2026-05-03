@@ -292,6 +292,18 @@ function compareTimestamp(a?: number, b?: number): number {
   return aa - bb;
 }
 
+function formatExcelCsvValue(key: string, value: unknown): string {
+  if (value == null) return "";
+  if (key === "updatedAt" || key === "createdAt") {
+    const timestamp = Number(value);
+    return Number.isFinite(timestamp) && timestamp > 0 ? fmtDate(timestamp) : "";
+  }
+  return String(value).replace(/\r?\n/g, " ");
+}
+
+function toCsvCell(value: string): string {
+  return `"${value.replaceAll('"', '""')}"`;
+}
 
 function exportInstallationsCSV(rows: Installation[]) {
   const header = [
@@ -317,16 +329,13 @@ function exportInstallationsCSV(rows: Installation[]) {
       header
         .map((k) => {
           const v = (r as any)[k];
-          const s = v == null ? "" : String(v);
-          // escape
-          const escaped = s.replaceAll('"', '""');
-          return `"${escaped}"`;
+          return toCsvCell(formatExcelCsvValue(k, v));
         })
         .join(",")
     )
-  ].join("\n");
+  ].join("\r\n");
 
-  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+  const blob = new Blob(["\uFEFF", csv], { type: "text/csv;charset=utf-8" });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
   a.download = `installations_${todayYYYYMMDD()}.csv`;
