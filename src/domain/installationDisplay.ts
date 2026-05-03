@@ -13,11 +13,23 @@ function isModelNamePlaceholder(candidate: string, modelCode: unknown): boolean 
   return candidateKey === modelKey;
 }
 
+function extractMarkedSerial(candidate: string): string {
+  const match = candidate.match(/[#＃]\s*([A-Za-z0-9][A-Za-z0-9._-]*)\b/);
+  return match?.[1]?.trim() ?? "";
+}
+
+function stripLeadingSerialMarker(candidate: string): string {
+  return candidate.replace(/^[#＃]+\s*/, "").trim();
+}
+
 export function normalizeInstallationSerialCandidate(candidate: unknown, modelCode: unknown): string {
-  const serial = trimString(candidate);
+  const serial = trimString(candidate).replace(/\s+/g, " ");
   if (!serial) return "";
-  if (isModelNamePlaceholder(serial, modelCode)) return "";
-  return serial;
+  const markedSerial = extractMarkedSerial(serial);
+  if (markedSerial) return markedSerial;
+  const unmarkedSerial = stripLeadingSerialMarker(serial);
+  if (isModelNamePlaceholder(unmarkedSerial, modelCode)) return "";
+  return unmarkedSerial;
 }
 
 export function getInstallationSerial(row: Installation): string {
