@@ -7,12 +7,12 @@ import { useEffect, useState } from "react";
 import { RequireAuth } from "@/features/auth/RequireAuth";
 import { useAuth } from "@/features/auth/AuthProvider";
 
-function NavLink({ href, label, active, war }: { href: string; label: string; active: boolean; war?: boolean }) {
+function NavLink({ href, label, active, tone }: { href: string; label: string; active: boolean; tone?: "live" }) {
   return (
     <Link
       href={href}
-      className={active ? "tab tabActive" : "tab"}
-      style={war ? { color: active ? "#a78bfa" : undefined } : undefined}
+      aria-current={active ? "page" : undefined}
+      className={`${active ? "tab tabActive" : "tab"}${tone === "live" ? " tabLive" : ""}`}
     >
       {label}
     </Link>
@@ -55,12 +55,16 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <div className="topbarBrand">
             <div className="appMark">IO</div>
             <div>
-              <div className="topbarTitle">Install Operations</div>
-              <div className="topbarSub">裝機進度與設備營運管理平台</div>
+              <div className="topbarTitle">Install Ops Flight Deck</div>
+              <div className="topbarSub">裝機、設備台帳與產能風險指揮中心</div>
             </div>
           </div>
 
           <div className="topbarActions">
+            <div className="navStatusPill">
+              <span className="navStatusDot" aria-hidden />
+              {isWarRoom ? "Warroom live" : "Operational"}
+            </div>
             {isWarRoom && <LiveClock />}
             <div className="userChip">
               <div className="userChipEmail">{profile?.email ?? "未登入"}</div>
@@ -82,10 +86,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
         <div className="tabsWrap">
           <div className="tabs">
-            <NavLink href="/dashboard/warroom"   label="⚡ 戰情室"   active={isWarRoom} war />
-            <NavLink href="/dashboard/install"   label="裝機進度"   active={pathname?.startsWith("/dashboard/install")  ?? false} />
+            <NavLink href="/dashboard/warroom"   label="戰情室"     active={isWarRoom} tone="live" />
+            <NavLink href="/dashboard/install"   label="裝機任務"   active={pathname?.startsWith("/dashboard/install")  ?? false} />
             <NavLink href="/dashboard/equipment" label="設備台帳"   active={pathname?.startsWith("/dashboard/equipment") ?? false} />
-            <NavLink href="/dashboard/insights"  label="洞察與紀錄" active={pathname?.startsWith("/dashboard/insights") ?? false} />
+            <NavLink href="/dashboard/insights"  label="洞察紀錄"   active={pathname?.startsWith("/dashboard/insights") ?? false} />
           </div>
         </div>
       </div>

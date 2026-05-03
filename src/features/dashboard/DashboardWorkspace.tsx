@@ -119,6 +119,63 @@ function SortableTh({
   );
 }
 
+type MissionQueueTone = "critical" | "warning" | "info" | "good";
+
+type MissionQueueItem = {
+  id: string;
+  label: string;
+  meta: string;
+  value: string;
+  tone: MissionQueueTone;
+  onClick?: () => void;
+};
+
+function MissionQueuePanel({
+  title,
+  subtitle,
+  items,
+  emptyText,
+}: {
+  title: string;
+  subtitle: string;
+  items: MissionQueueItem[];
+  emptyText: string;
+}) {
+  return (
+    <section className="missionQueuePanel" aria-label={title}>
+      <div className="missionQueueHead">
+        <div>
+          <div className="missionQueueEyebrow">MISSION QUEUE</div>
+          <div className="missionQueueTitle">{title}</div>
+        </div>
+        <div className="missionQueueSub">{subtitle}</div>
+      </div>
+
+      {items.length > 0 ? (
+        <div className="missionQueueList">
+          {items.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              className={`missionQueueRow missionQueueRow-${item.tone}`}
+              onClick={item.onClick}
+            >
+              <span className="missionQueueRail" aria-hidden />
+              <span className="missionQueueText">
+                <strong>{item.label}</strong>
+                <small>{item.meta}</small>
+              </span>
+              <span className="missionQueueValue">{item.value}</span>
+            </button>
+          ))}
+        </div>
+      ) : (
+        <div className="missionQueueEmpty">{emptyText}</div>
+      )}
+    </section>
+  );
+}
+
 function parseInstallView(v: string | null): InstallView {
   if (v === "card" || v === "pipeline" || v === "gantt") return v;
   return "table";
@@ -1309,6 +1366,138 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
     setEquipSortDir(key === "updatedAt" ? "desc" : "asc");
   }, [equipSortKey]);
 
+  const installActionQueue = filteredInstallations
+    .map((r): (MissionQueueItem & { priority: number }) | null => {
+      if (r.phase === "released") return null;
+      const dueInDays = daysLeft(r.estComplete);
+      const phaseLabel = PHASE_MAP[r.phase]?.label ?? r.phase;
+      const owner = toDisplayShortName(r.engineer) || "未指派";
+      const meta = `${r.customer} · ${phaseLabel} · ${owner}`;
+
+      if (isOverdueInstall(r, today)) {
+        const overdueDays = dueInDays == null ? "?" : String(Math.abs(dueInDays));
+        return {
+          id: `install-overdue-${r.id}`,
+          label: r.name || r.id,
+          meta,
+          value: `逾期 ${overdueDays} 天`,
+          tone: "critical",
+          priority: dueInDays == null ? 0 : dueInDays,
+          onClick: () => openEditInstall(r),
+        };
+      }
+
+      if (!toDisplayShortName(r.engineer) && doesInstallationPhaseRequireEngineer(r.phase)) {
+        return {
+          id: `install-owner-${r.id}`,
+          label: r.name || r.id,
+          meta,
+          value: "未指派",
+          tone: "warning",
+          priority: 10,
+          onClick: () => openEditInstall(r),
+        };
+      }
+
+      if (dueInDays != null && dueInDays >= 0 && dueInDays <= 7) {
+        return {
+          id: `install-due-${r.id}`,
+          label: r.name || r.id,
+          meta,
+          value: `${dueInDays} 天內`,
+          tone: "info",
+          priority: 20 + dueInDays,
+          onClick: () => openEditInstall(r),
+        };
+      }
+
+      if (!r.estComplete && r.phase !== "ordered") {
+        return {
+          id: `install-date-${r.id}`,
+          label: r.name || r.id,
+          meta,
+          value: "缺預計日",
+          tone: "warning",
+          priority: 40,
+          onClick: () => openEditInstall(r),
+        };
+      }
+
+      return null;
+    })
+    .filter((item): item is MissionQueueItem & { priority: number } => Boolean(item))
+    .sort((a, b) => a.priority - b.priority)
+    .slice(0, 5)
+    .map(({ priority: _priority, ...item }) => item);
+
+  const equipmentActionQueue = filteredEquipments
+    .map((r): (MissionQueueItem & { priority: number }) | null => {
+      const utilization = getLiveUtilization(r.capacity);
+      const liveLevel = calcCapacityLevel(r.capacity.uph, r.capacity.targetUph);
+      const serial = (r as any).serialNo || (r as any).name || r.equipmentId || r.id;
+      const meta = `${r.customer} · ${regionLabel(r.region)} · ${toDisplayShortName(r.owner) || "未指派"}`;
+
+      if (r.blocking?.reasonCode) {
+        return {
+          id: `equipment-blocked-${r.id}`,
+          label: serial,
+          meta: `${meta} · ${r.blocking.reasonCode}`,
+          value: "阻塞",
+          tone: "critical",
+          priority: 0,
+          onClick: () => openDrawer(r),
+        };
+      }
+
+      if (liveLevel === "紅") {
+        return {
+          id: `equipment-capacity-${r.id}`,
+          label: serial,
+          meta,
+          value: `紅燈 ${utilization}%`,
+          tone: "warning",
+          priority: 10 + (100 - utilization),
+          onClick: () => openDrawer(r),
+        };
+      }
+
+      if (utilization >= 80) {
+        return {
+          id: `equipment-util-${r.id}`,
+          label: serial,
+          meta,
+          value: `高稼動 ${utilization}%`,
+          tone: "info",
+          priority: 30 + (100 - utilization),
+          onClick: () => openDrawer(r),
+        };
+      }
+
+      return null;
+    })
+    .filter((item): item is MissionQueueItem & { priority: number } => Boolean(item))
+    .sort((a, b) => a.priority - b.priority)
+    .slice(0, 5)
+    .map(({ priority: _priority, ...item }) => item);
+
+  const heroMetrics = section === "install"
+    ? [
+        { label: "Action queue", value: installActionQueue.length, meta: "逾期、近七天、未指派" },
+        { label: "WIP", value: installStats.wip, meta: "尚未 released" },
+        { label: "Release ratio", value: installStats.total ? `${Math.round((installStats.released / installStats.total) * 100)}%` : "0%", meta: "目前篩選完成率" },
+      ]
+    : section === "equipment"
+      ? [
+          { label: "Action queue", value: equipmentActionQueue.length, meta: "阻塞、紅燈、高稼動" },
+          { label: "Blocked", value: equipStats.blocked, meta: "需要 Owner 排除" },
+          { label: "Red capacity", value: equipStats.byCap["紅"], meta: "容量風險燈號" },
+        ]
+      : [
+          { label: "Audit logs", value: auditLogs.length, meta: "操作留痕" },
+          { label: "Events", value: events.length, meta: "系統事件" },
+          { label: "Retention", value: retentionCfg.autoPurgeEnabled ? "Auto" : "Manual", meta: "紀錄保留策略" },
+        ];
+
   // ───────── Render helpers ─────────
   const installCard = (r: Installation) => {
     const phase = PHASE_MAP[r.phase];
@@ -1412,6 +1601,15 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
                   <span key={chip} className="dashboardHeroPill">{chip}</span>
                 ))}
               </div>
+              <div className="heroCommandGrid">
+                {heroMetrics.map((metric) => (
+                  <div key={metric.label} className="heroCommandMetric">
+                    <span>{metric.label}</span>
+                    <strong>{metric.value}</strong>
+                    <small>{metric.meta}</small>
+                  </div>
+                ))}
+              </div>
             </div>
 
             <div className="heroSummary">
@@ -1437,6 +1635,13 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
               <StatCard label="已量產" value={installStats.released} sub="released" color="#10b981" icon="✅" />
               <StatCard label="平均進度" value={`${installStats.avgProg}%`} sub="平均" color="#3b82f6" icon="📈" />
             </div>
+
+            <MissionQueuePanel
+              title="今日優先處理"
+              subtitle={`${installActionQueue.length} 項需要確認`}
+              items={installActionQueue}
+              emptyText="目前沒有逾期、近七天到期或未指派的裝機案。"
+            />
 
             <div className="card auroraControlPanel" style={{ padding: 14, marginTop: 12 }}>
               <div className="panelHeader auroraPanelHeader">
@@ -1744,6 +1949,13 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
               <StatCard label="阻塞中" value={equipStats.blocked} sub="有 blocking" color="#ef4444" icon="⛔" />
               <StatCard label="紅燈" value={equipStats.byCap["紅"]} sub="容量風險" color="#ef4444" icon="🔴" />
             </div>
+
+            <MissionQueuePanel
+              title="設備風險佇列"
+              subtitle={`${equipmentActionQueue.length} 台需要確認`}
+              items={equipmentActionQueue}
+              emptyText="目前沒有阻塞、紅燈或高稼動設備。"
+            />
 
             <div className="card" style={{ padding: 14, marginTop: 12 }}>
               <div className="panelHeader">

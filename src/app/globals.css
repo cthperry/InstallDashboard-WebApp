@@ -970,3 +970,679 @@ textarea:focus {
     justify-content: flex-start;
   }
 }
+
+/* F66 Operations Flight Deck
+   目標：保留 F65 Aurora 基底，強化每日任務優先序與現場指揮感。
+*/
+:root,
+.dark {
+  --background: oklch(0.978 0.014 210);
+  --foreground: oklch(0.19 0.042 235);
+  --primary: oklch(0.56 0.14 218);
+  --ring: oklch(0.64 0.12 205);
+  --accent: oklch(0.93 0.05 190);
+  --border: oklch(0.86 0.028 218);
+}
+
+@keyframes flight-reveal {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes deck-orbit {
+  0%, 100% { transform: translate3d(0, 0, 0) rotate(0deg); }
+  50% { transform: translate3d(-10px, 8px, 0) rotate(8deg); }
+}
+
+body {
+  background:
+    radial-gradient(circle at 12% 8%, rgba(125, 211, 252, 0.54), transparent 32%),
+    radial-gradient(circle at 86% 10%, rgba(187, 247, 208, 0.44), transparent 28%),
+    radial-gradient(circle at 52% 96%, rgba(254, 240, 138, 0.24), transparent 30%),
+    linear-gradient(180deg, #f9fcff 0%, #edf6f8 52%, #f8fafc 100%);
+}
+
+.loginDeck {
+  min-height: 100svh;
+  padding: clamp(18px, 4vw, 44px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  overflow: hidden;
+}
+
+.loginDeck::before,
+.loginDeck::after {
+  content: "";
+  position: absolute;
+  border-radius: 999px;
+  pointer-events: none;
+  filter: blur(3px);
+}
+
+.loginDeck::before {
+  width: 360px;
+  height: 360px;
+  left: -130px;
+  bottom: -130px;
+  background: radial-gradient(circle, rgba(14, 165, 233, 0.22), transparent 68%);
+  animation: deck-orbit 10s ease-in-out infinite;
+}
+
+.loginDeck::after {
+  width: 260px;
+  height: 260px;
+  right: -90px;
+  top: 8%;
+  background: radial-gradient(circle, rgba(20, 184, 166, 0.2), transparent 70%);
+  animation: deck-orbit 12s ease-in-out infinite reverse;
+}
+
+.loginDeckShell {
+  width: min(1180px, 100%);
+  display: grid;
+  grid-template-columns: minmax(0, 1.22fr) minmax(360px, 0.78fr);
+  gap: clamp(20px, 4vw, 42px);
+  align-items: stretch;
+  position: relative;
+  z-index: 1;
+}
+
+.loginStory,
+.loginPanel {
+  border: 1px solid rgba(255, 255, 255, 0.82) !important;
+  background: rgba(255, 255, 255, 0.76) !important;
+  box-shadow: 0 26px 72px rgba(69, 117, 146, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.82) !important;
+  backdrop-filter: blur(22px);
+}
+
+.loginStory {
+  min-height: 620px;
+  padding: clamp(26px, 4vw, 46px);
+  border-radius: 38px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  overflow: hidden;
+  position: relative;
+  animation: flight-reveal 360ms ease both;
+}
+
+.loginStory::before {
+  content: "";
+  position: absolute;
+  inset: 24px;
+  border-radius: 32px;
+  background:
+    linear-gradient(90deg, rgba(14, 165, 233, 0.08) 1px, transparent 1px),
+    linear-gradient(180deg, rgba(14, 165, 233, 0.08) 1px, transparent 1px);
+  background-size: 38px 38px;
+  mask-image: linear-gradient(90deg, black, transparent 78%);
+  pointer-events: none;
+}
+
+.loginStory::after {
+  content: "";
+  position: absolute;
+  right: -58px;
+  top: -72px;
+  width: 280px;
+  height: 280px;
+  border: 34px solid rgba(14, 165, 233, 0.12);
+  border-radius: 999px;
+  pointer-events: none;
+}
+
+.loginBrandRow {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  position: relative;
+  z-index: 1;
+}
+
+.loginMark {
+  width: 54px;
+  height: 54px;
+  display: grid;
+  place-items: center;
+  border-radius: 20px;
+  color: white;
+  font-weight: 950;
+  letter-spacing: 0.08em;
+  background: linear-gradient(135deg, #0891b2, #2563eb 58%, #14b8a6);
+  box-shadow: 0 20px 34px rgba(37, 99, 235, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.3);
+}
+
+.loginKicker {
+  color: #0f766e;
+  font-size: 12px;
+  font-weight: 950;
+  letter-spacing: 0.16em;
+}
+
+.loginVersion {
+  margin-top: 3px;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.loginStoryCopy {
+  max-width: 720px;
+  position: relative;
+  z-index: 1;
+}
+
+.loginStoryCopy h1 {
+  color: #0f172a;
+  font-size: clamp(34px, 5vw, 66px);
+  line-height: 0.98;
+  font-weight: 950;
+  letter-spacing: -0.055em;
+  text-wrap: balance;
+}
+
+.loginStoryCopy p {
+  margin-top: 22px;
+  max-width: 620px;
+  color: #475569;
+  font-size: clamp(15px, 1.8vw, 18px);
+  line-height: 1.75;
+}
+
+.loginSignalGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  position: relative;
+  z-index: 1;
+}
+
+.loginSignalGrid > div,
+.loginFlightPath > div {
+  border: 1px solid rgba(203, 213, 225, 0.78);
+  background: rgba(255, 255, 255, 0.62);
+  border-radius: 24px;
+  padding: 16px;
+  box-shadow: 0 14px 28px rgba(100, 116, 139, 0.1);
+}
+
+.loginSignalGrid span {
+  color: #0891b2;
+  font-family: var(--font-mono, "JetBrains Mono", ui-monospace, monospace);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+}
+
+.loginSignalGrid strong {
+  display: block;
+  margin-top: 10px;
+  color: #0f172a;
+  font-size: 15px;
+  font-weight: 950;
+}
+
+.loginSignalGrid small {
+  display: block;
+  margin-top: 6px;
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.loginFlightPath {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  position: relative;
+  z-index: 1;
+}
+
+.loginFlightPath > div {
+  padding: 12px 14px;
+}
+
+.loginFlightPath span {
+  display: block;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.loginFlightPath b {
+  display: block;
+  margin-top: 5px;
+  color: #0f172a;
+  font-size: 13px;
+}
+
+.loginPanel {
+  align-self: center;
+  border-radius: 34px !important;
+  overflow: hidden;
+  animation: flight-reveal 360ms 80ms ease both;
+}
+
+.loginPanelHeader {
+  padding: 28px 28px 18px;
+  border-bottom: 1px solid rgba(226, 232, 240, 0.82);
+  background:
+    radial-gradient(360px 120px at 0% 0%, rgba(14, 165, 233, 0.14), transparent 72%),
+    rgba(255, 255, 255, 0.34);
+}
+
+.loginPanelTitle {
+  color: #0f172a;
+  font-size: 24px;
+  font-weight: 950;
+  letter-spacing: -0.03em;
+}
+
+.loginPanelSub {
+  color: #64748b;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.loginPanelBody {
+  padding: 24px 28px 28px;
+  display: grid;
+  gap: 16px;
+}
+
+.loginGoogleButton {
+  min-height: 46px;
+}
+
+.loginTrustNote,
+.loginSignedIn {
+  border: 1px solid rgba(186, 230, 253, 0.88);
+  background: rgba(240, 249, 255, 0.74);
+  border-radius: 18px;
+  padding: 12px 14px;
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.65;
+}
+
+.loginTrustNote span,
+.loginSignedInEmail {
+  color: #0f172a;
+  font-weight: 900;
+}
+
+.loginSignedIn {
+  display: grid;
+  gap: 10px;
+}
+
+.loginSignedInLabel {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.topbar {
+  background:
+    linear-gradient(90deg, rgba(255, 255, 255, 0.88), rgba(240, 249, 255, 0.82)),
+    radial-gradient(720px 140px at 16% 0%, rgba(45, 212, 191, 0.16), transparent 74%);
+}
+
+.topbarInner {
+  gap: 16px;
+}
+
+.appMark {
+  width: 44px;
+  height: 44px;
+  border-radius: 18px;
+  background: linear-gradient(135deg, #0891b2, #2563eb 62%, #14b8a6);
+}
+
+.navStatusPill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid rgba(153, 246, 228, 0.82);
+  border-radius: 999px;
+  padding: 8px 11px;
+  color: #0f766e;
+  background: rgba(240, 253, 250, 0.78);
+  font-size: 11px;
+  font-weight: 950;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.navStatusDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: #14b8a6;
+  box-shadow: 0 0 0 4px rgba(20, 184, 166, 0.14), 0 0 18px rgba(20, 184, 166, 0.46);
+}
+
+.tab {
+  position: relative;
+  padding-inline: 18px;
+}
+
+.tabLive::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: #14b8a6;
+  display: inline-block;
+  margin-right: 8px;
+  transform: translateY(-1px);
+}
+
+.tabActive {
+  background: linear-gradient(135deg, #0891b2, #2563eb 68%, #14b8a6);
+}
+
+.dashboardHero {
+  padding: clamp(18px, 3vw, 28px);
+  background:
+    radial-gradient(760px 280px at 0% 0%, rgba(125, 211, 252, 0.66), transparent 70%),
+    radial-gradient(420px 220px at 100% 8%, rgba(153, 246, 228, 0.42), transparent 72%),
+    linear-gradient(135deg, rgba(255, 255, 255, 0.86), rgba(248, 250, 252, 0.72));
+}
+
+.dashboardHero::before {
+  content: "";
+  position: absolute;
+  inset: 14px;
+  border-radius: 26px;
+  background:
+    linear-gradient(90deg, rgba(14, 165, 233, 0.07) 1px, transparent 1px),
+    linear-gradient(180deg, rgba(14, 165, 233, 0.07) 1px, transparent 1px);
+  background-size: 34px 34px;
+  mask-image: linear-gradient(90deg, black, transparent 82%);
+  pointer-events: none;
+}
+
+.heroGrid {
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 340px);
+}
+
+.dashboardHeroTitle {
+  max-width: 820px;
+  font-size: clamp(28px, 4.8vw, 54px);
+  line-height: 0.98;
+  letter-spacing: -0.05em;
+}
+
+.dashboardHeroDesc {
+  max-width: 740px;
+  font-size: 14px;
+}
+
+.heroCommandGrid {
+  margin-top: 18px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  position: relative;
+  z-index: 1;
+}
+
+.heroCommandMetric {
+  border: 1px solid rgba(203, 213, 225, 0.76);
+  border-radius: 20px;
+  padding: 12px 14px;
+  background: rgba(255, 255, 255, 0.58);
+  box-shadow: 0 12px 26px rgba(100, 116, 139, 0.1);
+}
+
+.heroCommandMetric span,
+.missionQueueEyebrow {
+  display: block;
+  color: #0891b2;
+  font-size: 10px;
+  font-weight: 950;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+}
+
+.heroCommandMetric strong {
+  display: block;
+  margin-top: 6px;
+  color: #0f172a;
+  font-family: var(--font-mono, "JetBrains Mono", ui-monospace, monospace);
+  font-size: 24px;
+  font-weight: 950;
+}
+
+.heroCommandMetric small {
+  display: block;
+  margin-top: 3px;
+  color: #64748b;
+  font-size: 11px;
+}
+
+.heroSummary {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-height: 100%;
+  border-color: rgba(153, 246, 228, 0.72);
+  background:
+    radial-gradient(180px 120px at 100% 0%, rgba(20, 184, 166, 0.18), transparent 72%),
+    rgba(255, 255, 255, 0.7);
+}
+
+.missionQueuePanel {
+  margin-top: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.84);
+  border-radius: 30px;
+  padding: 16px;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.82), rgba(240, 249, 255, 0.72)),
+    radial-gradient(420px 160px at 0% 0%, rgba(45, 212, 191, 0.12), transparent 72%);
+  box-shadow: 0 22px 48px rgba(125, 170, 210, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.76);
+  backdrop-filter: blur(18px);
+  animation: flight-reveal 260ms ease both;
+}
+
+.missionQueueHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.missionQueueTitle {
+  margin-top: 4px;
+  color: #0f172a;
+  font-size: 17px;
+  font-weight: 950;
+  letter-spacing: -0.02em;
+}
+
+.missionQueueSub {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.missionQueueList {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 10px;
+}
+
+.missionQueueRow {
+  position: relative;
+  width: 100%;
+  min-height: 76px;
+  display: grid;
+  grid-template-columns: 6px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  border: 1px solid rgba(226, 232, 240, 0.88);
+  border-radius: 22px;
+  padding: 12px;
+  text-align: left;
+  background: rgba(255, 255, 255, 0.72);
+  box-shadow: 0 12px 26px rgba(100, 116, 139, 0.1);
+  transition: transform 140ms ease, border-color 140ms ease, box-shadow 140ms ease;
+}
+
+.missionQueueRow:hover {
+  transform: translateY(-2px);
+  border-color: rgba(125, 211, 252, 0.9);
+  box-shadow: 0 18px 36px rgba(100, 116, 139, 0.16);
+}
+
+.missionQueueRail {
+  width: 6px;
+  height: 100%;
+  min-height: 48px;
+  border-radius: 999px;
+  background: #38bdf8;
+}
+
+.missionQueueText {
+  min-width: 0;
+}
+
+.missionQueueText strong {
+  display: block;
+  overflow: hidden;
+  color: #0f172a;
+  font-size: 13px;
+  font-weight: 950;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.missionQueueText small {
+  display: block;
+  margin-top: 4px;
+  overflow: hidden;
+  color: #64748b;
+  font-size: 11px;
+  line-height: 1.45;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.missionQueueValue {
+  border-radius: 999px;
+  padding: 5px 9px;
+  color: #0369a1;
+  background: rgba(224, 242, 254, 0.86);
+  font-family: var(--font-mono, "JetBrains Mono", ui-monospace, monospace);
+  font-size: 11px;
+  font-weight: 950;
+  white-space: nowrap;
+}
+
+.missionQueueRow-critical .missionQueueRail { background: #e11d48; }
+.missionQueueRow-critical .missionQueueValue { color: #be123c; background: rgba(255, 228, 230, 0.9); }
+.missionQueueRow-warning .missionQueueRail { background: #f59e0b; }
+.missionQueueRow-warning .missionQueueValue { color: #b45309; background: rgba(254, 243, 199, 0.9); }
+.missionQueueRow-info .missionQueueRail { background: #0ea5e9; }
+.missionQueueRow-good .missionQueueRail { background: #10b981; }
+.missionQueueRow-good .missionQueueValue { color: #047857; background: rgba(209, 250, 229, 0.9); }
+
+.missionQueueEmpty {
+  border: 1px dashed rgba(148, 163, 184, 0.52);
+  border-radius: 22px;
+  padding: 18px;
+  color: #64748b;
+  background: rgba(248, 250, 252, 0.62);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.warRoomPage {
+  padding: clamp(14px, 2vw, 22px);
+}
+
+.warRoomHeader,
+.warPanel,
+.warKpiCard {
+  border-color: rgba(255, 255, 255, 0.82);
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.82), rgba(240, 249, 255, 0.68)),
+    radial-gradient(420px 160px at 0% 0%, rgba(45, 212, 191, 0.1), transparent 72%);
+  box-shadow: 0 20px 46px rgba(69, 117, 146, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.78);
+}
+
+.warRoomTitle {
+  background: linear-gradient(135deg, #0891b2, #2563eb, #14b8a6);
+  -webkit-background-clip: text;
+  background-clip: text;
+}
+
+.warRegionCard {
+  background: rgba(255, 255, 255, 0.52);
+}
+
+@media (max-width: 980px) {
+  .loginDeckShell {
+    grid-template-columns: 1fr;
+  }
+
+  .loginStory {
+    min-height: auto;
+  }
+
+  .loginSignalGrid,
+  .loginFlightPath,
+  .heroCommandGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .loginDeck {
+    padding: 12px;
+  }
+
+  .loginStory,
+  .loginPanel,
+  .dashboardHero,
+  .missionQueuePanel {
+    border-radius: 24px !important;
+  }
+
+  .loginStory {
+    padding: 22px;
+    gap: 28px;
+  }
+
+  .loginStoryCopy h1 {
+    font-size: clamp(30px, 12vw, 44px);
+  }
+
+  .loginPanelHeader,
+  .loginPanelBody {
+    padding-left: 20px;
+    padding-right: 20px;
+  }
+
+  .missionQueueHead {
+    flex-direction: column;
+  }
+
+  .missionQueueSub {
+    white-space: normal;
+  }
+
+  .missionQueueList {
+    grid-template-columns: 1fr;
+  }
+}

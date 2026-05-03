@@ -25,5 +25,5 @@ export default async function DashboardEntry({
     redirect(`/dashboard/install?view=${view}`);
   }
 
-  redirect("/dashboard/install");
+  redirect("/dashboard/warroom");
 }
