@@ -55,6 +55,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           {`
             (async function () {
               if (!('serviceWorker' in navigator)) return;
+              const expectedVersion = ${JSON.stringify(APP_VERSION)};
               const host = window.location.hostname;
               const isLocalhost = host === 'localhost' || host === '127.0.0.1' || host === '::1';
 
@@ -66,10 +67,35 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                 return;
               }
 
+              let reloading = false;
+              navigator.serviceWorker.addEventListener('controllerchange', () => {
+                if (reloading) return;
+                reloading = true;
+                window.location.reload();
+              });
+
+              async function checkVersion(registration) {
+                try {
+                  const response = await fetch('/version.json?ts=' + Date.now(), { cache: 'no-store' });
+                  if (!response.ok) return;
+                  const payload = await response.json();
+                  if (payload && payload.version && payload.version !== expectedVersion) {
+                    await registration.update();
+                  }
+                } catch (err) {
+                  console.warn('[SW] version check failed', err);
+                }
+              }
+
               window.addEventListener('load', () => {
-                navigator.serviceWorker.register('/sw.js').catch((err) => {
-                  console.warn('[SW] registration failed', err);
-                });
+                navigator.serviceWorker.register('/sw.js')
+                  .then((registration) => {
+                    checkVersion(registration);
+                    window.setInterval(() => checkVersion(registration), 5 * 60 * 1000);
+                  })
+                  .catch((err) => {
+                    console.warn('[SW] registration failed', err);
+                  });
               });
             })();
           `}

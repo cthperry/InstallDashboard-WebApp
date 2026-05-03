@@ -1,35 +1,14 @@
 "use client";
 
-import Link from "next/link";
 import { useAuth } from "@/features/auth/AuthProvider";
 import { getAppReleaseLabel } from "@/config/appVersion";
 
-const routeGroups = [
-  {
-    title: "每日營運",
-    items: [
-      { href: "/dashboard/warroom", label: "營運中樞", detail: "風險隊列、區域健康、角色入口" },
-      { href: "/dashboard/install?view=pipeline", label: "任務流", detail: "裝機階段、逾期、工程師 owner" },
-      { href: "/dashboard/equipment", label: "設備台帳", detail: "UPH、blocking、產品產能" },
-    ],
-  },
-  {
-    title: "治理與稽核",
-    items: [
-      { href: "/dashboard/insights", label: "洞察紀錄", detail: "分析、audit logs、events" },
-      { href: "/admin/customer-sites", label: "客戶清單", detail: "客戶與區域 mapping" },
-      { href: "/admin/machine-models", label: "機型設定", detail: "機型 code 與顯示名稱" },
-      { href: "/admin/users", label: "使用者權限", detail: "admin / engineer role" },
-    ],
-  },
-];
-
 function buildReleaseNotes(releaseLabel: string): string[] {
   return [
-    `升級為 ${releaseLabel} 裝機營運中樞，版本標籤改由 appVersion 單一來源產生。`,
-    "營運中樞負責跨域 KPI 與今日必處理；任務流、設備台帳聚焦明細維護與資料品質。",
-    "裝機 released 轉設備台帳改為原子批次寫入，降低任務流與台帳重複風險。",
-    "Service Worker 與版本守門強化，降低 production 載入舊 bundle 的機率。",
+    `${releaseLabel} 將主模式收斂為「營運中樞、任務流、設備台帳、洞察」四個入口，系統頁退回 admin 管理選單。`,
+    "任務流預設進 Pipeline，表格改為資料維護視圖，降低重複檢視與誤操作。",
+    "裝機表與設備台帳改用固定欄寬與左右 sticky 欄，機台序號、客戶、預計安裝日與操作區不再互相擠壓。",
+    "移除一次性 cleanup route，並補上智慧匯入批次寫入上限檢查，避免 production 直接暴露破壞性工具。",
   ];
 }
 
@@ -109,25 +88,19 @@ export function SystemStatusPage() {
         </div>
       </section>
 
-      <section className="f66RouteMatrix">
-        {routeGroups.map((group) => (
-          <div key={group.title} className="f66Panel">
-            <div className="f66PanelHead">
-              <div>
-                <span className="f66Eyebrow">ROUTE MAP</span>
-                <h2>{group.title}</h2>
-              </div>
-            </div>
-            <div className="f66RouteList">
-              {group.items.map((item) => (
-                <Link key={item.href} href={item.href} className="f66RouteItem">
-                  <strong>{item.label}</strong>
-                  <span>{item.detail}</span>
-                </Link>
-              ))}
-            </div>
+      <section className="f66Panel">
+        <div className="f66PanelHead">
+          <div>
+            <span className="f66Eyebrow">SYSTEM SCOPE</span>
+            <h2>系統頁用途</h2>
           </div>
-        ))}
+          <StatusPill label="ADMIN ENTRY" tone="info" />
+        </div>
+        <div className="f66GuardList">
+          <div><b>版本</b><span>確認目前線上版號與 build date</span></div>
+          <div><b>部署</b><span>主分支推送後由 Vercel production 接管</span></div>
+          <div><b>治理</b><span>權限、客戶、機型與資料保留由 admin 選單進入</span></div>
+        </div>
       </section>
     </main>
   );

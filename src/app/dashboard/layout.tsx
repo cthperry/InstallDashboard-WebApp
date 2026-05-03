@@ -8,12 +8,12 @@ import { RequireAuth } from "@/features/auth/RequireAuth";
 import { useAuth } from "@/features/auth/AuthProvider";
 import { getAppReleaseLabel } from "@/config/appVersion";
 
-function NavLink({ href, label, active, tone }: { href: string; label: string; active: boolean; tone?: "live" | "system" }) {
+function NavLink({ href, label, active, tone }: { href: string; label: string; active: boolean; tone?: "live" }) {
   return (
     <Link
       href={href}
       aria-current={active ? "page" : undefined}
-      className={`${active ? "tab tabActive" : "tab"}${tone === "live" ? " tabLive" : ""}${tone === "system" ? " tabSystem" : ""}`}
+      className={`${active ? "tab tabActive" : "tab"}${tone === "live" ? " tabLive" : ""}`}
     >
       {label}
     </Link>
@@ -91,10 +91,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         <div className="tabsWrap">
           <div className="tabs">
             <NavLink href="/dashboard/warroom"   label="營運中樞"   active={isWarRoom} tone="live" />
-            <NavLink href="/dashboard/install"   label="任務流"     active={pathname?.startsWith("/dashboard/install")  ?? false} />
+            <NavLink href="/dashboard/install?view=pipeline" label="任務流" active={pathname?.startsWith("/dashboard/install")  ?? false} />
             <NavLink href="/dashboard/equipment" label="設備台帳"   active={pathname?.startsWith("/dashboard/equipment") ?? false} />
-            <NavLink href="/dashboard/insights"  label="洞察與紀錄" active={pathname?.startsWith("/dashboard/insights") ?? false} />
-            <NavLink href="/dashboard/system"    label="系統版本"   active={isSystem} tone="system" />
+            <NavLink href="/dashboard/insights?tab=analytics" label="洞察" active={pathname?.startsWith("/dashboard/insights") ?? false} />
           </div>
         </div>
       </div>

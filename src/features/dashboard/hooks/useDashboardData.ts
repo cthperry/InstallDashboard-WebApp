@@ -10,6 +10,7 @@ import { listenAppVariables, listenMachineModels, listenRetentionSettings } from
 import { listenAuditLogs, listenEventsLastDays, type AuditLogRow, type EventRow } from "@/features/data/logs";
 
 type DashboardSection = "install" | "equipment" | "insights";
+type InsightsTab = "analytics" | "logs";
 
 function safeStr(v: unknown): string {
   if (typeof v === "string") return v;
@@ -17,7 +18,15 @@ function safeStr(v: unknown): string {
   return String(v);
 }
 
-export function useDashboardData({ isAdmin, section }: { isAdmin: boolean; section: DashboardSection }) {
+export function useDashboardData({
+  isAdmin,
+  section,
+  insightsTab,
+}: {
+  isAdmin: boolean;
+  section: DashboardSection;
+  insightsTab?: InsightsTab;
+}) {
   const [machineModels, setMachineModels] = useState<MachineModel[]>([...DEFAULT_MACHINE_MODELS]);
   const [appVars, setAppVars] = useState<AppVariablesDoc | null>(null);
   const [retention, setRetention] = useState<RetentionSettingsDoc | null>(null);
@@ -54,7 +63,7 @@ export function useDashboardData({ isAdmin, section }: { isAdmin: boolean; secti
   }, [isAdmin]);
 
   useEffect(() => {
-    if (section === "equipment") {
+    if (section === "equipment" || (section === "insights" && insightsTab === "logs")) {
       setInstallations([]);
       setInstallErr("");
       return;
@@ -64,10 +73,10 @@ export function useDashboardData({ isAdmin, section }: { isAdmin: boolean; secti
       (e) => setInstallErr(safeStr(e)),
     );
     return () => unsubInst?.();
-  }, [section]);
+  }, [section, insightsTab]);
 
   useEffect(() => {
-    if (section === "install") {
+    if (section === "install" || (section === "insights" && insightsTab === "logs")) {
       setEquipments([]);
       setEquipErr("");
       return;
@@ -77,7 +86,7 @@ export function useDashboardData({ isAdmin, section }: { isAdmin: boolean; secti
       (e) => setEquipErr(safeStr(e)),
     );
     return () => unsubEq?.();
-  }, [section]);
+  }, [section, insightsTab]);
 
   useEffect(() => {
     if (!(isAdmin && section === "insights")) {

@@ -7,7 +7,7 @@ import { listenInstallations } from "@/features/data/installations";
 import { listenEquipments } from "@/features/data/equipments";
 import type { Equipment, Installation, PhaseKey, RegionKey } from "@/domain/types";
 import { PHASES, PHASE_MAP, REGIONS } from "@/domain/constants";
-import { formatUphValue, getLiveUtilization } from "@/domain/capacity";
+import { getLiveUtilization } from "@/domain/capacity";
 import { getInstallationSerial } from "@/domain/installationDisplay";
 import { normalizePersonKey, toDisplayShortName } from "@/domain/personDisplay";
 import { getAppReleaseLabel } from "@/config/appVersion";
@@ -221,57 +221,12 @@ function RoleConsole({
           <strong>設備阻塞與產能</strong>
           <p>處理 blocking owner、UPH 與 target UPH 缺口。</p>
         </Link>
-        <Link href={isAdmin ? "/admin/users" : "/dashboard/system"} className="f66RoleCard">
+        <Link href={isAdmin ? "/admin/users" : "/dashboard/install?view=pipeline"} className="f66RoleCard">
           <span>ADMIN</span>
-          <strong>{isAdmin ? "資料與權限治理" : "系統權限狀態"}</strong>
+          <strong>{isAdmin ? "資料與權限治理" : "我的可操作任務"}</strong>
           <p>{isAdmin ? `${adminGaps} 項資料治理待確認。` : "目前非 admin，只顯示可操作任務。"}</p>
         </Link>
       </div>
-    </section>
-  );
-}
-
-function ProductCapacityBoard({ equipments }: { equipments: Equipment[] }) {
-  const productRows = useMemo(() => {
-    const productMap = new Map<string, { cap: number; machines: number }>();
-    for (const eq of equipments) {
-      for (const product of eq.products ?? []) {
-        const name = safeStr(product.name).trim();
-        if (!name) continue;
-        const current = productMap.get(name) ?? { cap: 0, machines: 0 };
-        current.cap += Number(product.dailyCap) || 0;
-        current.machines += 1;
-        productMap.set(name, current);
-      }
-    }
-    return Array.from(productMap.entries())
-      .map(([name, stats]) => ({ name, ...stats }))
-      .sort((a, b) => b.cap - a.cap)
-      .slice(0, 8);
-  }, [equipments]);
-
-  return (
-    <section className="f66Panel">
-      <div className="f66PanelHead">
-        <div>
-          <span className="f66Eyebrow">CAPACITY LEDGER</span>
-          <h2>產品產能排行</h2>
-        </div>
-        <Link href="/dashboard/equipment" className="f66MiniLink">設備台帳</Link>
-      </div>
-      {productRows.length > 0 ? (
-        <div className="f66ProductList">
-          {productRows.map((row) => (
-            <div key={row.name} className="f66ProductRow">
-              <span>{row.name}</span>
-              <i>{row.machines} 台</i>
-              <strong>{formatUphValue(row.cap)} UPH</strong>
-            </div>
-          ))}
-        </div>
-      ) : (
-        <div className="f66EmptyState">設備台帳尚未填寫產品產能。建議先補上每台設備的 products。</div>
-      )}
     </section>
   );
 }
@@ -318,7 +273,6 @@ export function WarRoomPage() {
     const stale = installs.filter((row) => !isReleased(row) && daysSinceUpdated(row.updatedAt) >= 7);
     const blocked = equips.filter((row) => safeStr(row.blocking?.reasonCode));
     const hot = equips.filter((row) => getLiveUtilization(row.capacity) >= 80);
-    const avgProgress = total ? Math.round(installs.reduce((sum, row) => sum + Number(row.progress || 0), 0) / total) : 0;
     const avgUtilization = equips.length ? Math.round(equips.reduce((sum, row) => sum + getLiveUtilization(row.capacity), 0) / equips.length) : 0;
     const healthScore = clamp(100 - overdue.length * 8 - blocked.length * 6 - dueSoon.length * 3 - stale.length * 2, 0, 100);
 
@@ -387,7 +341,7 @@ export function WarRoomPage() {
         meta: `${row.customer || "未填客戶"} · ${PHASE_MAP[row.phase]?.label ?? row.phase} · ${daysSinceUpdated(row.updatedAt)} 天未更新`,
         value: "STALE",
         tone: "warning" as Tone,
-        href: "/dashboard/install?view=card",
+        href: "/dashboard/install?view=pipeline",
         priority: 60,
       })),
       ...hot.slice(0, 8).map((row) => ({
@@ -410,7 +364,6 @@ export function WarRoomPage() {
       stale,
       blocked,
       hot,
-      avgProgress,
       avgUtilization,
       healthScore,
       phaseRows: PHASES.map((phase) => ({ ...phase, count: phaseCount[phase.key] ?? 0 })),
@@ -458,7 +411,6 @@ export function WarRoomPage() {
         <ControlMetric label="逾期警戒" value={computed.overdue.length} unit="件" caption="超過預計安裝完成日" tone={computed.overdue.length > 0 ? "critical" : "good"} />
         <ControlMetric label="本週到期" value={computed.dueSoon.length} unit="件" caption="7 天內需要交付或更新" tone={computed.dueSoon.length > 0 ? "warning" : "good"} />
         <ControlMetric label="設備阻塞" value={computed.blocked.length} unit="台" caption="blocking reason code 已填寫" tone={computed.blocked.length > 0 ? "warning" : "good"} />
-        <ControlMetric label="平均裝機進度" value={computed.avgProgress} unit="%" caption="全裝機案件平均進度" tone="info" />
         <ControlMetric label="平均稼動率" value={computed.avgUtilization} unit="%" caption="設備台帳即時計算" tone={computed.avgUtilization >= 80 ? "warning" : "good"} />
       </section>
 
@@ -472,7 +424,7 @@ export function WarRoomPage() {
         <PhaseRail phaseRows={computed.phaseRows} />
       </div>
 
-      <div className="f66MainGrid">
+      <div className="f66MainGrid f66MainGridWide">
         <section className="f66Panel">
           <div className="f66PanelHead">
             <div>
@@ -483,13 +435,7 @@ export function WarRoomPage() {
           <div className="f66BriefList">
             {briefLines.map((line) => <p key={line}>{line}</p>)}
           </div>
-          <div className="f66LoopGrid">
-            <div><span>08:30</span><strong>風險站會</strong><small>逾期、blocking、ETA</small></div>
-            <div><span>13:30</span><strong>交付校準</strong><small>本週到期與客戶窗口</small></div>
-            <div><span>17:30</span><strong>資料封版</strong><small>更新進度、設備產能、audit trail</small></div>
-          </div>
         </section>
-        <ProductCapacityBoard equipments={equips} />
       </div>
     </main>
   );

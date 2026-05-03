@@ -76,16 +76,18 @@ function SortableTh({
   dir,
   onClick,
   width,
+  className,
 }: {
   label: string;
   active: boolean;
   dir: SortDirection;
   onClick: () => void;
   width?: number | string;
+  className?: string;
 }) {
   const arrow = active ? (dir === "asc" ? "↑" : "↓") : "↕";
   return (
-    <th style={width ? { width } : undefined}>
+    <th className={className} style={width ? { width } : undefined}>
       <button
         type="button"
         onClick={onClick}
@@ -177,8 +179,8 @@ function MissionQueuePanel({
 }
 
 function parseInstallView(v: string | null): InstallView {
-  if (v === "card" || v === "pipeline" || v === "gantt") return v;
-  return "table";
+  if (v === "table" || v === "card" || v === "gantt") return v;
+  return "pipeline";
 }
 
 function parseInsightsTab(v: string | null): InsightsTab {
@@ -450,10 +452,7 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
 
   const [installView, setInstallView] = useState<InstallView>(parseInstallView(installViewParam));
   const [insightsTab, setInsightsTab] = useState<InsightsTab>(parseInsightsTab(insightsTabParam));
-  const [insightsCollapsed, setInsightsCollapsed] = useState<Record<InsightsTab, boolean>>({
-    analytics: false,
-    logs: false,
-  });
+  const activeInsightsTab: InsightsTab = isAdmin ? insightsTab : "analytics";
   const [showInstallAdvancedFilters, setShowInstallAdvancedFilters] = useState(false);
 
   const {
@@ -467,7 +466,7 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
     equipErr,
     auditLogs,
     events,
-  } = useDashboardData({ isAdmin, section });
+  } = useDashboardData({ isAdmin, section, insightsTab: activeInsightsTab });
 
   const [purgeBusy, setPurgeBusy] = useState(false);
   const [purgeHint, setPurgeHint] = useState<string>("");
@@ -1350,14 +1349,15 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
 
   const switchInstallView = useCallback((view: InstallView) => {
     setInstallView(view);
-    const next = view === "table" ? "/dashboard/install" : `/dashboard/install?view=${view}`;
+    const next = view === "pipeline" ? "/dashboard/install" : `/dashboard/install?view=${view}`;
     router.replace(next, { scroll: false });
   }, [router]);
 
   const switchInsightsTab = useCallback((nextTab: InsightsTab) => {
     setInsightsTab(nextTab);
-    setInsightsCollapsed((prev) => ({ ...prev, [nextTab]: false }));
-  }, []);
+    const next = nextTab === "analytics" ? "/dashboard/insights" : `/dashboard/insights?tab=${nextTab}`;
+    router.replace(next, { scroll: false });
+  }, [router]);
 
   const toggleInstallSort = useCallback((key: InstallSortKey) => {
     if (installSortKey === key) {
@@ -1691,7 +1691,7 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
             ) : (
               <div className="card auroraTablePanel" style={{ marginTop: 12 }}>
                 <div className="tableWrap">
-                  <table className="table installListTable">
+                  <table className="table dataTableDense installListTable">
                     <colgroup>
                       <col className="installListColSerial" />
                       <col className="installListColCustomer" />
@@ -1706,7 +1706,7 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
                     </colgroup>
                     <thead>
                       <tr>
-                        <SortableTh label="機台序號" active={installSortKey === "name"} dir={installSortDir} onClick={() => toggleInstallSort("name")} />
+                        <SortableTh className="tableStickyLeft" label="機台序號" active={installSortKey === "name"} dir={installSortDir} onClick={() => toggleInstallSort("name")} />
                         <SortableTh label="客戶" active={installSortKey === "customer"} dir={installSortDir} onClick={() => toggleInstallSort("customer")} />
                         <th>區域</th>
                         <th>機型</th>
@@ -1715,17 +1715,18 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
                         <th>進度</th>
                         <SortableTh label="預計安裝日" active={installSortKey === "estComplete"} dir={installSortDir} onClick={() => toggleInstallSort("estComplete")} />
                         <SortableTh label="更新" active={installSortKey === "updatedAt"} dir={installSortDir} onClick={() => toggleInstallSort("updatedAt")} />
-                        <th style={{ width: 220 }}>操作</th>
+                        <th className="tableStickyRight">操作</th>
                       </tr>
                     </thead>
                     <tbody>
                       {filteredInstallations.map((r) => {
                         const phase = PHASE_MAP[r.phase];
                         const overdue = isOverdueInstall(r, today);
+                        const serial = getInstallSerial(r);
                         return (
                           <tr key={r.id}>
-                            <td style={{ fontWeight: 900 }}>{getInstallSerial(r)}</td>
-                            <td>{r.customer}</td>
+                            <td className="tableStickyLeft tableSerialCell" title={serial}>{serial}</td>
+                            <td className="tableTextClip" title={r.customer}>{r.customer}</td>
                             <td><Badge text={REGIONS[r.region].label} color={REGIONS[r.region].color} subtle /></td>
                             <td><Badge text={r.modelCode} color="#3b82f6" subtle /></td>
                             <td><Badge text={`${phase.icon} ${phase.label}`} color={phase.color} subtle /></td>
@@ -1738,10 +1739,10 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
                                 {r.progress ?? 0}% {overdue ? <span style={{ color: "#ef4444", fontWeight: 900 }}>（逾期）</span> : null}
                               </div>
                             </td>
-                            <td className="installListDueDate">{r.estComplete || "-"}</td>
-                            <td style={{ color: "#94a3b8", fontSize: 12 }}>{fmtDate(r.updatedAt)}</td>
-                            <td>
-                              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                            <td className="installListDueDate tableDateCell">{r.estComplete || "-"}</td>
+                            <td className="tableDateCell tableSecondaryText">{fmtDate(r.updatedAt)}</td>
+                            <td className="tableStickyRight tableActionsCell">
+                              <div className="tableActions">
                                 <button className="btn btnSmall" onClick={() => advanceInstall(r)}>推進</button>
                                 <button className="btn btnSmall" onClick={() => openEditInstall(r)}>編輯</button>
                                 <button className="btn btnSmall btnDanger" onClick={() => delInstall(r)}>刪除</button>
@@ -1963,19 +1964,27 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
 
             <div className="card" style={{ marginTop: 12 }}>
               <div className="tableWrap">
-                <table className="table tableSmall">
+                <table className="table dataTableDense equipmentLedgerTable">
+                  <colgroup>
+                    <col className="equipmentColSerial" />
+                    <col className="equipmentColCustomer" />
+                    <col className="equipmentColModel" />
+                    <col className="equipmentColStatus" />
+                    <col className="equipmentColOwner" />
+                    <col className="equipmentColUtil" />
+                    <col className="equipmentColUpdated" />
+                    <col className="equipmentColActions" />
+                  </colgroup>
                   <thead>
                     <tr>
-                      <SortableTh label="機台序號" active={equipSortKey === "serialNo"} dir={equipSortDir} onClick={() => toggleEquipSort("serialNo")} />
+                      <SortableTh className="tableStickyLeft" label="機台序號" active={equipSortKey === "serialNo"} dir={equipSortDir} onClick={() => toggleEquipSort("serialNo")} />
                       <SortableTh label="客戶/站點" active={equipSortKey === "customer"} dir={equipSortDir} onClick={() => toggleEquipSort("customer")} />
                       <th>機型 / 設備 ID</th>
                       <SortableTh label="狀態" active={equipSortKey === "statusMain"} dir={equipSortDir} onClick={() => toggleEquipSort("statusMain")} />
                       <SortableTh label="Owner" active={equipSortKey === "owner"} dir={equipSortDir} onClick={() => toggleEquipSort("owner")} />
                       <SortableTh label="稼動率" active={equipSortKey === "utilization"} dir={equipSortDir} onClick={() => toggleEquipSort("utilization")} />
-                      <th>產品產能</th>
-                      <th>趨勢</th>
                       <SortableTh label="更新" active={equipSortKey === "updatedAt"} dir={equipSortDir} onClick={() => toggleEquipSort("updatedAt")} />
-                      <th style={{ width: 220 }}>操作</th>
+                      <th className="tableStickyRight">操作</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1986,14 +1995,14 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
                       const capColor = CAPACITY_COLOR[liveLevel];
                       return (
                         <tr key={r.id}>
-                          <td className="mono" style={{ fontWeight: 900 }}>{(r as any).serialNo || (r as any).name || "-"}</td>
-                          <td>
+                          <td className="tableStickyLeft tableSerialCell mono" title={(r as any).serialNo || (r as any).name || "-"}>{(r as any).serialNo || (r as any).name || "-"}</td>
+                          <td className="tableTextClip" title={`${r.customer} ${r.site || ""}`}>
                             <div style={{ fontWeight: 900 }}>{r.customer}</div>
-                            <div style={{ color: "#94a3b8", fontSize: 12 }}>{regionLabel(r.region)} · {r.site}</div>
+                            <div className="tableSecondaryText">{regionLabel(r.region)} · {r.site}</div>
                           </td>
                           <td>
                             <div><Badge text={r.modelCode} color="#3b82f6" subtle /></div>
-                            <div className="mono" style={{ color: "#94a3b8", marginTop: 4 }}>
+                            <div className="mono tableSecondaryText" style={{ marginTop: 4 }}>
                               {r.equipmentId || "-"}
                             </div>
                           </td>
@@ -2003,34 +2012,16 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
                               <Badge text={liveLevel} color={capColor} subtle />
                               {r.blocking?.reasonCode ? <Badge text={`阻塞：${r.blocking.reasonCode}`} color="#ef4444" subtle /> : null}
                             </div>
-                            <div style={{ color: "#94a3b8", fontSize: 12, marginTop: 6 }}>{r.statusSub || "-"}</div>
+                            <div className="tableSecondaryText" style={{ marginTop: 6 }}>{r.statusSub || "-"}</div>
                           </td>
                           <td>{toDisplayShortName(r.owner) || "-"}</td>
                           <td>
                             <div style={{ fontWeight: 900, color: pickColorByUtil(getLiveUtilization(r.capacity)) }}>{getLiveUtilization(r.capacity)}%</div>
-                            <div style={{ color: "#94a3b8", fontSize: 12 }}>{Number(r.capacity.uph).toLocaleString()}/{Number(r.capacity.targetUph).toLocaleString()} UPH</div>
+                            <div className="tableSecondaryText">{Number(r.capacity.uph).toLocaleString()}/{Number(r.capacity.targetUph).toLocaleString()} UPH</div>
                           </td>
-                          <td>
-                            {(r.products ?? []).length > 0 ? (
-                              <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-                                {(r.products ?? []).map((p, pi) => (
-                                  <div key={pi} style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                                    <span style={{ background: "rgba(59,130,246,0.12)", color: "#3b82f6", borderRadius: 4, padding: "1px 7px", fontSize: 11, fontWeight: 900 }}>{p.name}</span>
-                                    {/*
-                                     * Display product daily capacity using unified formatting.
-                                     * For values >= 1,000, show compact format (e.g. 5.1K).
-                                     * For values < 1,000, show plain number without suffix.
-                                     */}
-                                    <span style={{ color: "#64748b", fontSize: 12 }}>{formatUphValue(p.dailyCap)}</span>
-                                  </div>
-                                ))}
-                              </div>
-                            ) : <span style={{ color: "#94a3b8", fontSize: 12 }}>—</span>}
-                          </td>
-                          <td><MiniTrend values={r.capacity.trend7d} color={capColor} /></td>
-                          <td style={{ color: "#94a3b8", fontSize: 12 }}>{fmtDate(r.updatedAt)}</td>
-                          <td>
-                            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                          <td className="tableDateCell tableSecondaryText">{fmtDate(r.updatedAt)}</td>
+                          <td className="tableStickyRight tableActionsCell">
+                            <div className="tableActions">
                               <button className="btn btnSmall" onClick={() => openDrawer(r)}>詳情</button>
                               <button className="btn btnSmall" onClick={() => openEditEquip(r)}>編輯</button>
                               <button className="btn btnSmall btnDanger" onClick={() => delEquip(r)}>刪除</button>
@@ -2041,7 +2032,7 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
                     })}
                     {filteredEquipments.length === 0 ? (
                       <tr>
-                        <td colSpan={10} style={{ textAlign: "center", padding: 20, color: "#94a3b8" }}>無資料</td>
+                        <td colSpan={8} style={{ textAlign: "center", padding: 20, color: "#94a3b8" }}>無資料</td>
                       </tr>
                     ) : null}
                   </tbody>
@@ -2055,33 +2046,21 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
           <div className="card" style={{ padding: 10, marginTop: 12 }}>
             <div style={{ display: "flex", gap: 8, alignItems: "center", justifyContent: "space-between", flexWrap: "wrap" }}>
               <div className="segTabs">
-                <button className={insightsTab === "analytics" ? "segTab segTabActive" : "segTab"} onClick={() => switchInsightsTab("analytics")}>
+                <button className={activeInsightsTab === "analytics" ? "segTab segTabActive" : "segTab"} onClick={() => switchInsightsTab("analytics")}>
                   分析
                 </button>
-                <button className={insightsTab === "logs" ? "segTab segTabActive" : "segTab"} onClick={() => switchInsightsTab("logs")}>
-                  紀錄
-                </button>
+                {isAdmin ? (
+                  <button className={activeInsightsTab === "logs" ? "segTab segTabActive" : "segTab"} onClick={() => switchInsightsTab("logs")}>
+                    治理紀錄
+                  </button>
+                ) : null}
               </div>
-              <button
-                className="btn btnSmall btnGhost"
-                onClick={() => setInsightsCollapsed((prev) => ({ ...prev, [insightsTab]: !prev[insightsTab] }))}
-              >
-                {insightsCollapsed[insightsTab] ? "展開目前內容" : "收合目前內容"}
-              </button>
-            </div>
-          </div>
-        ) : null}
-
-        {section === "insights" && insightsCollapsed[insightsTab] ? (
-          <div className="card" style={{ padding: 12, marginTop: 12 }}>
-            <div style={{ color: "#94a3b8", fontSize: 12 }}>
-              已收合「{insightsTab === "analytics" ? "分析" : "紀錄"}」，再點一次同分頁可展開。
             </div>
           </div>
         ) : null}
 
         {/* ───────── Section: Insights / Analytics ───────── */}
-        {section === "insights" && !insightsCollapsed.analytics && insightsTab === "analytics" ? (
+        {section === "insights" && activeInsightsTab === "analytics" ? (
           <>
             {filteredInstallations.length === 0 ? (
               <div className="card" style={{ padding: 14, marginTop: 12 }}>
@@ -2281,7 +2260,7 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
         ) : null}
 
         {/* ───────── Section: Insights / Logs ───────── */}
-        {section === "insights" && !insightsCollapsed.logs && insightsTab === "logs" ? (
+        {section === "insights" && isAdmin && activeInsightsTab === "logs" ? (
           <>
             <div className="card" style={{ padding: 14 }}>
               <div style={{ fontWeight: 900 }}>稽核紀錄（auditLogs）</div>

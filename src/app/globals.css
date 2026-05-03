@@ -315,10 +315,20 @@ body {
   .panelHeader > :first-child { @apply text-sm font-bold; letter-spacing: 0.03em; }
 
   /* ── Table ── */
-  .tableWrap { @apply w-full overflow-x-auto; }
+  .tableWrap { @apply w-full overflow-x-auto; position: relative; isolation: isolate; scrollbar-gutter: stable; }
   .table { @apply w-full border-collapse min-w-[980px]; }
   .tableSmall { min-width: 900px; }
   .table th, .table td { @apply border-b border-border/60 px-3 py-3 align-top text-left; }
+  .dataTableDense {
+    table-layout: fixed;
+    border-collapse: separate;
+    border-spacing: 0;
+  }
+  .dataTableDense th,
+  .dataTableDense td {
+    padding: 8px 10px;
+    font-size: 13px;
+  }
   .table th {
     @apply sticky top-0 z-10 text-xs font-semibold text-muted-foreground;
     background: linear-gradient(180deg,
@@ -328,17 +338,72 @@ body {
   }
   .table tbody tr:nth-child(even) td { background: rgba(124,58,237,0.04); }
   .table tr:hover td { background: rgba(124,58,237,0.10); }
-  .installListTable { min-width: 1320px; table-layout: fixed; }
-  .installListTable col.installListColSerial { width: 155px; }
-  .installListTable col.installListColCustomer { width: 230px; }
-  .installListTable col.installListColRegion { width: 70px; }
-  .installListTable col.installListColModel { width: 120px; }
-  .installListTable col.installListColPhase { width: 125px; }
-  .installListTable col.installListColEngineer { width: 86px; }
-  .installListTable col.installListColProgress { width: 100px; }
-  .installListTable col.installListColDueDate { width: 130px; }
-  .installListTable col.installListColUpdated { width: 110px; }
-  .installListTable col.installListColActions { width: 194px; }
+  .tableStickyLeft,
+  .tableStickyRight {
+    position: sticky;
+    z-index: 14;
+    background: color-mix(in oklab, var(--card) 96%, white 4%);
+  }
+  th.tableStickyLeft,
+  th.tableStickyRight {
+    z-index: 24;
+    background: color-mix(in oklab, var(--secondary) 90%, white 10%);
+  }
+  .tableStickyLeft {
+    left: 0;
+    box-shadow: 1px 0 0 rgba(148, 163, 184, 0.24);
+  }
+  .tableStickyRight {
+    right: 0;
+    box-shadow: -1px 0 0 rgba(148, 163, 184, 0.24);
+  }
+  .dataTableDense tbody tr:nth-child(even) .tableStickyLeft,
+  .dataTableDense tbody tr:nth-child(even) .tableStickyRight {
+    background: color-mix(in oklab, var(--card) 92%, var(--muted) 8%);
+  }
+  .dataTableDense tbody tr:hover .tableStickyLeft,
+  .dataTableDense tbody tr:hover .tableStickyRight {
+    background: color-mix(in oklab, var(--card) 86%, var(--primary) 14%);
+  }
+  .tableSerialCell,
+  .tableDateCell,
+  .tableActionsCell {
+    white-space: nowrap;
+  }
+  .tableSerialCell {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-weight: 900;
+  }
+  .tableTextClip {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .tableSecondaryText {
+    color: #94a3b8;
+    font-size: 12px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .tableActions {
+    display: flex;
+    gap: 6px;
+    flex-wrap: nowrap;
+    justify-content: flex-end;
+  }
+  .installListTable { min-width: 1240px; }
+  .installListTable col.installListColSerial { width: 150px; }
+  .installListTable col.installListColCustomer { width: 205px; }
+  .installListTable col.installListColRegion { width: 72px; }
+  .installListTable col.installListColModel { width: 112px; }
+  .installListTable col.installListColPhase { width: 116px; }
+  .installListTable col.installListColEngineer { width: 76px; }
+  .installListTable col.installListColProgress { width: 112px; }
+  .installListTable col.installListColDueDate { width: 112px; }
+  .installListTable col.installListColUpdated { width: 116px; }
+  .installListTable col.installListColActions { width: 169px; }
   .installListTable th:nth-child(6),
   .installListTable td.installListEngineer,
   .installListTable th:nth-child(8),
@@ -348,6 +413,15 @@ body {
   .installListTable td.installListDueDate {
     font-variant-numeric: tabular-nums;
   }
+  .equipmentLedgerTable { min-width: 1110px; }
+  .equipmentLedgerTable col.equipmentColSerial { width: 142px; }
+  .equipmentLedgerTable col.equipmentColCustomer { width: 205px; }
+  .equipmentLedgerTable col.equipmentColModel { width: 142px; }
+  .equipmentLedgerTable col.equipmentColStatus { width: 210px; }
+  .equipmentLedgerTable col.equipmentColOwner { width: 82px; }
+  .equipmentLedgerTable col.equipmentColUtil { width: 108px; }
+  .equipmentLedgerTable col.equipmentColUpdated { width: 112px; }
+  .equipmentLedgerTable col.equipmentColActions { width: 169px; }
 
   .formGrid { @apply grid grid-cols-2 gap-3; }
   @media (max-width: 720px) {
@@ -441,10 +515,10 @@ body {
       radial-gradient(800px 180px at 0% 0%, rgba(124,58,237,0.08), transparent 70%);
     box-shadow: 0 4px 24px rgba(0,0,0,0.4), 0 1px 0 rgba(124,58,237,0.14);
   }
-  .topbarInner { @apply container flex flex-wrap items-center justify-between gap-3 py-3; }
+  .topbarInner { @apply container flex flex-wrap items-center justify-between gap-3 py-2; }
   .topbarBrand { @apply flex items-center gap-3; }
   .appMark {
-    @apply flex size-10 items-center justify-center rounded-xl text-xs font-bold tracking-[0.08em] text-primary-foreground;
+    @apply flex size-9 items-center justify-center rounded-xl text-xs font-bold tracking-[0.08em] text-primary-foreground;
     background: linear-gradient(145deg, oklch(0.58 0.24 295), oklch(0.46 0.22 295));
     box-shadow: 0 6px 18px rgba(124,58,237,0.45), 0 0 0 1px rgba(124,58,237,0.3), inset 0 1px 0 rgba(255,255,255,0.14);
   }
@@ -462,10 +536,10 @@ body {
   .adminMenuItem { @apply block rounded-lg px-3 py-2 text-sm text-foreground; }
   .adminMenuItem:hover { background: rgba(124,58,237,0.14); }
   .tabsWrap { @apply border-t border-border/60; }
-  .tabsWrap > .tabs { @apply container flex gap-1 overflow-x-auto py-2; }
+  .tabsWrap > .tabs { @apply container flex gap-1 overflow-x-auto py-1.5; }
 
   /* ── Dashboard shell & hero ── */
-  .dashboardShell { position: relative; max-width: 1360px; }
+  .dashboardShell { position: relative; max-width: min(1760px, calc(100vw - 24px)); }
   .dashboardShell > * { animation: dashboard-reveal 200ms ease both; }
   .dashboardHero {
     position: relative; padding: 18px; margin-bottom: 12px; border-radius: 22px;
@@ -689,7 +763,7 @@ body {
 }
 
 .auroraDashboardShell {
-  max-width: 1440px;
+  max-width: min(1760px, calc(100vw - 24px));
 }
 
 .workspaceIntro {

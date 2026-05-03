@@ -1,4 +1,4 @@
-const APP_VERSION = "20260503-F70";
+const APP_VERSION = "20260503-F71";
 const CACHE_NAME = `premtek-${APP_VERSION}`;
 
 self.addEventListener("install", (event) => {
@@ -56,7 +56,12 @@ self.addEventListener("fetch", (event) => {
         .catch(async () => {
           const cached = await caches.match(request);
           if (cached) return cached;
-          return caches.match("/");
+          const fallback = await caches.match("/");
+          if (fallback) return fallback;
+          return new Response("Offline", {
+            status: 503,
+            headers: { "Content-Type": "text/plain; charset=utf-8" },
+          });
         }),
     );
     return;

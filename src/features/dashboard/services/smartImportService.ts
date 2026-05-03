@@ -14,6 +14,7 @@ import { normalizeCompactKey, normalizeString } from "@/lib/utils";
 const INSTALLATIONS_COL = "installations";
 const EQUIPMENTS_COL = "equipments";
 const MAX_ATOMIC_IMPORT_ROWS = 450;
+const MAX_ATOMIC_IMPORT_WRITES = 480;
 
 export type SmartImportTransferInput = {
   installation: Omit<Installation, "id">;
@@ -35,6 +36,14 @@ export type SmartImportCommitResult = {
 };
 
 export { MAX_ATOMIC_IMPORT_ROWS };
+
+function reserveBatchWrite(current: number): number {
+  const next = current + 1;
+  if (next > MAX_ATOMIC_IMPORT_WRITES) {
+    throw new Error(`本次智慧匯入預計寫入超過 ${MAX_ATOMIC_IMPORT_WRITES} 筆 Firestore batch 上限，請縮小範圍後再匯入`);
+  }
+  return next;
+}
 
 function normalizeEquipmentSerial(value: unknown): string {
   return normalizeCompactKey(value);
@@ -91,6 +100,7 @@ export async function commitSmartImportBatch(input: SmartImportCommitInput): Pro
   let updatedEquipments = 0;
   let skippedDuplicateEquipments = 0;
   let removedInstallations = 0;
+  let batchWrites = 0;
 
   const deletedInstallationDocIds = new Set<string>();
   const seenInstallationImportKeys = new Set<string>();
@@ -105,6 +115,7 @@ export async function commitSmartImportBatch(input: SmartImportCommitInput): Pro
     const [primaryDocId, ...duplicateDocIds] = matchedDocIds;
 
     for (const duplicateId of duplicateDocIds) {
+      batchWrites = reserveBatchWrite(batchWrites);
       batch.delete(doc(db, INSTALLATIONS_COL, duplicateId));
       deletedInstallationDocIds.add(duplicateId);
       removedInstallations += 1;
@@ -119,12 +130,14 @@ export async function commitSmartImportBatch(input: SmartImportCommitInput): Pro
     };
 
     if (primaryDocId) {
+      batchWrites = reserveBatchWrite(batchWrites);
       batch.update(doc(db, INSTALLATIONS_COL, primaryDocId), payload);
       updatedInstallations += 1;
       continue;
     }
 
     const ref = doc(collection(db, INSTALLATIONS_COL));
+    batchWrites = reserveBatchWrite(batchWrites);
     batch.set(ref, {
       ...payload,
       createdAt: now,
@@ -147,6 +160,7 @@ export async function commitSmartImportBatch(input: SmartImportCommitInput): Pro
       .filter((id) => !deletedInstallationDocIds.has(id));
 
     for (const installDocId of matchedInstallationDocIds) {
+      batchWrites = reserveBatchWrite(batchWrites);
       batch.delete(doc(db, INSTALLATIONS_COL, installDocId));
       deletedInstallationDocIds.add(installDocId);
       removedInstallations += 1;
@@ -162,12 +176,14 @@ export async function commitSmartImportBatch(input: SmartImportCommitInput): Pro
     };
 
     if (existingEquipmentDocId) {
+      batchWrites = reserveBatchWrite(batchWrites);
       batch.update(doc(db, EQUIPMENTS_COL, existingEquipmentDocId), equipmentPayload);
       updatedEquipments += 1;
       continue;
     }
 
     const ref = doc(collection(db, EQUIPMENTS_COL));
+    batchWrites = reserveBatchWrite(batchWrites);
     batch.set(ref, {
       ...equipmentPayload,
       createdAt: now,
