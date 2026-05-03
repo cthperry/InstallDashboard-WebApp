@@ -1,75 +1,280 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import Link from "next/link";
 import { useAuth } from "@/features/auth/AuthProvider";
 import { listenInstallations } from "@/features/data/installations";
 import { listenEquipments } from "@/features/data/equipments";
 import type { Equipment, Installation, PhaseKey, RegionKey } from "@/domain/types";
 import { PHASES, PHASE_MAP, REGIONS } from "@/domain/constants";
-import { toDisplayShortName } from "@/domain/personDisplay";
 import { formatUphValue, getLiveUtilization } from "@/domain/capacity";
+import { normalizePersonKey, toDisplayShortName } from "@/domain/personDisplay";
 
-/* ── helpers ── */
+type Tone = "critical" | "warning" | "info" | "good";
+
+type QueueItem = {
+  id: string;
+  title: string;
+  meta: string;
+  value: string;
+  tone: Tone;
+  href: string;
+  priority: number;
+};
+
 function todayYYYYMMDD() {
   return new Date().toISOString().slice(0, 10);
 }
+
 function safeStr(v: unknown): string {
   if (typeof v === "string") return v;
   if (v == null) return "";
   return String(v);
 }
+
+function clamp(n: number, a: number, b: number) {
+  return Math.max(a, Math.min(b, n));
+}
+
+function parseYmd(ymd?: string): Date | null {
+  const value = safeStr(ymd).trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  const [y, m, d] = value.split("-").map(Number);
+  const dt = new Date(y, m - 1, d);
+  return Number.isNaN(dt.getTime()) ? null : dt;
+}
+
+function daysBetween(aYmd: string, bYmd: string): number | null {
+  const a = parseYmd(aYmd);
+  const b = parseYmd(bYmd);
+  if (!a || !b) return null;
+  return Math.round((b.getTime() - a.getTime()) / 86400000);
+}
+
+function isReleased(r: Installation) {
+  return r.phase === "released";
+}
+
 function isOverdue(r: Installation, today: string) {
   const due = safeStr(r.estComplete);
-  if (!due) return false;
-  if (safeStr(r.phase) === "released") return false;
-  return due < today;
+  return Boolean(due && !isReleased(r) && due < today);
 }
-function daysOverdue(r: Installation, today: string): number {
-  const due = safeStr(r.estComplete);
-  if (!due) return 0;
-  const diff = Math.round(
-    (new Date(today).getTime() - new Date(due).getTime()) / 86400000
-  );
-  return diff > 0 ? diff : 0;
-}
-function clamp(n: number, a: number, b: number) { return Math.max(a, Math.min(b, n)); }
 
-/* ── sub-components ── */
-function WarKpiCard({
-  label, value, unit, sub, icon, color, critical, warning,
+function daysSinceUpdated(ts?: number): number {
+  if (!ts) return 999;
+  return Math.max(0, Math.floor((Date.now() - ts) / 86400000));
+}
+
+function getInstallTitle(row: Installation) {
+  return safeStr(row.name) || `${safeStr(row.modelCode)} ${safeStr((row as any).serialNo)}`.trim() || row.id;
+}
+
+function ControlMetric({
+  label,
+  value,
+  unit,
+  caption,
+  tone,
 }: {
-  label: string; value: string | number; unit?: string; sub?: string;
-  icon: string; color: string; critical?: boolean; warning?: boolean;
+  label: string;
+  value: string | number;
+  unit?: string;
+  caption: string;
+  tone: Tone;
 }) {
   return (
-    <div
-      className={`warKpiCard${critical ? " critical" : warning ? " warning" : ""}`}
-      style={{ "--war-kpi-border": `${color}40`, "--war-kpi-glow": `${color}22` } as React.CSSProperties}
-    >
-      <div className="warKpiIcon">{icon}</div>
-      <div className="warKpiLabel">{label}</div>
-      <div className="warKpiValue" style={{ color }}>
+    <div className={`f66Metric f66Metric-${tone}`}>
+      <span>{label}</span>
+      <strong>
         {value}
-        {unit ? <span className="warKpiUnit">{unit}</span> : null}
-      </div>
-      {sub ? <div className="warKpiSub">{sub}</div> : null}
+        {unit ? <small>{unit}</small> : null}
+      </strong>
+      <p>{caption}</p>
     </div>
   );
 }
 
-function WarAlertEmpty({ msg }: { msg: string }) {
+function ActionQueue({ items }: { items: QueueItem[] }) {
   return (
-    <div className="warAlertEmpty">
-      <div className="warAlertEmptyIcon">✅</div>
-      <div>{msg}</div>
-    </div>
+    <section className="f66Panel f66QueuePanel" aria-label="今日指揮隊列">
+      <div className="f66PanelHead">
+        <div>
+          <span className="f66Eyebrow">DECISION QUEUE</span>
+          <h2>今日必處理</h2>
+        </div>
+        <Link href="/dashboard/install" className="f66MiniLink">進入任務流</Link>
+      </div>
+
+      {items.length > 0 ? (
+        <div className="f66QueueList">
+          {items.map((item) => (
+            <Link key={item.id} href={item.href} className={`f66QueueItem f66QueueItem-${item.tone}`}>
+              <span className="f66QueueRail" />
+              <span className="f66QueueCopy">
+                <strong>{item.title}</strong>
+                <small>{item.meta}</small>
+              </span>
+              <span className="f66QueueValue">{item.value}</span>
+            </Link>
+          ))}
+        </div>
+      ) : (
+        <div className="f66EmptyState">目前沒有高優先待辦。先巡檢設備阻塞與本週到期項目。</div>
+      )}
+    </section>
   );
 }
 
-/* ── main component ── */
+function PhaseRail({ phaseRows }: { phaseRows: Array<{ key: PhaseKey; label: string; color: string; count: number }> }) {
+  const max = Math.max(...phaseRows.map((p) => p.count), 1);
+  return (
+    <section className="f66Panel">
+      <div className="f66PanelHead">
+        <div>
+          <span className="f66Eyebrow">FLOW CONTROL</span>
+          <h2>裝機階段瓶頸</h2>
+        </div>
+      </div>
+      <div className="f66PhaseRail">
+        {phaseRows.map((phase) => (
+          <div key={phase.key} className="f66PhaseRow">
+            <div className="f66PhaseName">
+              <span style={{ background: phase.color }} />
+              {phase.label}
+            </div>
+            <div className="f66PhaseTrack">
+              <i style={{ width: `${clamp((phase.count / max) * 100, 0, 100)}%`, background: phase.color }} />
+            </div>
+            <b>{phase.count}</b>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function RegionCommand({
+  rows,
+}: {
+  rows: Array<{ key: RegionKey; label: string; color: string; installs: number; equipments: number; overdue: number; blocked: number; hot: number; score: number }>;
+}) {
+  return (
+    <section className="f66Panel">
+      <div className="f66PanelHead">
+        <div>
+          <span className="f66Eyebrow">REGIONAL COMMAND</span>
+          <h2>區域健康圖</h2>
+        </div>
+      </div>
+      <div className="f66RegionGrid">
+        {rows.map((row) => (
+          <div key={row.key} className="f66RegionCard" style={{ "--region-color": row.color } as CSSProperties}>
+            <div className="f66RegionTop">
+              <strong>{row.label}</strong>
+              <span>{row.score}</span>
+            </div>
+            <div className="f66RegionMeter"><i style={{ width: `${row.score}%` }} /></div>
+            <div className="f66RegionStats">
+              <span><b>{row.installs}</b>裝機</span>
+              <span><b>{row.equipments}</b>設備</span>
+              <span><b>{row.overdue}</b>逾期</span>
+              <span><b>{row.blocked}</b>阻塞</span>
+              <span><b>{row.hot}</b>高負載</span>
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function RoleConsole({
+  isAdmin,
+  myOpen,
+  myOverdue,
+  adminGaps,
+}: {
+  isAdmin: boolean;
+  myOpen: number;
+  myOverdue: number;
+  adminGaps: number;
+}) {
+  return (
+    <section className="f66Panel f66RoleConsole">
+      <div className="f66PanelHead">
+        <div>
+          <span className="f66Eyebrow">ROLE ROUTING</span>
+          <h2>角色入口</h2>
+        </div>
+      </div>
+      <div className="f66RoleGrid">
+        <Link href="/dashboard/install" className="f66RoleCard">
+          <span>ENGINEER</span>
+          <strong>我的裝機任務</strong>
+          <p>{myOpen} 件待推進，{myOverdue} 件逾期。</p>
+        </Link>
+        <Link href="/dashboard/equipment" className="f66RoleCard">
+          <span>OWNER</span>
+          <strong>設備阻塞與產能</strong>
+          <p>處理 blocking owner、UPH 與 target UPH 缺口。</p>
+        </Link>
+        <Link href={isAdmin ? "/admin/users" : "/dashboard/system"} className="f66RoleCard">
+          <span>ADMIN</span>
+          <strong>{isAdmin ? "資料與權限治理" : "系統權限狀態"}</strong>
+          <p>{isAdmin ? `${adminGaps} 項資料治理待確認。` : "目前非 admin，只顯示可操作任務。"}</p>
+        </Link>
+      </div>
+    </section>
+  );
+}
+
+function ProductCapacityBoard({ equipments }: { equipments: Equipment[] }) {
+  const productRows = useMemo(() => {
+    const productMap = new Map<string, { cap: number; machines: number }>();
+    for (const eq of equipments) {
+      for (const product of eq.products ?? []) {
+        const name = safeStr(product.name).trim();
+        if (!name) continue;
+        const current = productMap.get(name) ?? { cap: 0, machines: 0 };
+        current.cap += Number(product.dailyCap) || 0;
+        current.machines += 1;
+        productMap.set(name, current);
+      }
+    }
+    return Array.from(productMap.entries())
+      .map(([name, stats]) => ({ name, ...stats }))
+      .sort((a, b) => b.cap - a.cap)
+      .slice(0, 8);
+  }, [equipments]);
+
+  return (
+    <section className="f66Panel">
+      <div className="f66PanelHead">
+        <div>
+          <span className="f66Eyebrow">CAPACITY LEDGER</span>
+          <h2>產品產能排行</h2>
+        </div>
+        <Link href="/dashboard/equipment" className="f66MiniLink">設備台帳</Link>
+      </div>
+      {productRows.length > 0 ? (
+        <div className="f66ProductList">
+          {productRows.map((row) => (
+            <div key={row.name} className="f66ProductRow">
+              <span>{row.name}</span>
+              <i>{row.machines} 台</i>
+              <strong>{formatUphValue(row.cap)} UPH</strong>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="f66EmptyState">設備台帳尚未填寫產品產能。建議先補上每台設備的 products。</div>
+      )}
+    </section>
+  );
+}
+
 export function WarRoomPage() {
-  const { user } = useAuth();
+  const { user, profile, isAdmin, appVersion } = useAuth();
   const [installs, setInstalls] = useState<Installation[]>([]);
   const [equips, setEquips] = useState<Equipment[]>([]);
   const [loadingI, setLoadingI] = useState(true);
@@ -79,442 +284,228 @@ export function WarRoomPage() {
     if (!user) return;
     const unsub = listenInstallations(
       (rows) => { setInstalls(rows); setLoadingI(false); },
-      () => setLoadingI(false)
+      () => setLoadingI(false),
     );
-    return () => unsub();
+    return () => unsub?.();
   }, [user]);
 
   useEffect(() => {
     if (!user) return;
     const unsub = listenEquipments(
       (rows) => { setEquips(rows); setLoadingE(false); },
-      () => setLoadingE(false)
+      () => setLoadingE(false),
     );
-    return () => unsub();
+    return () => unsub?.();
   }, [user]);
 
   const today = todayYYYYMMDD();
+  const loading = loadingI || loadingE;
 
-  /* ── computed stats ── */
-  const {
-    total, wip, released, overdueCount, avgProg, byPhase,
-    overdueItems,
-  } = useMemo(() => {
+  const computed = useMemo(() => {
     const total = installs.length;
-    const wip = installs.filter((r) => r.phase !== "released").length;
-    const released = installs.filter((r) => r.phase === "released").length;
-    const overdueItems = installs.filter((r) => isOverdue(r, today));
-    const overdueCount = overdueItems.length;
-    const avgProg = total
-      ? Math.round(installs.reduce((a, r) => a + (r.progress ?? 0), 0) / total)
-      : 0;
-    const byPhase: Record<PhaseKey, number> = {
-      ordered: 0, shipping: 0, arrived: 0, installing: 0,
-      trial: 0, qual: 0, released: 0,
+    const wip = installs.filter((row) => !isReleased(row)).length;
+    const released = installs.filter(isReleased).length;
+    const overdue = installs.filter((row) => isOverdue(row, today));
+    const dueSoon = installs.filter((row) => {
+      if (isReleased(row)) return false;
+      const days = daysBetween(today, safeStr(row.estComplete));
+      return days != null && days >= 0 && days <= 7;
+    });
+    const stale = installs.filter((row) => !isReleased(row) && daysSinceUpdated(row.updatedAt) >= 7);
+    const blocked = equips.filter((row) => safeStr(row.blocking?.reasonCode));
+    const hot = equips.filter((row) => getLiveUtilization(row.capacity) >= 80);
+    const avgProgress = total ? Math.round(installs.reduce((sum, row) => sum + Number(row.progress || 0), 0) / total) : 0;
+    const avgUtilization = equips.length ? Math.round(equips.reduce((sum, row) => sum + getLiveUtilization(row.capacity), 0) / equips.length) : 0;
+    const healthScore = clamp(100 - overdue.length * 8 - blocked.length * 6 - dueSoon.length * 3 - stale.length * 2, 0, 100);
+
+    const phaseCount: Record<PhaseKey, number> = {
+      ordered: 0,
+      shipping: 0,
+      arrived: 0,
+      installing: 0,
+      trial: 0,
+      qual: 0,
+      released: 0,
     };
-    for (const r of installs) byPhase[r.phase] = (byPhase[r.phase] ?? 0) + 1;
-    return { total, wip, released, overdueCount, avgProg, byPhase, overdueItems };
-  }, [installs, today]);
+    for (const row of installs) phaseCount[row.phase] = (phaseCount[row.phase] ?? 0) + 1;
 
-  const {
-    equipTotal, avgUtil, blockedEquips, blockedCount,
-  } = useMemo(() => {
-    const equipTotal = equips.length;
-    const avgUtil = equipTotal
-      ? Math.round(equips.reduce((a, r) => a + getLiveUtilization(r.capacity), 0) / equipTotal)
-      : 0;
-    const blockedEquips = equips.filter((r) => r.blocking?.reasonCode);
-    const blockedCount = blockedEquips.length;
-    return { equipTotal, avgUtil, blockedEquips, blockedCount };
-  }, [equips]);
-
-  /* region breakdown */
-  const regionStats = useMemo(() => {
-    const installCountMap = new Map<RegionKey, number>();
-    const equipCountMap = new Map<RegionKey, number>();
-    const overdueCountMap = new Map<RegionKey, number>();
-
-    for (const row of installs) {
-      installCountMap.set(row.region, (installCountMap.get(row.region) ?? 0) + 1);
-      if (isOverdue(row, today)) {
-        overdueCountMap.set(row.region, (overdueCountMap.get(row.region) ?? 0) + 1);
-      }
-    }
-
-    for (const row of equips) {
-      equipCountMap.set(row.region, (equipCountMap.get(row.region) ?? 0) + 1);
-    }
-
-    return (Object.keys(REGIONS) as RegionKey[]).map((rk) => ({
-      key: rk,
-      label: REGIONS[rk].label,
-      color: REGIONS[rk].color,
-      installs: installCountMap.get(rk) ?? 0,
-      equips: equipCountMap.get(rk) ?? 0,
-      overdue: overdueCountMap.get(rk) ?? 0,
-    }));
-  }, [installs, equips, today]);
-
-  /* engineer workload */
-  const engineerStats = useMemo(() => {
-    const map: Record<string, { total: number; overdue: number }> = {};
-    for (const r of installs) {
-      const eng = toDisplayShortName(r.engineer) || "未指派";
-      if (!map[eng]) map[eng] = { total: 0, overdue: 0 };
-      map[eng].total++;
-      if (isOverdue(r, today)) map[eng].overdue++;
-    }
-    return Object.entries(map)
-      .map(([name, s]) => ({ name, ...s }))
-      .sort((a, b) => b.total - a.total)
-      .slice(0, 8);
-  }, [installs, today]);
-
-  const maxEngLoad = Math.max(...engineerStats.map((e) => e.total), 1);
-
-  /* 地區產品產能（面板固定顯示；未填資料時顯示空狀態） */
-  const regionProductStats = useMemo(() => {
-    const map: Record<string, { label: string; color: string; productMap: Record<string, number> }> = Object.fromEntries(
-      Object.entries(REGIONS).map(([key, region]) => [
+    const regionRows = (Object.keys(REGIONS) as RegionKey[]).map((key) => {
+      const regionInstalls = installs.filter((row) => row.region === key);
+      const regionEquips = equips.filter((row) => row.region === key);
+      const regionOverdue = regionInstalls.filter((row) => isOverdue(row, today)).length;
+      const regionBlocked = regionEquips.filter((row) => safeStr(row.blocking?.reasonCode)).length;
+      const regionHot = regionEquips.filter((row) => getLiveUtilization(row.capacity) >= 80).length;
+      const score = clamp(100 - regionOverdue * 14 - regionBlocked * 12 - regionHot * 4, 0, 100);
+      return {
         key,
-        { label: region.label, color: region.color, productMap: {} },
-      ])
-    );
-
-    equips.forEach((e) => {
-      const rk = (e.region as RegionKey) ?? "north";
-      const reg = REGIONS[rk] ?? { label: rk, color: "#3b82f6" };
-      if (!map[rk]) map[rk] = { label: reg.label, color: reg.color, productMap: {} };
-      (e.products ?? []).forEach((p) => {
-        const name = safeStr(p.name).trim();
-        const cap = Number(p.dailyCap) || 0;
-        if (name) {
-          map[rk].productMap[name] = (map[rk].productMap[name] ?? 0) + cap;
-        }
-      });
+        label: REGIONS[key].label,
+        color: REGIONS[key].color,
+        installs: regionInstalls.length,
+        equipments: regionEquips.length,
+        overdue: regionOverdue,
+        blocked: regionBlocked,
+        hot: regionHot,
+        score,
+      };
     });
 
-    return Object.entries(map).map(([key, val]) => ({
-      key,
-      label: val.label,
-      color: val.color,
-      products: Object.entries(val.productMap)
-        .map(([name, cap]) => ({ name, cap }))
-        .sort((a, b) => b.cap - a.cap),
-    }));
-  }, [equips]);
+    const queue: QueueItem[] = [
+      ...overdue.map((row) => ({
+        id: `overdue-${row.id}`,
+        title: getInstallTitle(row),
+        meta: `${row.customer || "未填客戶"} · ${PHASE_MAP[row.phase]?.label ?? row.phase} · ${toDisplayShortName(row.engineer) || "未指派"}`,
+        value: `逾期 ${Math.abs(daysBetween(today, safeStr(row.estComplete)) ?? 0)} 天`,
+        tone: "critical" as Tone,
+        href: "/dashboard/install?view=pipeline",
+        priority: 100,
+      })),
+      ...blocked.map((row) => ({
+        id: `blocked-${row.id}`,
+        title: row.equipmentId || row.serialNo || row.id,
+        meta: `${row.customer || "未填客戶"} · ${row.blocking?.reasonCode || "阻塞"} · ${row.blocking?.owner || "未指派 owner"}`,
+        value: "BLOCK",
+        tone: "warning" as Tone,
+        href: "/dashboard/equipment",
+        priority: 90,
+      })),
+      ...dueSoon.map((row) => ({
+        id: `due-${row.id}`,
+        title: getInstallTitle(row),
+        meta: `${row.customer || "未填客戶"} · 預計 ${row.estComplete} · ${toDisplayShortName(row.engineer) || "未指派"}`,
+        value: `${daysBetween(today, safeStr(row.estComplete)) ?? 0} 天內`,
+        tone: "info" as Tone,
+        href: "/dashboard/install?view=table",
+        priority: 70,
+      })),
+      ...stale.slice(0, 8).map((row) => ({
+        id: `stale-${row.id}`,
+        title: getInstallTitle(row),
+        meta: `${row.customer || "未填客戶"} · ${PHASE_MAP[row.phase]?.label ?? row.phase} · ${daysSinceUpdated(row.updatedAt)} 天未更新`,
+        value: "STALE",
+        tone: "warning" as Tone,
+        href: "/dashboard/install?view=card",
+        priority: 60,
+      })),
+      ...hot.slice(0, 8).map((row) => ({
+        id: `hot-${row.id}`,
+        title: row.equipmentId || row.serialNo || row.id,
+        meta: `${row.customer || "未填客戶"} · ${row.modelCode} · ${getLiveUtilization(row.capacity)}% utilization`,
+        value: "高負載",
+        tone: "good" as Tone,
+        href: "/dashboard/equipment",
+        priority: 40,
+      })),
+    ].sort((a, b) => b.priority - a.priority).slice(0, 12);
 
-  /* phase bars (exclude released) */
-  const phaseRows = useMemo(() => {
-    return PHASES.filter((p) => p.key !== "released").map((p) => ({
-      ...p,
-      count: byPhase[p.key] ?? 0,
-    }));
-  }, [byPhase]);
-  const maxPhaseCount = Math.max(...phaseRows.map((p) => p.count), 1);
+    return {
+      total,
+      wip,
+      released,
+      overdue,
+      dueSoon,
+      stale,
+      blocked,
+      hot,
+      avgProgress,
+      avgUtilization,
+      healthScore,
+      phaseRows: PHASES.map((phase) => ({ ...phase, count: phaseCount[phase.key] ?? 0 })),
+      regionRows,
+      queue,
+    };
+  }, [installs, equips, today]);
 
-  const loading = loadingI || loadingE;
+  const myWork = useMemo(() => {
+    const userKey = normalizePersonKey(user?.email ?? profile?.email ?? "");
+    const rows = installs.filter((row) => {
+      const engineerKey = normalizePersonKey(row.engineer);
+      return userKey && engineerKey && engineerKey === userKey && !isReleased(row);
+    });
+    return {
+      open: rows.length,
+      overdue: rows.filter((row) => isOverdue(row, today)).length,
+    };
+  }, [installs, profile?.email, today, user?.email]);
+
+  const briefLines = useMemo(() => {
+    const lines: string[] = [];
+    if (computed.overdue.length > 0) lines.push(`${computed.overdue.length} 件裝機逾期，先要求 owner 更新 ETA 與下一步。`);
+    if (computed.blocked.length > 0) lines.push(`${computed.blocked.length} 台設備有 blocking，需確認責任人與解除日期。`);
+    if (computed.dueSoon.length > 0) lines.push(`${computed.dueSoon.length} 件本週到期，適合排進 morning standup。`);
+    if (computed.hot.length > 0) lines.push(`${computed.hot.length} 台設備稼動率超過 80%，產能壓力需追蹤。`);
+    if (lines.length === 0) lines.push("目前沒有紅色警戒，建議把焦點放在資料完整度與下週交付排序。");
+    return lines;
+  }, [computed.blocked.length, computed.dueSoon.length, computed.hot.length, computed.overdue.length]);
 
   if (loading) {
     return (
-      <div className="warRoomPage" style={{ alignItems: "center", justifyContent: "center" }}>
-        <div style={{ textAlign: "center", color: "var(--muted-foreground)" }}>
-          <div style={{ fontSize: 32, marginBottom: 12, animation: "war-blink 1.2s infinite" }}>⚡</div>
-          <div style={{ fontSize: 14, letterSpacing: "0.08em", textTransform: "uppercase" }}>
-            戰情室連線中…
-          </div>
-        </div>
+      <div className="f66Loading">
+        <div className="f66LoadingCore">F66</div>
+        <div>Operations Control 正在連線 Firebase...</div>
       </div>
     );
   }
 
   return (
-    <div className="warRoomPage">
-
-      {/* ── Header ── */}
-      <div className="warRoomHeader">
-        <div>
-          <div className="warRoomTitle">⚡ INSTALL OPS · 即時戰情室</div>
-          <div style={{ fontSize: 11, color: "var(--muted-foreground)", marginTop: 3, letterSpacing: "0.05em" }}>
-            REAL-TIME COMMAND CENTER · {today}
+    <main className="f66OpsPage">
+      <section className="f66Hero">
+        <div className="f66HeroCopy">
+          <span className="f66Eyebrow">INSTALL OPERATIONS F66</span>
+          <h1>裝機營運中樞</h1>
+          <p>
+            將裝機任務、設備阻塞、產品產能與權限治理整合成每日可執行的指揮面板；主管看風險，工程師看任務，admin 看資料完整度。
+          </p>
+          <div className="f66HeroActions">
+            <Link href="/dashboard/install?view=pipeline" className="f66PrimaryAction">處理任務流</Link>
+            <Link href="/dashboard/equipment" className="f66SecondaryAction">查看設備台帳</Link>
+            <Link href="/dashboard/system" className="f66SecondaryAction">版本與系統</Link>
           </div>
         </div>
-        <div className="warRoomHeaderRight">
-          <div className="warLiveDot">Live</div>
-          <Link href="/dashboard/install" className="btn btnGhost" style={{ fontSize: 12 }}>
-            → 裝機管理
-          </Link>
+        <div className="f66HealthDial" aria-label="營運健康分數">
+          <span>OPS HEALTH</span>
+          <strong>{computed.healthScore}</strong>
+          <p>v{appVersion} · {today}</p>
         </div>
+      </section>
+
+      <section className="f66MetricGrid" aria-label="營運指標">
+        <ControlMetric label="WIP 裝機" value={computed.wip} unit="件" caption={`總案量 ${computed.total}，已 release ${computed.released}`} tone="info" />
+        <ControlMetric label="逾期警戒" value={computed.overdue.length} unit="件" caption="超過預計安裝完成日" tone={computed.overdue.length > 0 ? "critical" : "good"} />
+        <ControlMetric label="本週到期" value={computed.dueSoon.length} unit="件" caption="7 天內需要交付或更新" tone={computed.dueSoon.length > 0 ? "warning" : "good"} />
+        <ControlMetric label="設備阻塞" value={computed.blocked.length} unit="台" caption="blocking reason code 已填寫" tone={computed.blocked.length > 0 ? "warning" : "good"} />
+        <ControlMetric label="平均裝機進度" value={computed.avgProgress} unit="%" caption="全裝機案件平均進度" tone="info" />
+        <ControlMetric label="平均稼動率" value={computed.avgUtilization} unit="%" caption="設備台帳即時計算" tone={computed.avgUtilization >= 80 ? "warning" : "good"} />
+      </section>
+
+      <div className="f66MainGrid">
+        <ActionQueue items={computed.queue} />
+        <RoleConsole isAdmin={isAdmin} myOpen={myWork.open} myOverdue={myWork.overdue} adminGaps={computed.stale.length + computed.blocked.length} />
       </div>
 
-      {/* ── KPI Row ── */}
-      <div className="warKpiGrid">
-        <WarKpiCard label="進行中案件" value={wip}          unit="件" sub={`共 ${total} 件`}           icon="📋" color="#a78bfa" />
-        <WarKpiCard label="逾期警戒"   value={overdueCount} unit="件" sub="超過預計安裝日"             icon="🚨" color="#f43f5e" critical={overdueCount > 0} />
-        <WarKpiCard label="已量產"     value={released}      unit="件" sub={`完成率 ${total ? Math.round(released/total*100) : 0}%`} icon="✅" color="#10b981" />
-        <WarKpiCard label="平均進度"   value={avgProg}       unit="%" sub="所有案件平均"               icon="📊" color="#38bdf8" />
-        <WarKpiCard label="設備在線"   value={equipTotal}    unit="台" sub="設備台帳總數"              icon="🖥️" color="#a78bfa" />
-        <WarKpiCard label="設備異常"   value={blockedCount}  unit="台" sub="有卡關原因碼"              icon="⚠️" color="#fbbf24" warning={blockedCount > 0} />
+      <div className="f66MainGrid f66MainGridWide">
+        <RegionCommand rows={computed.regionRows} />
+        <PhaseRail phaseRows={computed.phaseRows} />
       </div>
 
-      {/* ── 地區產品產能 ── */}
-      <div className="warPanel" style={{ marginTop: 0, marginBottom: 16 }}>
-        <div className="warPanelHead">
-          <div className="warPanelTitle">🏭 地區產品產能</div>
-          <div className="warPanelBadge" style={{ color: "#10b981", borderColor: "rgba(16,185,129,0.4)" }}>
-            {regionProductStats.length} 區
+      <div className="f66MainGrid">
+        <section className="f66Panel">
+          <div className="f66PanelHead">
+            <div>
+              <span className="f66Eyebrow">COMMAND BRIEF</span>
+              <h2>今日決策摘要</h2>
+            </div>
           </div>
-        </div>
-        <div className="warPanelBody">
-          <div className="warRegionGrid">
-            {regionProductStats.map((rg) => (
-              <div
-                key={rg.key}
-                className="warRegionCard"
-                style={{ borderColor: `${rg.color}40`, borderLeftColor: rg.color }}
-              >
-                <div className="warRegionName" style={{ color: rg.color, marginBottom: 10 }}>
-                  {rg.label}
-                </div>
-                {rg.products.length > 0 ? (
-                  rg.products.map((p) => (
-                    <div key={p.name} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 7 }}>
-                      <span style={{ background: "rgba(59,130,246,0.15)", color: "#60a5fa", borderRadius: 4, padding: "2px 8px", fontSize: 11, fontWeight: 900, letterSpacing: "0.03em" }}>
-                        {p.name}
-                      </span>
-                      <span style={{ fontFamily: "var(--font-mono, monospace)", fontWeight: 700, fontSize: 13, color: "var(--foreground)" }}>
-                        {formatUphValue(p.cap)} UPH
-                      </span>
-                    </div>
-                  ))
-                ) : (
-                  <div style={{ color: "#94a3b8", fontSize: 12, lineHeight: 1.6 }}>
-                    尚未填寫產品產能
-                  </div>
-                )}
-              </div>
-            ))}
+          <div className="f66BriefList">
+            {briefLines.map((line) => <p key={line}>{line}</p>)}
           </div>
-        </div>
+          <div className="f66LoopGrid">
+            <div><span>08:30</span><strong>風險站會</strong><small>逾期、blocking、ETA</small></div>
+            <div><span>13:30</span><strong>交付校準</strong><small>本週到期與客戶窗口</small></div>
+            <div><span>17:30</span><strong>資料封版</strong><small>更新進度、設備產能、audit trail</small></div>
+          </div>
+        </section>
+        <ProductCapacityBoard equipments={equips} />
       </div>
-
-      {/* ── Mid row: Alerts + Phase distribution ── */}
-      <div className="warMidRow">
-
-        {/* Alert panel */}
-        <div className="warPanel">
-          <div className="warPanelHead">
-            <div className="warPanelTitle">
-              🚨 即時警戒
-            </div>
-            <div
-              className="warPanelBadge"
-              style={{
-                color: (overdueCount + blockedCount) > 0 ? "#f43f5e" : "#10b981",
-                borderColor: (overdueCount + blockedCount) > 0 ? "rgba(244,63,94,0.4)" : "rgba(16,185,129,0.4)",
-              }}
-            >
-              {overdueCount + blockedCount} 項
-            </div>
-          </div>
-          <div className="warPanelBody">
-            {overdueCount === 0 && blockedCount === 0 ? (
-              <WarAlertEmpty msg="目前無警戒項目，系統運行正常" />
-            ) : (
-              <div className="warAlertList">
-                {/* Overdue installs */}
-                {overdueItems
-                  .sort((a, b) => daysOverdue(b, today) - daysOverdue(a, today))
-                  .slice(0, 6)
-                  .map((r) => {
-                    const days = daysOverdue(r, today);
-                    return (
-                      <div key={r.id} className="warAlertRow alertCritical">
-                        <div className="warAlertIcon">🚨</div>
-                        <div className="warAlertContent">
-                          <div className="warAlertName">{r.name || r.id}</div>
-                          <div className="warAlertMeta">
-                            {r.customer} · {PHASE_MAP[r.phase]?.label} · {toDisplayShortName(r.engineer) || "-"}
-                          </div>
-                        </div>
-                        <div
-                          className="warAlertTag"
-                          style={{ color: "#f43f5e", borderColor: "rgba(244,63,94,0.4)" }}
-                        >
-                          逾期 {days}天
-                        </div>
-                      </div>
-                    );
-                  })}
-                {/* Blocked equipment */}
-                {blockedEquips.slice(0, 4).map((eq) => (
-                  <div key={eq.id} className="warAlertRow alertWarning">
-                    <div className="warAlertIcon">⚠️</div>
-                    <div className="warAlertContent">
-                      <div className="warAlertName">{eq.equipmentId}</div>
-                      <div className="warAlertMeta">
-                        {eq.customer} · {eq.blocking?.reasonCode} · {eq.blocking?.owner}
-                      </div>
-                    </div>
-                    <div
-                      className="warAlertTag"
-                      style={{ color: "#fbbf24", borderColor: "rgba(251,191,36,0.4)" }}
-                    >
-                      卡關
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Phase distribution */}
-        <div className="warPanel">
-          <div className="warPanelHead">
-            <div className="warPanelTitle">📊 階段分佈（進行中）</div>
-            <div
-              className="warPanelBadge"
-              style={{ color: "#a78bfa", borderColor: "rgba(167,139,250,0.4)" }}
-            >
-              {wip} WIP
-            </div>
-          </div>
-          <div className="warPanelBody">
-            <div className="warPhaseList">
-              {phaseRows.map((p) => (
-                <div key={p.key} className="warPhaseRow">
-                  <div className="warPhaseLabel" title={p.label}>
-                    {p.icon} {p.label}
-                  </div>
-                  <div className="warPhaseBarWrap">
-                    <div
-                      className="warPhaseBar"
-                      style={{
-                        width: `${clamp((p.count / maxPhaseCount) * 100, 0, 100)}%`,
-                        background: p.color,
-                        opacity: p.count > 0 ? 1 : 0.2,
-                      }}
-                    />
-                  </div>
-                  <div className="warPhaseCount" style={{ color: p.count > 0 ? p.color : "var(--muted-foreground)" }}>
-                    {p.count}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* ── Bottom row: Region + Engineer load ── */}
-      <div className="warBottomRow">
-
-        {/* Region breakdown */}
-        <div className="warPanel">
-          <div className="warPanelHead">
-            <div className="warPanelTitle">🗺️ 區域概覽</div>
-          </div>
-          <div className="warPanelBody">
-            <div className="warRegionGrid">
-              {regionStats.map((r) => (
-                <div
-                  key={r.key}
-                  className="warRegionCard"
-                  style={{
-                    borderColor: `${r.color}40`,
-                    borderLeftColor: r.color,
-                  }}
-                >
-                  <div className="warRegionName" style={{ color: r.color }}>
-                    {r.label}
-                  </div>
-                  <div className="warRegionStats">
-                    <div className="warRegionStat">
-                      <div className="warRegionStatVal" style={{ color: "#a78bfa" }}>{r.installs}</div>
-                      <div className="warRegionStatLabel">裝機</div>
-                    </div>
-                    <div className="warRegionStat">
-                      <div className="warRegionStatVal" style={{ color: "#38bdf8" }}>{r.equips}</div>
-                      <div className="warRegionStatLabel">設備</div>
-                    </div>
-                    <div className="warRegionStat">
-                      <div
-                        className="warRegionStatVal"
-                        style={{ color: r.overdue > 0 ? "#f43f5e" : "#10b981" }}
-                      >
-                        {r.overdue}
-                      </div>
-                      <div className="warRegionStatLabel">逾期</div>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        {/* Engineer workload */}
-        <div className="warPanel">
-          <div className="warPanelHead">
-            <div className="warPanelTitle">👷 工程師戰力</div>
-            <div
-              className="warPanelBadge"
-              style={{ color: "#38bdf8", borderColor: "rgba(56,189,248,0.4)" }}
-            >
-              {engineerStats.length} 人
-            </div>
-          </div>
-          <div className="warPanelBody">
-            {engineerStats.length === 0 ? (
-              <WarAlertEmpty msg="尚無工程師資料" />
-            ) : (
-              <table className="warEngTable">
-                <thead>
-                  <tr>
-                    <th>工程師</th>
-                    <th>案件數</th>
-                    <th style={{ minWidth: 80 }}>負荷</th>
-                    <th>逾期</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {engineerStats.map((eng) => (
-                    <tr key={eng.name}>
-                      <td><div className="warEngName">{eng.name}</div></td>
-                      <td>
-                        <span style={{
-                          fontFamily: "var(--font-mono, monospace)",
-                          fontWeight: 700,
-                          color: "#a78bfa",
-                        }}>
-                          {eng.total}
-                        </span>
-                      </td>
-                      <td>
-                        <div className="warEngBar">
-                          <div
-                            className="warEngBarFill"
-                            style={{ width: `${clamp((eng.total / maxEngLoad) * 100, 0, 100)}%` }}
-                          />
-                        </div>
-                      </td>
-                      <td>
-                        {eng.overdue > 0 ? (
-                          <span className="warEngOverdue">{eng.overdue}</span>
-                        ) : (
-                          <span style={{ color: "#10b981", fontWeight: 700, fontFamily: "var(--font-mono, monospace)" }}>—</span>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </div>
-        </div>
-      </div>
-
-    </div>
+    </main>
   );
 }

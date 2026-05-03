@@ -69,47 +69,47 @@ export default function LoginPage() {
           <div className="loginBrandRow">
             <div className="loginMark">IO</div>
             <div>
-              <div className="loginKicker">INSTALL OPS FLIGHT DECK</div>
+              <div className="loginKicker">INSTALL OPERATIONS F66</div>
               <div className="loginVersion">Premtek 內部系統 · v{appVersion}</div>
             </div>
           </div>
 
           <div className="loginStoryCopy">
-            <h1>把裝機、設備台帳與產能風險，收斂成每天可執行的任務面板。</h1>
+            <h1>把裝機現場、設備產能與資料治理，收斂成一個每天可執行的營運中樞。</h1>
             <p>
-              入口直接對齊現場工作流：先看 warroom 風險，再處理裝機進度，最後回寫設備台帳與稽核紀錄。
+              F66 入口直接對齊工作節奏：先判斷今日風險，再派工與回寫，最後檢查版本、權限與資料完整度。
             </p>
           </div>
 
           <div className="loginSignalGrid" aria-label="核心能力">
             <div>
               <span>01</span>
-              <strong>裝機推進</strong>
-              <small>階段、日期、工程師與 released 轉台帳</small>
+              <strong>任務流</strong>
+              <small>逾期、到期、未更新案件自動排入指揮隊列</small>
             </div>
             <div>
               <span>02</span>
-              <strong>設備營運</strong>
-              <small>稼動率、容量燈號、阻塞原因與 Owner</small>
+              <strong>設備產能</strong>
+              <small>blocking、UPH、target UPH 與產品產能集中追蹤</small>
             </div>
             <div>
               <span>03</span>
-              <strong>稽核留痕</strong>
-              <small>匯入、更新、清除與事件紀錄集中追蹤</small>
+              <strong>版本治理</strong>
+              <small>版本、角色、部署守門與 admin 後台一頁查核</small>
             </div>
           </div>
 
           <div className="loginFlightPath" aria-hidden>
-            <div><span>Warroom</span><b>Live risk</b></div>
-            <div><span>Install</span><b>Phase control</b></div>
-            <div><span>Equipment</span><b>Capacity ledger</b></div>
+            <div><span>Ops Control</span><b>Decision queue</b></div>
+            <div><span>Mission Flow</span><b>Phase ownership</b></div>
+            <div><span>System</span><b>Release guard</b></div>
           </div>
         </section>
 
         <Card className="loginPanel py-0">
           <CardHeader className="loginPanelHeader">
-            <CardTitle className="loginPanelTitle">登入指揮中心</CardTitle>
-            <div className="loginPanelSub">使用公司帳號進入裝機營運平台</div>
+            <CardTitle className="loginPanelTitle">登入 F66 營運中樞</CardTitle>
+            <div className="loginPanelSub">使用公司帳號進入裝機、設備與資料治理平台</div>
           </CardHeader>
           <CardContent className="loginPanelBody">
             {user ? (
@@ -118,7 +118,7 @@ export default function LoginPage() {
                 <div className="loginSignedInEmail">{user.email}</div>
                 <div className="flex gap-2">
                   <Button className="flex-1" onClick={() => router.replace("/dashboard/warroom")}>
-                    前往戰情室
+                    前往營運中樞
                   </Button>
                   <Button variant="secondary" onClick={signOutNow}>
                     登出

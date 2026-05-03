@@ -7,13 +7,13 @@ import { APP_VERSION } from "@/config/appVersion";
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
-  title: "裝機狀態 Dashboard",
-  description: "Premtek 裝機進度追蹤（行動裝置/桌機 WebApp）",
+  title: "Install Operations F66",
+  description: "Premtek 裝機營運、設備台帳、產能風險與資料治理中樞",
   manifest: "/manifest.json",
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
-    title: "裝機戰情室",
+    title: "Install Ops F66",
   },
   other: {
     "mobile-web-app-capable": "yes",

@@ -7,12 +7,12 @@ import { useEffect, useState } from "react";
 import { RequireAuth } from "@/features/auth/RequireAuth";
 import { useAuth } from "@/features/auth/AuthProvider";
 
-function NavLink({ href, label, active, tone }: { href: string; label: string; active: boolean; tone?: "live" }) {
+function NavLink({ href, label, active, tone }: { href: string; label: string; active: boolean; tone?: "live" | "system" }) {
   return (
     <Link
       href={href}
       aria-current={active ? "page" : undefined}
-      className={`${active ? "tab tabActive" : "tab"}${tone === "live" ? " tabLive" : ""}`}
+      className={`${active ? "tab tabActive" : "tab"}${tone === "live" ? " tabLive" : ""}${tone === "system" ? " tabSystem" : ""}`}
     >
       {label}
     </Link>
@@ -47,6 +47,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const pathname = usePathname();
   const { profile, isAdmin, appVersion, signOutNow } = useAuth();
   const isWarRoom = pathname?.startsWith("/dashboard/warroom") ?? false;
+  const isSystem = pathname?.startsWith("/dashboard/system") ?? false;
 
   return (
     <RequireAuth>
@@ -55,20 +56,20 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <div className="topbarBrand">
             <div className="appMark">IO</div>
             <div>
-              <div className="topbarTitle">Install Ops Flight Deck</div>
-              <div className="topbarSub">裝機、設備台帳與產能風險指揮中心</div>
+              <div className="topbarTitle">Install Operations F66</div>
+              <div className="topbarSub">裝機營運、設備台帳、產能風險與資料治理中樞</div>
             </div>
           </div>
 
           <div className="topbarActions">
             <div className="navStatusPill">
               <span className="navStatusDot" aria-hidden />
-              {isWarRoom ? "Warroom live" : "Operational"}
+              {isWarRoom ? "Ops control live" : isSystem ? "System registry" : "Operational"}
             </div>
             {isWarRoom && <LiveClock />}
             <div className="userChip">
               <div className="userChipEmail">{profile?.email ?? "未登入"}</div>
-              <div className="userChipMeta">v{appVersion}</div>
+              <div className="userChipMeta">{isAdmin ? "Admin" : "Engineer"} · v{appVersion}</div>
             </div>
             {isAdmin ? (
               <details className="adminMenu">
@@ -77,6 +78,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                   <Link className="adminMenuItem" href="/admin/machine-models">機型設定</Link>
                   <Link className="adminMenuItem" href="/admin/customer-sites">客戶清單設定</Link>
                   <Link className="adminMenuItem" href="/admin/users">使用者權限</Link>
+                  <Link className="adminMenuItem" href="/dashboard/system">版本與部署</Link>
                 </div>
               </details>
             ) : null}
@@ -86,10 +88,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
         <div className="tabsWrap">
           <div className="tabs">
-            <NavLink href="/dashboard/warroom"   label="戰情室"     active={isWarRoom} tone="live" />
-            <NavLink href="/dashboard/install"   label="裝機任務"   active={pathname?.startsWith("/dashboard/install")  ?? false} />
+            <NavLink href="/dashboard/warroom"   label="營運中樞"   active={isWarRoom} tone="live" />
+            <NavLink href="/dashboard/install"   label="任務流"     active={pathname?.startsWith("/dashboard/install")  ?? false} />
             <NavLink href="/dashboard/equipment" label="設備台帳"   active={pathname?.startsWith("/dashboard/equipment") ?? false} />
             <NavLink href="/dashboard/insights"  label="洞察紀錄"   active={pathname?.startsWith("/dashboard/insights") ?? false} />
+            <NavLink href="/dashboard/system"    label="系統版本"   active={isSystem} tone="system" />
           </div>
         </div>
       </div>

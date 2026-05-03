@@ -1,4 +1,4 @@
-const APP_VERSION = "20260427-F65";
+const APP_VERSION = "20260503-F66";
 const CACHE_NAME = `premtek-${APP_VERSION}`;
 
 self.addEventListener("install", (event) => {
