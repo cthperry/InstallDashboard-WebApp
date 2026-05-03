@@ -980,7 +980,7 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
   const openEditInstall = (r: Installation) => {
     setInstallEditId(r.id);
     setInstallForm(normalizeInstallationDraft({
-      name: r.name ?? "",
+      name: getInstallSerial(r),
       modelCode: r.modelCode ?? "",
       region: r.region ?? "north",
       customer: r.customer ?? "",

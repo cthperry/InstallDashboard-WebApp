@@ -150,6 +150,7 @@ export function validateWorkbookRow(row: WorkbookRow, target: ImportTarget, phas
   for (const issue of getInstallationValidationIssues({
     phase,
     name: row.serialNo,
+    modelCode: row.modelCode,
     engineer: row.engineer,
     estArrival: row.estArrival,
     estComplete: row.estComplete,

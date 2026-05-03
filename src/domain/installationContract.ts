@@ -1,6 +1,7 @@
 import type { Installation, MachineModel, PhaseKey, RegionKey } from "@/domain/types";
 import { toDisplayShortName } from "@/domain/personDisplay";
 import { canonicalizeMachineModelCode } from "@/domain/machineModels";
+import { normalizeInstallationSerialCandidate } from "@/domain/installationDisplay";
 import { isDateYmd, normalizeDateYmd, trimString } from "@/lib/utils";
 
 export const INSTALLATION_DATE_FIELDS = [
@@ -144,11 +145,11 @@ export function normalizeInstallationDraft(
 }
 
 export function getInstallationValidationIssues(
-  input: Pick<InstallationDraft, "phase" | "name" | "engineer" | "estArrival" | "estComplete" | "actArrival" | "actComplete">,
+  input: Pick<InstallationDraft, "phase" | "name" | "modelCode" | "engineer" | "estArrival" | "estComplete" | "actArrival" | "actComplete">,
 ): InstallationValidationIssue[] {
   const issues: InstallationValidationIssue[] = [];
 
-  const serialNo = trimString(input.name);
+  const serialNo = normalizeInstallationSerialCandidate(input.name, input.modelCode);
   const engineer = trimString(input.engineer);
   const rawEstArrival = trimString(input.estArrival);
   const rawEstComplete = trimString(input.estComplete);
