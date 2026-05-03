@@ -7,6 +7,7 @@ import { buildEquipmentMilestonesFromInstallationDates } from "@/domain/equipmen
 import { cleanMachineModelName, canonicalizeMachineModelCode } from "@/domain/machineModels";
 import { toDisplayShortName } from "@/domain/personDisplay";
 import { getInstallationValidationIssues } from "@/domain/installationContract";
+import { normalizeInstallationSerialCandidate } from "@/domain/installationDisplay";
 import { isDateYmd, normalizeCompactKey } from "@/lib/utils";
 
 export type WorkbookRow = {
@@ -87,12 +88,16 @@ export function cleanModelName(raw: string, models: readonly MachineModel[] = DE
   return canonicalizeMachineModelCode(cleanMachineModelName(raw), models);
 }
 
+function cleanSerialNo(raw: unknown, modelCode: unknown): string {
+  return normalizeInstallationSerialCandidate(raw, modelCode);
+}
+
 export function resolveWorkbookImportDisposition(row: WorkbookRow, phaseOverride?: PhaseKey, now: Date = new Date()) {
   const phase = phaseOverride ?? resolveInstallationPhase(row, now);
   const progress = resolveInstallationProgress(phase);
   const transferToEquipment = shouldTransferInstallationToEquipment({
     phase,
-    name: row.serialNo,
+    name: cleanSerialNo(row.serialNo, row.modelCode),
   });
 
   return {
@@ -112,7 +117,7 @@ export function classifyImportTarget(row: WorkbookRow, phaseOverride?: PhaseKey)
 }
 
 export function buildWorkbookInstallationImportKey(row: WorkbookRow, sourceRowIndex: number): string {
-  const serialKey = normalizeCompactKey(row.serialNo);
+  const serialKey = normalizeCompactKey(cleanSerialNo(row.serialNo, row.modelCode));
   if (serialKey) return `serial:${serialKey}`;
 
   const customerKey = normalizeCompactKey(row.customer);
@@ -160,7 +165,7 @@ export function validateWorkbookRow(row: WorkbookRow, target: ImportTarget, phas
     errors.add(issue.message);
   }
 
-  if (target === "equipment" && !row.serialNo.trim()) errors.add("設備台帳缺少機台序號");
+  if (target === "equipment" && !cleanSerialNo(row.serialNo, row.modelCode)) errors.add("設備台帳缺少機台序號");
   if (row.estArrival && row.estComplete && row.estArrival > row.estComplete) errors.add("預計安裝日不可早於預計出貨日");
   if (row.actArrival && row.actComplete && row.actArrival > row.actComplete) errors.add("驗收完成日期不可早於實際安裝日期");
   return Array.from(errors);
@@ -192,9 +197,10 @@ export function parseWorkbookJsonRows(
             : String(rawValue ?? "").trim();
       }
 
+      const modelCode = cleanModelName(row.modelCode, models);
       const normalized: WorkbookRow = {
-        serialNo: row.serialNo,
-        modelCode: cleanModelName(row.modelCode, models),
+        serialNo: cleanSerialNo(row.serialNo, modelCode),
+        modelCode,
         customer: row.customer,
         estArrival: row.estArrival,
         estComplete: row.estComplete,
@@ -229,8 +235,9 @@ export function buildInstallationPayload(
   if (!row.modelCode.trim()) throw new Error("匯入缺少機型");
   if (!row.customer.trim()) throw new Error("匯入缺少客戶");
   const phase = overrides.phase ?? resolveInstallationPhase(row, now);
+  const serialNo = cleanSerialNo(row.serialNo, row.modelCode);
   return {
-    name: row.serialNo,
+    name: serialNo,
     modelCode: row.modelCode,
     region,
     customer: row.customer,
@@ -254,7 +261,8 @@ export function buildEquipmentPayload(
   region: RegionKey,
   overrides: EquipmentPayloadOverrides = {},
 ): Omit<Equipment, "id"> {
-  if (!row.serialNo.trim()) throw new Error("設備台帳缺少機台序號");
+  const serialNo = cleanSerialNo(row.serialNo, row.modelCode);
+  if (!serialNo) throw new Error("設備台帳缺少機台序號");
   if (!row.modelCode.trim()) throw new Error("匯入缺少機型");
   if (!row.customer.trim()) throw new Error("匯入缺少客戶");
   const milestones = buildEquipmentMilestonesFromInstallationDates({
@@ -263,12 +271,12 @@ export function buildEquipmentPayload(
   });
 
   return {
-    equipmentId: row.serialNo,
+    equipmentId: serialNo,
     region,
     customer: row.customer,
     site: "",
     modelCode: row.modelCode,
-    serialNo: row.serialNo,
+    serialNo,
     statusMain: overrides.statusMain ?? inferEquipmentStatus(row),
     statusSub: "",
     owner: toDisplayShortName(row.engineer),

@@ -16,6 +16,7 @@ import {
 import { db } from "@/lib/firebase/client";
 import { INSTALLATIONS_COL } from "@/domain/constants";
 import type { Installation } from "@/domain/types";
+import { getInstallationSerial } from "@/domain/installationDisplay";
 import { normalizeCompactKey, normalizeDateYmd, normalizeString } from "@/lib/utils";
 
 const COL = INSTALLATIONS_COL;
@@ -98,7 +99,10 @@ export function listenInstallations(onData: (rows: Installation[]) => void, onEr
   return onSnapshot(
     q,
     (snap) => {
-      const rows: Installation[] = snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Installation, "id">) }));
+      const rows: Installation[] = snap.docs.map((d) => {
+        const row = { id: d.id, ...(d.data() as Omit<Installation, "id">) };
+        return { ...row, name: getInstallationSerial(row) };
+      });
       onData(rows);
     },
     (e) => onError?.(e),

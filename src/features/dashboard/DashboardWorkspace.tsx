@@ -1056,11 +1056,12 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
 
   const delInstall = async (r: Installation) => {
     if (!user?.email) return;
-    if (!confirm(`確定刪除「${r.name}」？`)) return;
+    const label = getInstallTaskLabel(r);
+    if (!confirm(`確定刪除「${label}」？`)) return;
     try {
       await removeInstallation(r.id);
-      await writeAuditLog("刪除", r.name, "刪除裝機案", user.email);
-      trackEvent("installation_delete", { name: r.name });
+      await writeAuditLog("刪除", label, "刪除裝機案", user.email);
+      trackEvent("installation_delete", { name: label });
       setToast("已刪除");
     } catch (e) {
       setToast(`刪除失敗：${safeStr(e)}`);
@@ -1086,21 +1087,23 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
 
     try {
       if (shouldTransferInstallationToEquipment(parsed.data)) {
+        const label = getInstallTaskLabel(r);
         const transferResult = await transferReleasedInstallationToEquipment({
           installation: parsed.data as Installation,
           installationId: r.id,
           userEmail: user.email,
           trigger: didInstallationEnterReleased(r.phase, next.key) ? "transition" : "refresh",
         });
-        await writeAuditLog("推進", r.name, `${cur?.label ?? r.phase} → ${next.label}`, user.email);
-        trackEvent("installation_advance", { name: r.name, from: r.phase, to: next.key });
+        await writeAuditLog("推進", label, `${cur?.label ?? r.phase} → ${next.label}`, user.email);
+        trackEvent("installation_advance", { name: label, from: r.phase, to: next.key });
         setToast(getEquipmentTransferToast(transferResult));
         return;
       }
 
+      const label = getInstallTaskLabel(r);
       await updateInstallation(r.id, { phase: next.key, progress: getInstallationProgressByPhase(next.key) } as any);
-      await writeAuditLog("推進", r.name, `${cur?.label ?? r.phase} → ${next.label}`, user.email);
-      trackEvent("installation_advance", { name: r.name, from: r.phase, to: next.key });
+      await writeAuditLog("推進", label, `${cur?.label ?? r.phase} → ${next.label}`, user.email);
+      trackEvent("installation_advance", { name: label, from: r.phase, to: next.key });
       setToast("已推進階段");
     } catch (e) {
       setToast(`推進失敗：${safeStr(e)}`);

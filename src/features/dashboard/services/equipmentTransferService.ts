@@ -3,9 +3,9 @@ import { removeInstallation } from "@/features/data/installations";
 import { writeAuditLog } from "@/features/data/audit";
 import type { Equipment, Installation } from "@/domain/types";
 import { buildEquipmentMilestonesFromInstallationDates } from "@/domain/equipmentMilestones";
+import { getInstallationSerial } from "@/domain/installationDisplay";
 import { shouldTransferInstallationToEquipment } from "@/domain/installPhase";
 import { toDisplayShortName } from "@/domain/personDisplay";
-import { trimString } from "@/lib/utils";
 
 export type EquipmentTransferTrigger = "transition" | "refresh";
 
@@ -17,7 +17,7 @@ export type EquipmentTransferResult = {
 };
 
 function buildEquipmentPayloadFromInstallation(row: Installation): Omit<Equipment, "id"> {
-  const serialNo = trimString(row.name);
+  const serialNo = getInstallationSerial(row);
   const owner = toDisplayShortName(row.engineer);
   return {
     equipmentId: serialNo,
@@ -42,7 +42,7 @@ function buildEquipmentPayloadFromInstallation(row: Installation): Omit<Equipmen
 }
 
 function mergeEquipmentPayload(existing: Equipment, row: Installation): Partial<Omit<Equipment, "id">> {
-  const serialNo = trimString(row.name);
+  const serialNo = getInstallationSerial(row);
   const currentMilestones = existing.milestones ?? {};
   return {
     equipmentId: existing.equipmentId || serialNo,
@@ -63,7 +63,7 @@ export async function transferReleasedInstallationToEquipment(args: {
   trigger: EquipmentTransferTrigger;
 }): Promise<EquipmentTransferResult> {
   const { installation, installationId, userEmail, trigger } = args;
-  const serialNo = trimString(installation.name);
+  const serialNo = getInstallationSerial(installation);
 
   if (!shouldTransferInstallationToEquipment({ phase: installation.phase, name: serialNo })) {
     return {
