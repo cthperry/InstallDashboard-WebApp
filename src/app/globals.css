@@ -1060,7 +1060,7 @@ textarea:focus {
   }
 }
 
-/* F66 Operations Flight Deck
+/* Operations Flight Deck
    目標：保留 F65 Aurora 基底，強化每日任務優先序與現場指揮感。
 */
 :root,
@@ -1737,7 +1737,7 @@ body {
   }
 }
 
-/* F66 Local Operations Control */
+/* Local Operations Control */
 .tabSystem {
   border-color: rgba(20, 184, 166, 0.35);
 }

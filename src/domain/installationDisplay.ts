@@ -37,6 +37,10 @@ export function getInstallationSerial(row: Installation): string {
   return normalizeInstallationSerialCandidate(legacyAwareRow.serialNo ?? row.name, row.modelCode);
 }
 
+export function getInstallationSerialKey(row: Installation): string {
+  return normalizeCompactKey(getInstallationSerial(row));
+}
+
 export function getInstallationModelSerial(row: Installation): string {
   const model = trimString(row.modelCode);
   const serial = getInstallationSerial(row);

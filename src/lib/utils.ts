@@ -28,6 +28,24 @@ export function normalizeCompactKey(value: unknown): string {
     .toUpperCase();
 }
 
+export function formatDateInTimeZoneYmd(date: Date = new Date(), timeZone = "Asia/Taipei"): string {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+  const get = (type: string) => parts.find((part) => part.type === type)?.value ?? "";
+  const year = get("year");
+  const month = get("month");
+  const day = get("day");
+  return `${year}-${month}-${day}`;
+}
+
+export function todayInTaipeiYmd(date: Date = new Date()): string {
+  return formatDateInTimeZoneYmd(date, "Asia/Taipei");
+}
+
 export function normalizeDateYmd(value: unknown): string {
   if (value == null || value === "") return "";
 

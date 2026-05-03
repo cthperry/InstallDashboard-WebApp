@@ -9,6 +9,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
+import { getAppReleaseLabel } from "@/config/appVersion";
 
 export default function LoginPage() {
   const { user, signInWithEmail, signInWithGoogle, signOutNow, loading, appVersion } = useAuth();
@@ -17,6 +18,7 @@ export default function LoginPage() {
   const [email, setEmail] = useState<string>("");
   const [password, setPassword] = useState<string>("");
   const [working, setWorking] = useState<boolean>(false);
+  const releaseLabel = getAppReleaseLabel(appVersion);
 
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -69,7 +71,7 @@ export default function LoginPage() {
           <div className="loginBrandRow">
             <div className="loginMark">IO</div>
             <div>
-              <div className="loginKicker">INSTALL OPERATIONS F66</div>
+              <div className="loginKicker">INSTALL OPERATIONS {releaseLabel}</div>
               <div className="loginVersion">Premtek 內部系統 · v{appVersion}</div>
             </div>
           </div>
@@ -77,7 +79,7 @@ export default function LoginPage() {
           <div className="loginStoryCopy">
             <h1>把裝機現場、設備產能與資料治理，收斂成一個每天可執行的營運中樞。</h1>
             <p>
-              F66 入口直接對齊工作節奏：先判斷今日風險，再派工與回寫，最後檢查版本、權限與資料完整度。
+              {releaseLabel} 入口直接對齊工作節奏：先判斷今日風險，再派工與回寫，最後檢查版本、權限與資料完整度。
             </p>
           </div>
 
@@ -108,7 +110,7 @@ export default function LoginPage() {
 
         <Card className="loginPanel py-0">
           <CardHeader className="loginPanelHeader">
-            <CardTitle className="loginPanelTitle">登入 F66 營運中樞</CardTitle>
+            <CardTitle className="loginPanelTitle">登入 {releaseLabel} 營運中樞</CardTitle>
             <div className="loginPanelSub">使用公司帳號進入裝機、設備與資料治理平台</div>
           </CardHeader>
           <CardContent className="loginPanelBody">

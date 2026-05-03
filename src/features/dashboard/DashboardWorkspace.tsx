@@ -60,7 +60,7 @@ import { MiniTrend } from "@/features/ui/MiniTrend";
 import { RegionTabs } from "@/features/ui/RegionTabs";
 import { SmartImportModal } from "@/features/dashboard/SmartImportModal";
 import { GanttView } from "@/features/dashboard/GanttView";
-import { normalizeDateYmd } from "@/lib/utils";
+import { normalizeDateYmd, todayInTaipeiYmd } from "@/lib/utils";
 import { buildCapacitySnapshot, calculateUtilization, getLiveUtilization } from "@/domain/capacity";
 
 type DashboardSection = "install" | "equipment" | "insights";
@@ -187,7 +187,7 @@ function parseInsightsTab(v: string | null): InsightsTab {
 }
 
 function todayYYYYMMDD(): string {
-  return new Date().toISOString().slice(0, 10);
+  return todayInTaipeiYmd();
 }
 
 type FieldErrorMap = Record<string, string>;
@@ -226,11 +226,17 @@ function parseYmd(s?: string): Date | null {
 function daysLeft(ymd?: string): number | null {
   const dt = parseYmd(ymd);
   if (!dt) return null;
-  const today = new Date();
+  const today = parseYmd(todayInTaipeiYmd());
+  if (!today) return null;
   const a = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
   const b = new Date(dt.getFullYear(), dt.getMonth(), dt.getDate()).getTime();
   const diff = Math.round((b - a) / (24 * 60 * 60 * 1000));
   return diff;
+}
+
+function daysSinceTimestamp(ts?: number): number {
+  if (!ts) return 999;
+  return Math.max(0, Math.floor((Date.now() - ts) / (24 * 60 * 60 * 1000)));
 }
 
 function taipeiNowParts(): { ymd: string; hhmm: string } {
@@ -1374,20 +1380,19 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
   const installActionQueue = filteredInstallations
     .map((r): (MissionQueueItem & { priority: number }) | null => {
       if (r.phase === "released") return null;
-      const dueInDays = daysLeft(r.estComplete);
       const phaseLabel = PHASE_MAP[r.phase]?.label ?? r.phase;
       const owner = toDisplayShortName(r.engineer) || "未指派";
       const meta = `${r.customer} · ${phaseLabel} · ${owner}`;
+      const serial = getInstallSerial(r);
 
-      if (isOverdueInstall(r, today)) {
-        const overdueDays = dueInDays == null ? "?" : String(Math.abs(dueInDays));
+      if (doesInstallationPhaseRequireSerial(r.phase) && !serial) {
         return {
-          id: `install-overdue-${r.id}`,
+          id: `install-serial-${r.id}`,
           label: getInstallTaskLabel(r),
           meta,
-          value: `逾期 ${overdueDays} 天`,
+          value: "缺序號",
           tone: "critical",
-          priority: dueInDays == null ? 0 : dueInDays,
+          priority: 0,
           onClick: () => openEditInstall(r),
         };
       }
@@ -1404,18 +1409,6 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
         };
       }
 
-      if (dueInDays != null && dueInDays >= 0 && dueInDays <= 7) {
-        return {
-          id: `install-due-${r.id}`,
-          label: getInstallTaskLabel(r),
-          meta,
-          value: `${dueInDays} 天內`,
-          tone: "info",
-          priority: 20 + dueInDays,
-          onClick: () => openEditInstall(r),
-        };
-      }
-
       if (!r.estComplete && r.phase !== "ordered") {
         return {
           id: `install-date-${r.id}`,
@@ -1423,7 +1416,20 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
           meta,
           value: "缺預計日",
           tone: "warning",
-          priority: 40,
+          priority: 20,
+          onClick: () => openEditInstall(r),
+        };
+      }
+
+      const staleDays = daysSinceTimestamp(r.updatedAt);
+      if (staleDays >= 7) {
+        return {
+          id: `install-stale-${r.id}`,
+          label: getInstallTaskLabel(r),
+          meta,
+          value: `${staleDays} 天未更新`,
+          tone: "info",
+          priority: 30 + staleDays,
           onClick: () => openEditInstall(r),
         };
       }
@@ -1579,10 +1585,10 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
         {section === "install" ? (
           <>
             <MissionQueuePanel
-              title="今日優先處理"
-              subtitle={`${installActionQueue.length} 項需要確認`}
+              title="裝機資料品質"
+              subtitle={`${installActionQueue.length} 筆需補資料`}
               items={installActionQueue}
-              emptyText="目前沒有逾期、近七天到期或未指派的裝機案。"
+              emptyText="目前沒有缺序號、缺工程師、缺預計日或久未更新的裝機案。"
             />
 
             <div className="card auroraControlPanel" style={{ padding: 14, marginTop: 12 }}>
@@ -1898,7 +1904,7 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
         {section === "equipment" ? (
           <>
             <MissionQueuePanel
-              title="設備風險佇列"
+              title="設備異常待辦"
               subtitle={`${equipmentActionQueue.length} 台需要確認`}
               items={equipmentActionQueue}
               emptyText="目前沒有阻塞、紅燈或高稼動設備。"

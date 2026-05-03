@@ -19,7 +19,7 @@ import {
 import { db } from "@/lib/firebase/client";
 import type { Equipment } from "@/domain/types";
 import { EQUIPMENTS_COL } from "@/domain/constants";
-import { normalizeString } from "@/lib/utils";
+import { normalizeCompactKey, normalizeString } from "@/lib/utils";
 
 const COL = EQUIPMENTS_COL;
 
@@ -28,9 +28,7 @@ type EquipmentDocLike = Partial<Omit<Equipment, "id">> & {
 };
 
 function normalizeSerialKey(v: unknown): string {
-  if (typeof v === "string") return v.trim();
-  if (v == null) return "";
-  return String(v).trim();
+  return normalizeCompactKey(v);
 }
 
 function readEquipmentDoc(data: unknown): EquipmentDocLike {
@@ -50,18 +48,25 @@ export async function listExistingEquipmentSerialKeys(serialNos: string[]): Prom
   for (let i = 0; i < normalized.length; i += 10) {
     const chunk = normalized.slice(i, i + 10);
 
+    const keySnap = await getDocs(query(collection(db, COL), where("serialKey", "in", chunk)));
+    for (const d of keySnap.docs) {
+      const data = readEquipmentDoc(d.data());
+      const serialKey = normalizeSerialKey(data.serialKey || data.serialNo);
+      if (serialKey) found.add(serialKey);
+    }
+
     const serialSnap = await getDocs(query(collection(db, COL), where("serialNo", "in", chunk)));
     for (const d of serialSnap.docs) {
       const data = readEquipmentDoc(d.data());
-      const serialNo = normalizeSerialKey(data.serialNo);
-      if (serialNo) found.add(serialNo);
+      const serialKey = normalizeSerialKey(data.serialKey || data.serialNo);
+      if (serialKey) found.add(serialKey);
     }
 
     const legacyNameSnap = await getDocs(query(collection(db, COL), where("name", "in", chunk)));
     for (const d of legacyNameSnap.docs) {
       const data = readEquipmentDoc(d.data());
-      const legacySerial = normalizeSerialKey(data.name);
-      if (legacySerial) found.add(legacySerial);
+      const serialKey = normalizeSerialKey(data.serialKey || data.name);
+      if (serialKey) found.add(serialKey);
     }
   }
 
@@ -76,18 +81,25 @@ export async function listExistingEquipmentDocIdsBySerialKey(serialNos: string[]
   for (let i = 0; i < normalized.length; i += 10) {
     const chunk = normalized.slice(i, i + 10);
 
+    const keySnap = await getDocs(query(collection(db, COL), where("serialKey", "in", chunk)));
+    for (const d of keySnap.docs) {
+      const data = readEquipmentDoc(d.data());
+      const serialKey = normalizeSerialKey(data.serialKey || data.serialNo);
+      if (serialKey && !found.has(serialKey)) found.set(serialKey, d.id);
+    }
+
     const serialSnap = await getDocs(query(collection(db, COL), where("serialNo", "in", chunk)));
     for (const d of serialSnap.docs) {
       const data = readEquipmentDoc(d.data());
-      const serialNo = normalizeSerialKey(data.serialNo);
-      if (serialNo && !found.has(serialNo)) found.set(serialNo, d.id);
+      const serialKey = normalizeSerialKey(data.serialKey || data.serialNo);
+      if (serialKey && !found.has(serialKey)) found.set(serialKey, d.id);
     }
 
     const legacyNameSnap = await getDocs(query(collection(db, COL), where("name", "in", chunk)));
     for (const d of legacyNameSnap.docs) {
       const data = readEquipmentDoc(d.data());
-      const legacySerial = normalizeSerialKey(data.name);
-      if (legacySerial && !found.has(legacySerial)) found.set(legacySerial, d.id);
+      const serialKey = normalizeSerialKey(data.serialKey || data.name);
+      if (serialKey && !found.has(serialKey)) found.set(serialKey, d.id);
     }
   }
 
@@ -97,6 +109,12 @@ export async function listExistingEquipmentDocIdsBySerialKey(serialNos: string[]
 export async function findEquipmentBySerialKey(serialNo: string): Promise<Equipment | null> {
   const key = normalizeSerialKey(serialNo);
   if (!key) return null;
+
+  const keySnap = await getDocs(query(collection(db, COL), where("serialKey", "==", key), limit(1)));
+  if (!keySnap.empty) {
+    const d = keySnap.docs[0];
+    return mapEquipmentRow(d.id, d.data());
+  }
 
   const serialSnap = await getDocs(query(collection(db, COL), where("serialNo", "==", key), limit(1)));
   if (!serialSnap.empty) {
@@ -128,8 +146,10 @@ export function listenEquipments(onData: (rows: Equipment[]) => void, onError?: 
 }
 
 export async function createEquipment(data: Omit<Equipment, "id">) {
+  const serialKey = normalizeSerialKey(data.serialNo || data.equipmentId);
   await addDoc(collection(db, COL), {
     ...data,
+    serialKey,
     createdAt: Date.now(),
     updatedAt: Date.now(),
     createdAtServer: serverTimestamp(),
@@ -138,8 +158,12 @@ export async function createEquipment(data: Omit<Equipment, "id">) {
 }
 
 export async function updateEquipment(id: string, patch: Partial<Omit<Equipment, "id">>) {
+  const serialKey = patch.serialNo !== undefined || patch.equipmentId !== undefined
+    ? normalizeSerialKey(patch.serialNo || patch.equipmentId)
+    : undefined;
   await updateDoc(doc(db, COL, id), {
     ...patch,
+    ...(serialKey !== undefined ? { serialKey } : {}),
     updatedAt: Date.now(),
     updatedAtServer: serverTimestamp(),
   });

@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useAuth } from "@/features/auth/AuthProvider";
+import { getAppReleaseLabel } from "@/config/appVersion";
 
 const routeGroups = [
   {
@@ -23,12 +24,14 @@ const routeGroups = [
   },
 ];
 
-const releaseNotes = [
-  "升級為 F66 裝機營運中樞，首頁不再只是指標牆，而是每日決策入口。",
-  "營運中樞新增今日必處理、角色入口、區域健康圖、裝機階段瓶頸與產品產能排行。",
-  "保留既有 Firebase CRUD 與資料結構，不破壞裝機、設備、admin 管理流程。",
-  "新增系統版本頁，讓線上版本、路由分工與權限邊界可直接查核。",
-];
+function buildReleaseNotes(releaseLabel: string): string[] {
+  return [
+    `升級為 ${releaseLabel} 裝機營運中樞，版本標籤改由 appVersion 單一來源產生。`,
+    "營運中樞負責跨域 KPI 與今日必處理；任務流、設備台帳聚焦明細維護與資料品質。",
+    "裝機 released 轉設備台帳改為原子批次寫入，降低任務流與台帳重複風險。",
+    "Service Worker 與版本守門強化，降低 production 載入舊 bundle 的機率。",
+  ];
+}
 
 function StatusPill({ label, tone }: { label: string; tone: "good" | "info" | "warning" }) {
   return <span className={`f66StatusPill f66StatusPill-${tone}`}>{label}</span>;
@@ -36,7 +39,9 @@ function StatusPill({ label, tone }: { label: string; tone: "good" | "info" | "w
 
 export function SystemStatusPage() {
   const { appVersion, profile, isAdmin } = useAuth();
+  const releaseLabel = getAppReleaseLabel(appVersion);
   const buildDate = appVersion.slice(0, 8).replace(/(\d{4})(\d{2})(\d{2})/, "$1-$2-$3");
+  const releaseNotes = buildReleaseNotes(releaseLabel);
 
   return (
     <main className="f66SystemPage">
@@ -90,7 +95,7 @@ export function SystemStatusPage() {
       <section className="f66Panel">
         <div className="f66PanelHead">
           <div>
-            <span className="f66Eyebrow">F66 RELEASE NOTES</span>
+            <span className="f66Eyebrow">{releaseLabel} RELEASE NOTES</span>
             <h2>這版改了什麼</h2>
           </div>
         </div>

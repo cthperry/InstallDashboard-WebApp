@@ -16,13 +16,21 @@ import {
 import { db } from "@/lib/firebase/client";
 import { INSTALLATIONS_COL } from "@/domain/constants";
 import type { Installation } from "@/domain/types";
-import { getInstallationSerial } from "@/domain/installationDisplay";
+import { getInstallationSerial, getInstallationSerialKey, normalizeInstallationSerialCandidate } from "@/domain/installationDisplay";
 import { normalizeCompactKey, normalizeDateYmd, normalizeString } from "@/lib/utils";
 
 const COL = INSTALLATIONS_COL;
 
 function normalizeInstallationSerial(value: unknown): string {
   return normalizeCompactKey(value);
+}
+
+function buildInstallationSerial(row: Pick<Installation, "name" | "modelCode">): string {
+  return normalizeInstallationSerialCandidate(row.name, row.modelCode);
+}
+
+function buildInstallationSerialKey(row: Pick<Installation, "name" | "modelCode">): string {
+  return normalizeCompactKey(buildInstallationSerial(row));
 }
 
 function normalizeInstallationText(value: unknown): string {
@@ -38,7 +46,7 @@ export function buildInstallationImportKey(input: InstallationImportIdentityInpu
   const explicitImportKey = normalizeString(input.importKey);
   if (explicitImportKey) return explicitImportKey;
 
-  const serialKey = normalizeInstallationSerial(input.name);
+  const serialKey = buildInstallationSerialKey(input);
   if (serialKey) return `serial:${serialKey}`;
 
   const parts = [
@@ -76,17 +84,33 @@ export async function listExistingInstallationDocIdsByImportKey(importKeys: stri
 
 export async function listExistingInstallationDocIdsBySerialName(serialNos: string[]): Promise<Map<string, string[]>> {
   const normalized = Array.from(new Set(serialNos.map((value) => normalizeInstallationSerial(value)).filter(Boolean)));
+  const rawCandidates = Array.from(new Set(serialNos.map((value) => normalizeString(value)).filter(Boolean)));
   const found = new Map<string, string[]>();
   if (normalized.length === 0) return found;
 
   for (let i = 0; i < normalized.length; i += 10) {
     const chunk = normalized.slice(i, i + 10);
-    const snap = await getDocs(query(collection(db, COL), where("name", "in", chunk)));
+    const snap = await getDocs(query(collection(db, COL), where("serialKey", "in", chunk)));
     for (const d of snap.docs) {
-      const serial = normalizeInstallationSerial(d.data()?.name);
+      const data = d.data();
+      const serial = normalizeInstallationSerial(data?.serialKey || buildInstallationSerial(data as Pick<Installation, "name" | "modelCode">));
       if (!serial) continue;
       const current = found.get(serial) ?? [];
       current.push(d.id);
+      found.set(serial, current);
+    }
+  }
+
+  const exactCandidates = Array.from(new Set([...rawCandidates, ...normalized]));
+  for (let i = 0; i < exactCandidates.length; i += 10) {
+    const chunk = exactCandidates.slice(i, i + 10);
+    const snap = await getDocs(query(collection(db, COL), where("name", "in", chunk)));
+    for (const d of snap.docs) {
+      const data = d.data();
+      const serial = normalizeInstallationSerial(data?.serialKey || buildInstallationSerial(data as Pick<Installation, "name" | "modelCode">));
+      if (!serial) continue;
+      const current = found.get(serial) ?? [];
+      if (!current.includes(d.id)) current.push(d.id);
       found.set(serial, current);
     }
   }
@@ -101,7 +125,7 @@ export function listenInstallations(onData: (rows: Installation[]) => void, onEr
     (snap) => {
       const rows: Installation[] = snap.docs.map((d) => {
         const row = { id: d.id, ...(d.data() as Omit<Installation, "id">) };
-        return { ...row, name: getInstallationSerial(row) };
+        return { ...row, name: getInstallationSerial(row), serialKey: getInstallationSerialKey(row) };
       });
       onData(rows);
     },
@@ -111,10 +135,17 @@ export function listenInstallations(onData: (rows: Installation[]) => void, onEr
 
 export async function createInstallation(data: Omit<Installation, "id">) {
   const progress = typeof data.progress === "number" ? Math.max(0, Math.min(100, data.progress)) : 0;
-  const ref = await addDoc(collection(db, COL), {
+  const serialNo = buildInstallationSerial(data);
+  const serialKey = buildInstallationSerialKey(data);
+  const payload = {
     ...data,
+    name: serialNo,
+    serialKey,
     progress,
-    importKey: data.importKey ?? buildInstallationImportKey(data),
+    importKey: data.importKey ?? buildInstallationImportKey({ ...data, name: serialNo }),
+  };
+  const ref = await addDoc(collection(db, COL), {
+    ...payload,
     createdAt: Date.now(),
     updatedAt: Date.now(),
     createdAtServer: serverTimestamp(),
@@ -126,6 +157,11 @@ export async function createInstallation(data: Omit<Installation, "id">) {
 export async function updateInstallation(id: string, patch: Partial<Omit<Installation, "id">>) {
   const out: Partial<Omit<Installation, "id">> & { updatedAt?: number; updatedAtServer?: unknown } = { ...patch };
   if (typeof out.progress === "number") out.progress = Math.max(0, Math.min(100, out.progress));
+  if (out.name !== undefined) {
+    const serialNo = normalizeInstallationSerialCandidate(out.name, out.modelCode);
+    out.name = serialNo;
+    out.serialKey = normalizeCompactKey(serialNo);
+  }
   out.updatedAt = Date.now();
   out.updatedAtServer = serverTimestamp();
   await updateDoc(doc(db, COL, id), out);

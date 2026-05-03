@@ -2,18 +2,18 @@ import "./globals.css";
 import type { Metadata } from "next";
 import Script from "next/script";
 import { Providers } from "@/app/providers";
-import { APP_VERSION } from "@/config/appVersion";
+import { APP_RELEASE_LABEL, APP_VERSION } from "@/config/appVersion";
 
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
-  title: "Install Operations F66",
+  title: `Install Operations ${APP_RELEASE_LABEL}`,
   description: "Premtek 裝機營運、設備台帳、產能風險與資料治理中樞",
   manifest: "/manifest.json",
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
-    title: "Install Ops F66",
+    title: `Install Ops ${APP_RELEASE_LABEL}`,
   },
   other: {
     "mobile-web-app-capable": "yes",

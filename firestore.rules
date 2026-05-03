@@ -36,6 +36,7 @@ service cloud.firestore {
     function isValidInstallation(data) {
       return data.name is string
         && data.name.size() <= 80
+        && isOptionalShortString(data.serialKey, 80)
         && data.modelCode is string
         && data.modelCode.size() > 0
         && data.modelCode.size() <= 60
@@ -75,6 +76,7 @@ service cloud.firestore {
         && data.serialNo is string
         && data.serialNo.size() > 0
         && data.serialNo.size() <= 60
+        && isOptionalShortString(data.serialKey, 80)
         && isEquipmentStatus(data.statusMain)
         && isOptionalShortString(data.statusSub, 80)
         && isOptionalShortString(data.owner, 60)
@@ -85,7 +87,7 @@ service cloud.firestore {
     match /installations/{docId} {
       allow read: if isSignedIn();
       allow create, update: if isSignedIn() && isValidInstallation(request.resource.data);
-      allow delete: if isAdmin();
+      allow delete: if isAdmin() || (isSignedIn() && resource.data.phase == 'released');
     }
 
     match /equipments/{docId} {

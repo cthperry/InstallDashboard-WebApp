@@ -10,6 +10,8 @@ import { PHASES, PHASE_MAP, REGIONS } from "@/domain/constants";
 import { formatUphValue, getLiveUtilization } from "@/domain/capacity";
 import { getInstallationSerial } from "@/domain/installationDisplay";
 import { normalizePersonKey, toDisplayShortName } from "@/domain/personDisplay";
+import { getAppReleaseLabel } from "@/config/appVersion";
+import { todayInTaipeiYmd } from "@/lib/utils";
 
 type Tone = "critical" | "warning" | "info" | "good";
 
@@ -24,7 +26,7 @@ type QueueItem = {
 };
 
 function todayYYYYMMDD() {
-  return new Date().toISOString().slice(0, 10);
+  return todayInTaipeiYmd();
 }
 
 function safeStr(v: unknown): string {
@@ -276,6 +278,7 @@ function ProductCapacityBoard({ equipments }: { equipments: Equipment[] }) {
 
 export function WarRoomPage() {
   const { user, profile, isAdmin, appVersion } = useAuth();
+  const releaseLabel = getAppReleaseLabel(appVersion);
   const [installs, setInstalls] = useState<Installation[]>([]);
   const [equips, setEquips] = useState<Equipment[]>([]);
   const [loadingI, setLoadingI] = useState(true);
@@ -441,7 +444,7 @@ export function WarRoomPage() {
   if (loading) {
     return (
       <div className="f66Loading">
-        <div className="f66LoadingCore">F66</div>
+        <div className="f66LoadingCore">{releaseLabel}</div>
         <div>Operations Control 正在連線 Firebase...</div>
       </div>
     );
@@ -451,7 +454,7 @@ export function WarRoomPage() {
     <main className="f66OpsPage">
       <section className="f66Hero">
         <div className="f66HeroCopy">
-          <span className="f66Eyebrow">INSTALL OPERATIONS F66</span>
+          <span className="f66Eyebrow">INSTALL OPERATIONS {releaseLabel}</span>
           <h1>裝機營運中樞</h1>
           <p>
             將裝機任務、設備阻塞、產品產能與權限治理整合成每日可執行的指揮面板；主管看風險，工程師看任務，admin 看資料完整度。

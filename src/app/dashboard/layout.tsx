@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 
 import { RequireAuth } from "@/features/auth/RequireAuth";
 import { useAuth } from "@/features/auth/AuthProvider";
+import { getAppReleaseLabel } from "@/config/appVersion";
 
 function NavLink({ href, label, active, tone }: { href: string; label: string; active: boolean; tone?: "live" | "system" }) {
   return (
@@ -46,6 +47,7 @@ function LiveClock() {
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { profile, isAdmin, appVersion, signOutNow } = useAuth();
+  const releaseLabel = getAppReleaseLabel(appVersion);
   const isWarRoom = pathname?.startsWith("/dashboard/warroom") ?? false;
   const isSystem = pathname?.startsWith("/dashboard/system") ?? false;
 
@@ -56,7 +58,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <div className="topbarBrand">
             <div className="appMark">IO</div>
             <div>
-              <div className="topbarTitle">Install Operations F66</div>
+              <div className="topbarTitle">Install Operations {releaseLabel}</div>
               <div className="topbarSub">裝機營運、設備台帳、產能風險與資料治理中樞</div>
             </div>
           </div>

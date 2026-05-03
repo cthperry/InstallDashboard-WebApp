@@ -1,11 +1,14 @@
-import { createEquipment, findEquipmentBySerialKey, updateEquipment } from "@/features/data/equipments";
-import { removeInstallation } from "@/features/data/installations";
+import { collection, doc, serverTimestamp, writeBatch } from "firebase/firestore";
+import { db } from "@/lib/firebase/client";
+import { findEquipmentBySerialKey } from "@/features/data/equipments";
 import { writeAuditLog } from "@/features/data/audit";
+import { EQUIPMENTS_COL, INSTALLATIONS_COL } from "@/domain/constants";
 import type { Equipment, Installation } from "@/domain/types";
 import { buildEquipmentMilestonesFromInstallationDates } from "@/domain/equipmentMilestones";
 import { getInstallationSerial } from "@/domain/installationDisplay";
 import { shouldTransferInstallationToEquipment } from "@/domain/installPhase";
 import { toDisplayShortName } from "@/domain/personDisplay";
+import { normalizeCompactKey } from "@/lib/utils";
 
 export type EquipmentTransferTrigger = "transition" | "refresh";
 
@@ -75,37 +78,55 @@ export async function transferReleasedInstallationToEquipment(args: {
   }
 
   const existing = await findEquipmentBySerialKey(serialNo);
+  const serialKey = normalizeCompactKey(serialNo);
+  const now = Date.now();
+  const batch = writeBatch(db);
 
   if (existing) {
-    await updateEquipment(existing.id, mergeEquipmentPayload(existing, installation) as Partial<Omit<Equipment, "id">>);
-    await writeAuditLog(
-      "同步",
-      serialNo,
-      trigger === "transition"
-        ? "裝機進入正式量產，已檢查並同步既有設備台帳"
-        : "正式量產裝機再次儲存，已同步既有設備台帳",
-      userEmail,
-    );
+    batch.update(doc(db, EQUIPMENTS_COL, existing.id), {
+      ...mergeEquipmentPayload(existing, installation),
+      serialKey,
+      updatedAt: now,
+      updatedAtServer: serverTimestamp(),
+    });
   } else {
-    await createEquipment(buildEquipmentPayloadFromInstallation(installation));
-    await writeAuditLog(
-      "同步",
-      serialNo,
-      trigger === "transition"
-        ? "裝機進入正式量產，已自動轉入設備台帳"
-        : "正式量產裝機補建設備台帳記錄",
-      userEmail,
-    );
+    const ref = doc(collection(db, EQUIPMENTS_COL));
+    batch.set(ref, {
+      ...buildEquipmentPayloadFromInstallation(installation),
+      serialKey,
+      createdAt: now,
+      updatedAt: now,
+      createdAtServer: serverTimestamp(),
+      updatedAtServer: serverTimestamp(),
+    });
   }
 
   let removedInstallation = false;
   if (installationId) {
-    await removeInstallation(installationId);
+    batch.delete(doc(db, INSTALLATIONS_COL, installationId));
     removedInstallation = true;
+  }
+
+  await batch.commit();
+
+  await writeAuditLog(
+    "同步",
+    serialNo,
+    existing
+      ? trigger === "transition"
+        ? "裝機進入正式量產，已原子同步既有設備台帳"
+        : "正式量產裝機再次儲存，已原子同步既有設備台帳"
+      : trigger === "transition"
+        ? "裝機進入正式量產，已原子轉入設備台帳"
+        : "正式量產裝機補建設備台帳記錄",
+    userEmail,
+  );
+
+  if (removedInstallation) {
     await writeAuditLog(
       "轉移",
       serialNo,
-      "裝機進度已於正式量產後移出，資料保留於設備台帳",
+      "裝機進度已於正式量產後原子移出，資料保留於設備台帳",
       userEmail,
     );
   }

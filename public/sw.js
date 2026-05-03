@@ -1,4 +1,4 @@
-const APP_VERSION = "20260503-F68";
+const APP_VERSION = "20260503-F69";
 const CACHE_NAME = `premtek-${APP_VERSION}`;
 
 self.addEventListener("install", (event) => {
@@ -18,7 +18,17 @@ self.addEventListener("activate", (event) => {
 });
 
 function shouldBypass(requestUrl) {
+  let requestPath = "";
+  try {
+    requestPath = new URL(requestUrl).pathname;
+  } catch {
+    return true;
+  }
+
   return (
+    requestPath.startsWith("/_next/static/") ||
+    requestPath === "/sw.js" ||
+    requestPath === "/version.json" ||
     requestUrl.includes("googleapis.com") ||
     requestUrl.includes("firebaseio.com") ||
     requestUrl.includes("firebasestorage.googleapis.com") ||

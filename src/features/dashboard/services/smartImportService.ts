@@ -112,6 +112,7 @@ export async function commitSmartImportBatch(input: SmartImportCommitInput): Pro
 
     const payload = {
       ...row,
+      serialKey: normalizeEquipmentSerial(row.name),
       importKey,
       updatedAt: now,
       updatedAtServer: serverTimestamp(),
@@ -155,6 +156,7 @@ export async function commitSmartImportBatch(input: SmartImportCommitInput): Pro
     const equipmentPayload = {
       ...item.equipment,
       serialNo: normalizeString(item.equipment.serialNo),
+      serialKey,
       updatedAt: now,
       updatedAtServer: serverTimestamp(),
     };

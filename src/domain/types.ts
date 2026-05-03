@@ -12,6 +12,7 @@ export type PhaseKey =
 export type Installation = {
   id: string;
   name: string;
+  serialKey?: string;
   modelCode: string;
   region: RegionKey;
   customer: string;
@@ -96,6 +97,7 @@ export type Equipment = {
   site: string;
   modelCode: string;
   serialNo: string;
+  serialKey?: string;
 
   statusMain: EquipmentMainStatus;
   statusSub: string;

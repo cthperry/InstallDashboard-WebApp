@@ -18,7 +18,17 @@ self.addEventListener("activate", (event) => {
 });
 
 function shouldBypass(requestUrl) {
+  let requestPath = "";
+  try {
+    requestPath = new URL(requestUrl).pathname;
+  } catch {
+    return true;
+  }
+
   return (
+    requestPath.startsWith("/_next/static/") ||
+    requestPath === "/sw.js" ||
+    requestPath === "/version.json" ||
     requestUrl.includes("googleapis.com") ||
     requestUrl.includes("firebaseio.com") ||
     requestUrl.includes("firebasestorage.googleapis.com") ||
