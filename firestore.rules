@@ -4,13 +4,44 @@ service cloud.firestore {
   match /databases/{database}/documents {
 
     function isSignedIn() {
-      return request.auth != null;
+      return request.auth != null
+          && request.auth.token.email is string
+          && request.auth.token.email.matches('^[^@]+@premtek\\.com\\.tw$');
     }
 
     function isAdmin() {
       return isSignedIn()
           && exists(/databases/$(database)/documents/users/$(request.auth.uid))
           && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    function isPremtekEmail(value) {
+      return value is string && value.matches('^[^@]+@premtek\\.com\\.tw$');
+    }
+
+    function isSelf(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isUserRole(value) {
+      return value == 'admin' || value == 'engineer';
+    }
+
+    function isValidUserProfile(data) {
+      return data.keys().hasOnly(['email', 'role', 'updatedAt', 'updatedBy', 'createdAt', 'updatedAtServer'])
+        && isPremtekEmail(data.email)
+        && isUserRole(data.role)
+        && isOptionalNumber(data.updatedAt)
+        && isOptionalShortString(data.updatedBy, 120);
+    }
+
+    function isValidSelfUserProfile(userId) {
+      return isSelf(userId)
+        && isValidUserProfile(request.resource.data)
+        && request.resource.data.email == request.auth.token.email
+        && request.resource.data.role == 'engineer'
+        && (!exists(/databases/$(database)/documents/users/$(userId))
+          || resource.data.role == request.resource.data.role);
     }
 
     function isRegion(value) {
@@ -173,7 +204,7 @@ service cloud.firestore {
     match /installations/{docId} {
       allow read: if isSignedIn();
       allow create, update: if isSignedIn() && isValidInstallation(request.resource.data);
-      allow delete: if isAdmin() || (isSignedIn() && resource.data.phase == 'released');
+      allow delete: if isAdmin();
     }
 
     match /equipments/{docId} {
@@ -183,8 +214,10 @@ service cloud.firestore {
     }
 
     match /users/{userId} {
-      allow read: if isSignedIn();
-      allow write: if isAdmin();
+      allow read: if isAdmin() || isSelf(userId);
+      allow create: if isAdmin() || isValidSelfUserProfile(userId);
+      allow update: if isAdmin() && isValidUserProfile(request.resource.data);
+      allow delete: if isAdmin() && request.auth.uid != userId;
     }
 
     match /settings/{settingId} {

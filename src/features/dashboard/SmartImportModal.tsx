@@ -8,9 +8,11 @@ import {
   buildEquipmentPayload,
   buildInstallationPayload,
   buildWorkbookInstallationImportKey,
+  getWorkbookFileValidationError,
   inferEquipmentStatus,
   inferRegionByCustomer,
   parseWorkbookJsonRows,
+  readWorkbookJsonRows,
   resolveWorkbookImportDisposition,
   validateWorkbookRow,
   type WorkbookRow,
@@ -84,6 +86,11 @@ export function SmartImportModal({ open, onClose, onImported, customerRegionMap 
   }
 
   function handleFile(file: File) {
+    const fileError = getWorkbookFileValidationError(file);
+    if (fileError) {
+      setError(fileError);
+      return;
+    }
     setRows([]);
     setDone(null);
     setError("");
@@ -96,10 +103,9 @@ export function SmartImportModal({ open, onClose, onImported, customerRegionMap 
     };
     reader.onload = async (event) => {
       try {
-        const XLSX = await import("xlsx");
-        const workbook = XLSX.read(event.target?.result, { type: "array", cellDates: false });
-        const sheet = workbook.Sheets[workbook.SheetNames[0]];
-        const jsonRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { raw: true, defval: "" });
+        const data = event.target?.result;
+        if (!(data instanceof ArrayBuffer)) throw new Error("讀取 Excel 檔案失敗");
+        const jsonRows = await readWorkbookJsonRows(data);
         const parsed = parseWorkbookJsonRows(jsonRows, machineModels);
         if (parsed.length === 0) {
           setError("找不到有效資料列，請確認欄位名稱與範本一致。");
@@ -234,7 +240,7 @@ export function SmartImportModal({ open, onClose, onImported, customerRegionMap 
             <div style={{ color: "var(--muted-foreground)", fontSize: 12, marginBottom: 14 }}>
               同一份 Excel 上傳一次，未正式量產者會留在裝機案件；切到正式量產且有序號者會直接轉入設備台帳，且不保留裝機案件
             </div>
-            <input ref={fileRef} type="file" accept=".xlsx,.xls" onChange={onFileChange} style={{ display: "none" }} />
+            <input ref={fileRef} type="file" accept=".xlsx" onChange={onFileChange} style={{ display: "none" }} />
             <button className="btn btnAccent" onClick={() => fileRef.current?.click()} disabled={loading}>
               {loading ? "解析中…" : "選擇 Excel"}
             </button>

@@ -4,7 +4,7 @@ import { useRef, useState } from "react";
 import { Modal } from "@/features/ui/Modal";
 import type { PhaseKey, RegionKey } from "@/domain/types";
 import { PHASES, REGIONS } from "@/domain/constants";
-import { buildInstallationPayload, buildWorkbookInstallationImportKey, inferRegionByCustomer, parseWorkbookJsonRows, resolveWorkbookImportDisposition, validateWorkbookRow, type WorkbookRow } from "@/domain/importRules";
+import { buildInstallationPayload, buildWorkbookInstallationImportKey, getWorkbookFileValidationError, inferRegionByCustomer, parseWorkbookJsonRows, readWorkbookJsonRows, resolveWorkbookImportDisposition, validateWorkbookRow, type WorkbookRow } from "@/domain/importRules";
 import { commitSmartImportBatch } from "@/features/dashboard/services/smartImportService";
 
 type PreviewRow = WorkbookRow & {
@@ -18,13 +18,18 @@ type PreviewRow = WorkbookRow & {
 };
 
 async function downloadTemplate() {
-  const xlsx = await import("xlsx");
+  const ExcelJS = await import("exceljs");
   const headers = ["產品序號", "產品名稱", "訂單來源公司名稱", "預計出貨日", "預計安裝日", "實際安裝日期", "驗收完成日期", "服務人員名稱"];
-  const ws = xlsx.utils.aoa_to_sheet([headers]);
-  ws["!cols"] = headers.map(() => ({ wch: 22 }));
-  const wb = xlsx.utils.book_new();
-  xlsx.utils.book_append_sheet(wb, ws, "Incident");
-  xlsx.writeFile(wb, "安裝案件匯入範本.xlsx");
+  const workbook = new ExcelJS.Workbook();
+  const worksheet = workbook.addWorksheet("Incident");
+  worksheet.columns = headers.map((header) => ({ header, key: header, width: 22 }));
+  const buffer = await workbook.xlsx.writeBuffer();
+  const url = URL.createObjectURL(new Blob([buffer as BlobPart], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "安裝案件匯入範本.xlsx";
+  link.click();
+  URL.revokeObjectURL(url);
 }
 
 type Props = {
@@ -66,6 +71,11 @@ export function ImportExcelModal({ open, onClose, onImported, customerRegionMap 
 
   function handleFile(file: File) {
     if (!file) return;
+    const fileError = getWorkbookFileValidationError(file);
+    if (fileError) {
+      setError(fileError);
+      return;
+    }
     setError("");
     setLoading(true);
     setRows([]);
@@ -78,10 +88,8 @@ export function ImportExcelModal({ open, onClose, onImported, customerRegionMap 
     reader.onload = async (e) => {
       try {
         const data = e.target?.result;
-        const xlsx = await import("xlsx");
-        const wb = xlsx.read(data, { type: "array", cellDates: false });
-        const ws = wb.Sheets[wb.SheetNames[0]];
-        const jsonRows = xlsx.utils.sheet_to_json<Record<string, unknown>>(ws, { raw: true, defval: "" });
+        if (!(data instanceof ArrayBuffer)) throw new Error("讀取 Excel 檔案失敗");
+        const jsonRows = await readWorkbookJsonRows(data);
         const parsed = parseWorkbookJsonRows(jsonRows);
         if (parsed.length === 0) {
           setError("找不到有效資料列，請確認欄位名稱符合範本格式。");
@@ -197,7 +205,7 @@ export function ImportExcelModal({ open, onClose, onImported, customerRegionMap 
             <div style={{ fontSize: 40, marginBottom: 8 }}>📄</div>
             <div style={{ fontWeight: 800, marginBottom: 4 }}>拖曳 Excel 到這裡，或點擊選擇檔案</div>
             <div style={{ color: "var(--muted-foreground)", fontSize: 12, marginBottom: 12 }}>此模式只同步裝機案件；若資料已正式量產，請改用「Excel 智慧匯入」轉入設備台帳</div>
-            <input ref={fileRef} type="file" accept=".xlsx,.xls" onChange={onFileChange} style={{ display: "none" }} />
+            <input ref={fileRef} type="file" accept=".xlsx" onChange={onFileChange} style={{ display: "none" }} />
             <div style={{ display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap" }}>
               <button className="btn btnAccent" onClick={() => fileRef.current?.click()} disabled={loading}>{loading ? "解析中…" : "選擇 Excel"}</button>
               <button className="btn" onClick={() => void downloadTemplate()}>下載範本</button>

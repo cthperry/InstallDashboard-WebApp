@@ -5,7 +5,7 @@ import { Modal } from "@/features/ui/Modal";
 import { createEquipment, listExistingEquipmentSerialKeys } from "@/features/data/equipments";
 import type { EquipmentMainStatus, RegionKey } from "@/domain/types";
 import { EQUIPMENT_MAIN_STATUSES, REGIONS } from "@/domain/constants";
-import { buildEquipmentPayload, cleanModelName, excelDateToString } from "@/domain/importRules";
+import { buildEquipmentPayload, cleanModelName, excelDateToString, getWorkbookFileValidationError, readWorkbookJsonRows } from "@/domain/importRules";
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
@@ -103,6 +103,11 @@ export function ImportEquipmentModal({ open, onClose, onImported, customerRegion
 
   function handleFile(file: File) {
     if (!file) return;
+    const fileError = getWorkbookFileValidationError(file);
+    if (fileError) {
+      setError(fileError);
+      return;
+    }
     setError(""); setLoading(true); setRows([]); setDone(null);
     const reader = new FileReader();
     reader.onerror = () => {
@@ -111,10 +116,9 @@ export function ImportEquipmentModal({ open, onClose, onImported, customerRegion
     };
     reader.onload = async (e) => {
       try {
-        const xlsx = await import("xlsx");
-        const wb = xlsx.read(e.target?.result, { type: "array", cellDates: false });
-        const ws = wb.Sheets[wb.SheetNames[0]];
-        const jsonRows = xlsx.utils.sheet_to_json<Record<string, unknown>>(ws, { raw: true, defval: "" });
+        const data = e.target?.result;
+        if (!(data instanceof ArrayBuffer)) throw new Error("讀取 Excel 檔案失敗");
+        const jsonRows = await readWorkbookJsonRows(data);
         const parsed = parseSheet(jsonRows);
         if (parsed.length === 0) {
           setError("找不到有效資料列，請確認欄位名稱符合範本格式。");
@@ -261,9 +265,9 @@ export function ImportEquipmentModal({ open, onClose, onImported, customerRegion
               拖曳或點擊上傳 Excel 檔案
             </div>
             <div style={{ color: "var(--muted-foreground)", fontSize: 13 }}>
-              支援 .xlsx / .xls（欄位需含：產品序號、產品名稱、訂單來源公司名稱、實際安裝日期、驗收完成日期、服務人員名稱）
+              支援 .xlsx（欄位需含：產品序號、產品名稱、訂單來源公司名稱、實際安裝日期、驗收完成日期、服務人員名稱）
             </div>
-            <input ref={fileRef} type="file" accept=".xlsx,.xls" style={{ display: "none" }} onChange={onFileChange} />
+            <input ref={fileRef} type="file" accept=".xlsx" style={{ display: "none" }} onChange={onFileChange} />
           </div>
 
           {loading && <div style={{ textAlign: "center", color: "var(--muted-foreground)" }}>解析中…</div>}

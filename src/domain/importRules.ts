@@ -1,5 +1,3 @@
-import type { WorkSheet } from "xlsx";
-
 import type { Equipment, EquipmentMainStatus, Installation, MachineModel, PhaseKey, RegionKey } from "@/domain/types";
 import { DEFAULT_MACHINE_MODELS } from "@/domain/constants";
 import { resolveInstallationPhase, resolveInstallationProgress, shouldTransferInstallationToEquipment } from "@/domain/installPhase";
@@ -49,6 +47,69 @@ const COLUMN_MAP: Record<string, keyof WorkbookRow> = {
 };
 
 const DATE_FIELDS = new Set<keyof WorkbookRow>(["estArrival", "estComplete", "actArrival", "actComplete"]);
+export const MAX_EXCEL_FILE_BYTES = 5 * 1024 * 1024;
+export const MAX_WORKBOOK_JSON_ROWS = 1200;
+const ALLOWED_EXCEL_EXTENSIONS = new Set([".xlsx"]);
+
+export function getWorkbookFileValidationError(file: File): string | null {
+  const lowerName = file.name.toLowerCase();
+  const allowed = Array.from(ALLOWED_EXCEL_EXTENSIONS).some((ext) => lowerName.endsWith(ext));
+  if (!allowed) return "僅支援 .xlsx 檔案";
+  if (file.size > MAX_EXCEL_FILE_BYTES) return `Excel 檔案不可超過 ${Math.floor(MAX_EXCEL_FILE_BYTES / 1024 / 1024)}MB`;
+  return null;
+}
+
+export function limitWorkbookJsonRows<T>(rows: T[]): T[] {
+  if (rows.length > MAX_WORKBOOK_JSON_ROWS) {
+    throw new Error(`Excel 資料列不可超過 ${MAX_WORKBOOK_JSON_ROWS} 筆，請拆批匯入`);
+  }
+  return rows;
+}
+
+function normalizeCellValue(value: unknown): unknown {
+  if (value == null) return "";
+  if (value instanceof Date) return value;
+  if (typeof value !== "object") return value;
+
+  const record = value as Record<string, unknown>;
+  if ("result" in record) return normalizeCellValue(record.result);
+  if ("text" in record && typeof record.text === "string") return record.text;
+  if ("richText" in record && Array.isArray(record.richText)) {
+    return record.richText
+      .map((part) => typeof part === "object" && part && "text" in part ? String((part as { text?: unknown }).text ?? "") : "")
+      .join("");
+  }
+  return String(value);
+}
+
+export async function readWorkbookJsonRows(data: ArrayBuffer): Promise<Array<Record<string, unknown>>> {
+  const ExcelJS = await import("exceljs");
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(data);
+  const worksheet = workbook.worksheets[0];
+  if (!worksheet) return [];
+
+  const headerRow = worksheet.getRow(1);
+  const headers: string[] = [];
+  headerRow.eachCell({ includeEmpty: false }, (cell, colNumber) => {
+    const header = String(normalizeCellValue(cell.value) ?? "").trim();
+    if (header) headers[colNumber] = header;
+  });
+
+  const rows: Array<Record<string, unknown>> = [];
+  worksheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
+    if (rowNumber === 1) return;
+    const out: Record<string, unknown> = {};
+    for (let colNumber = 1; colNumber < headers.length; colNumber += 1) {
+      const header = headers[colNumber];
+      if (!header) continue;
+      out[header] = normalizeCellValue(row.getCell(colNumber).value);
+    }
+    rows.push(out);
+  });
+
+  return limitWorkbookJsonRows(rows);
+}
 
 function parseLooseDateString(raw: string): string {
   const trimmed = raw.trim();
@@ -216,14 +277,6 @@ export function parseWorkbookJsonRows(
       } satisfies ParsedWorkbookRow;
     })
     .filter((row) => row.customer.length > 0 || row.modelCode.length > 0 || row.serialNo.length > 0);
-}
-
-export function parseWorkbookSheet(
-  ws: WorkSheet,
-  models: readonly MachineModel[] = DEFAULT_MACHINE_MODELS,
-): ParsedWorkbookRow[] {
-  void ws;
-  throw new Error("請改用 parseWorkbookJsonRows，並由呼叫端先將工作表轉成 JSON 資料列");
 }
 
 export function buildInstallationPayload(
