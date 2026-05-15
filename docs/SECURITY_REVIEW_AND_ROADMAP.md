@@ -11,7 +11,6 @@ Date: 2026-05-15
 - Security headers were added for content sniffing, framing, referrer, browser permissions, and opener isolation.
 - Excel import entry points now reject non-Excel files, files larger than 5 MB, and sheets over 1200 parsed rows.
 - Excel import and template export were migrated from vulnerable `xlsx` to `exceljs`; legacy `.xls` upload is no longer accepted.
-- The local DOCX UI refuses non-localhost binding unless explicitly allowed, caps JSON request size, validates base64, and caps uploaded photo bytes.
 - Next.js was updated to `16.2.6`; top-level PostCSS was updated to `8.5.14`.
 
 ## Residual risks
