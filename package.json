@@ -1,6 +1,6 @@
 {
   "name": "install-dashboard-webapp",
-  "version": "20260504-F73",
+  "version": "20260515-F74",
   "private": true,
   "scripts": {
     "sync:version": "node scripts/sync-app-version.cjs",
