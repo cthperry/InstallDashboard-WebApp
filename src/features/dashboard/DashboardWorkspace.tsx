@@ -415,6 +415,27 @@ function regionLabel(k: RegionKey): string {
   return REGIONS[k]?.label ?? k;
 }
 
+export function getPhaseHint(phase: PhaseKey): string {
+  switch (phase) {
+    case "ordered":
+      return "先建立需求即可，機台序號與工程師可稍後補。";
+    case "shipping":
+      return "備貨 / 出貨階段可先追預計出貨與預計安裝日。";
+    case "arrived":
+      return "到廠後需補機台序號與負責工程師。";
+    case "installing":
+      return "開始安裝後需填實際安裝日期，進度可由檢查清單帶出。";
+    case "trial":
+      return "試產階段請維護工程師與試產檢查清單。";
+    case "qual":
+      return "Qual 驗證階段請追驗證與客戶確認項目。";
+    case "released":
+      return "正式量產會轉入設備台帳，請確認序號與工程師。";
+    default:
+      return "";
+  }
+}
+
 function pickColorByUtil(u: number): string {
   if (u >= 80) return "#10b981";
   if (u >= 50) return "#f59e0b";
@@ -423,6 +444,16 @@ function pickColorByUtil(u: number): string {
 
 function defaultEquipSubStatus(statusMain: EquipmentMainStatus): string {
   return EQUIPMENT_SUB_STATUS_OPTIONS[statusMain]?.[0] ?? "";
+}
+
+export function resolveCustomerRegionFromMap(customerRegionMap: Record<string, RegionKey>, customer: string): RegionKey | null {
+  const target = customer.trim();
+  if (!target) return null;
+  const direct = customerRegionMap[target];
+  if (direct) return direct;
+  const lower = target.toLowerCase();
+  const match = Object.entries(customerRegionMap).find(([name]) => name.trim().toLowerCase() === lower);
+  return match?.[1] ?? null;
 }
 
 // --- Saved Filter ---
@@ -775,6 +806,10 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
     return map;
   }, [appVars]);
 
+  const resolveCustomerRegion = useCallback((customer: string): RegionKey | null => {
+    return resolveCustomerRegionFromMap(customerRegionMap, customer);
+  }, [customerRegionMap]);
+
   const filteredInstallations = useMemo(() => {
     const k = deferredKeyword.trim().toLowerCase();
     const rows = installations.filter((r) => {
@@ -997,6 +1032,38 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
     setInstallErrorSummary([]);
   };
 
+  const updateInstallCustomer = (value: string) => {
+    const inferredRegion = resolveCustomerRegion(value);
+    setInstallForm((prev: any) => ({
+      ...prev,
+      customer: value,
+      ...(inferredRegion ? { region: inferredRegion } : {}),
+    }));
+    setInstallErrors((prev) => {
+      if (!prev.customer && !prev.region) return prev;
+      const next = { ...prev };
+      delete next.customer;
+      if (inferredRegion) delete next.region;
+      return next;
+    });
+    setInstallErrorSummary([]);
+  };
+
+  const updateInstallPhase = (phase: PhaseKey) => {
+    setInstallForm((prev: any) => ({
+      ...prev,
+      phase,
+      progress: getInstallationProgressByPhase(phase),
+    }));
+    setInstallErrors((prev) => {
+      if (!prev.phase) return prev;
+      const next = { ...prev };
+      delete next.phase;
+      return next;
+    });
+    setInstallErrorSummary([]);
+  };
+
   const focusInstallErrorField = (field: string) => {
     const container = installFieldRefs.current[field];
     if (!container) return;
@@ -1008,7 +1075,17 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
   // ───────── Actions: Installations ─────────
   const openAddInstall = () => {
     setInstallEditId(null);
-    setInstallForm(getInstallationDefaultDraft(machineModels));
+    const draft = getInstallationDefaultDraft(machineModels);
+    const inferredRegion = fCustomer ? resolveCustomerRegion(fCustomer) : null;
+    setInstallForm({
+      ...draft,
+      customer: fCustomer || "",
+      region: inferredRegion ?? (fRegion || draft.region),
+      modelCode: fModel || draft.modelCode,
+      phase: fPhase || draft.phase,
+      engineer: fEngineer || "",
+      progress: fPhase ? getInstallationProgressByPhase(fPhase) : draft.progress,
+    });
     clearInstallErrors();
     setInstallModalOpen(true);
   };
@@ -2504,27 +2581,26 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
           title={installEditId ? "編輯裝機案" : "新增裝機案"}
           onClose={() => { clearInstallErrors(); setInstallModalOpen(false); }}
         >
-          <div className="formGrid">
-            <div className="field" ref={(node) => { installFieldRefs.current.name = node; }}>
-              <div className="label">
-                {doesInstallationPhaseRequireSerial(installForm.phase)
-                  ? <span style={{color:"var(--destructive)"}}>* </span>
-                  : null}
-                機台序號
-                {!doesInstallationPhaseRequireSerial(installForm.phase)
-                  ? <span style={{color:"var(--muted-foreground)", fontSize: 11, fontWeight: 400}}> （未到廠前可留空）</span>
-                  : null}
-              </div>
-              <input value={installForm.name} onChange={(e) => updateInstallField("name", e.target.value)} aria-invalid={!!installErrors.name} placeholder="例如：P160623 / FT-S-001" />
-              {installErrors.name ? <div style={{ color: "var(--destructive)", fontSize: 12 }}>{installErrors.name}</div> : null}
+          <div className="quickFormIntro">
+            <div>
+              <strong>{installEditId ? "維護必要狀態即可" : "快速新增只需要先填基本資料"}</strong>
+              <p>{getPhaseHint(installForm.phase as PhaseKey)}</p>
             </div>
-            <div className="field" ref={(node) => { installFieldRefs.current.modelCode = node; }}>
-              <div className="label"><span style={{color:"var(--destructive)"}}>* </span>機型</div>
-              <select value={installForm.modelCode} onChange={(e) => updateInstallField("modelCode", e.target.value)} aria-invalid={!!installErrors.modelCode}>
-                {machineModels.map((m: any) => <option key={m.code} value={m.code}>{m.displayName}</option>)}
-              </select>
-              {installErrors.modelCode ? <div style={{ color: "var(--destructive)", fontSize: 12 }}>{installErrors.modelCode}</div> : null}
+            <span className="quickFormBadge">{PHASE_MAP[installForm.phase as PhaseKey]?.label ?? "裝機案"} · {installForm.progress ?? 0}%</span>
+          </div>
+
+          <div className="formGrid quickFormGrid">
+            <div className="field" ref={(node) => { installFieldRefs.current.customer = node; }}>
+              <div className="label"><span style={{color:"var(--destructive)"}}>* </span>客戶</div>
+              <input list="customerOptions" value={installForm.customer} onChange={(e) => updateInstallCustomer(e.target.value)} aria-invalid={!!installErrors.customer} placeholder="例如：TSMC F18" />
+              {resolveCustomerRegion(installForm.customer) ? (
+                <div className="fieldHint">已依客戶清單帶入 {regionLabel(resolveCustomerRegion(installForm.customer) as RegionKey)}</div>
+              ) : (
+                <div className="fieldHint">找不到客戶對應時，請手動確認區域。</div>
+              )}
+              {installErrors.customer ? <div style={{ color: "var(--destructive)", fontSize: 12 }}>{installErrors.customer}</div> : null}
             </div>
+
             <div className="field" ref={(node) => { installFieldRefs.current.region = node; }}>
               <div className="label">區域</div>
               <select value={installForm.region} onChange={(e) => updateInstallField("region", e.target.value)} aria-invalid={!!installErrors.region}>
@@ -2532,31 +2608,39 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
               </select>
               {installErrors.region ? <div style={{ color: "var(--destructive)", fontSize: 12 }}>{installErrors.region}</div> : null}
             </div>
-            <div className="field" ref={(node) => { installFieldRefs.current.customer = node; }}>
-              <div className="label"><span style={{color:"var(--destructive)"}}>* </span>客戶</div>
-              <input list="customerOptions" value={installForm.customer} onChange={(e) => updateInstallField("customer", e.target.value)} aria-invalid={!!installErrors.customer} placeholder="例如：TSMC F18" />
-              {installErrors.customer ? <div style={{ color: "var(--destructive)", fontSize: 12 }}>{installErrors.customer}</div> : null}
+
+            <div className="field" ref={(node) => { installFieldRefs.current.modelCode = node; }}>
+              <div className="label"><span style={{color:"var(--destructive)"}}>* </span>機型</div>
+              <select value={installForm.modelCode} onChange={(e) => updateInstallField("modelCode", e.target.value)} aria-invalid={!!installErrors.modelCode}>
+                {machineModels.map((m: any) => <option key={m.code} value={m.code}>{m.displayName}</option>)}
+              </select>
+              {installErrors.modelCode ? <div style={{ color: "var(--destructive)", fontSize: 12 }}>{installErrors.modelCode}</div> : null}
             </div>
+
             <div className="field" ref={(node) => { installFieldRefs.current.phase = node; }}>
               <div className="label">階段</div>
-              <select
-                value={installForm.phase}
-                onChange={(e) => {
-                  const phase = e.target.value as PhaseKey;
-                  updateInstallField("phase", phase);
-                  updateInstallField("progress", getInstallationProgressByPhase(phase));
-                }}
-              >
+              <select value={installForm.phase} onChange={(e) => updateInstallPhase(e.target.value as PhaseKey)}>
                 {PHASES.map((p) => <option key={p.key} value={p.key}>{p.icon} {p.label}</option>)}
               </select>
               {installErrors.phase ? <div style={{ color: "var(--destructive)", fontSize: 12 }}>{installErrors.phase}</div> : null}
             </div>
+
+            <div className="field" ref={(node) => { installFieldRefs.current.name = node; }}>
+              <div className="label">
+                {doesInstallationPhaseRequireSerial(installForm.phase)
+                  ? <span style={{color:"var(--destructive)"}}>* </span>
+                  : null}
+                機台序號
+              </div>
+              <input value={installForm.name} onChange={(e) => updateInstallField("name", e.target.value)} aria-invalid={!!installErrors.name} placeholder={doesInstallationPhaseRequireSerial(installForm.phase) ? "到廠後必填，例如 P160623" : "未到廠前可留空"} />
+              {installErrors.name ? <div style={{ color: "var(--destructive)", fontSize: 12 }}>{installErrors.name}</div> : null}
+            </div>
+
             <div className="field" ref={(node) => { installFieldRefs.current.engineer = node; }}>
-              {doesInstallationPhaseRequireEngineer(installForm.phase) ? (
-                <div className="label"><span style={{color:"var(--destructive)"}}>* </span>工程師</div>
-              ) : (
-                <div className="label">工程師</div>
-              )}
+              <div className="label">
+                {doesInstallationPhaseRequireEngineer(installForm.phase) ? <span style={{color:"var(--destructive)"}}>* </span> : null}
+                工程師
+              </div>
               <select value={installForm.engineer} onChange={(e) => updateInstallField("engineer", e.target.value)} aria-invalid={!!installErrors.engineer}>
                 <option value="">請選擇工程師</option>
                 {engineers.map((name) => (
@@ -2568,36 +2652,52 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
               </select>
               {installErrors.engineer ? <div style={{ color: "var(--destructive)", fontSize: 12 }}>{installErrors.engineer}</div> : null}
             </div>
+          </div>
 
-            {/* Date fields */}
-            {INSTALLATION_DATE_FIELDS.map((field) => (
-              <div className="field" key={field.key} ref={(node) => { installFieldRefs.current[field.key] = node; }}>
-                <div className="label">{field.label}</div>
-                <DateInput
-                  value={installForm[field.key]}
-                  onChange={(value) => updateInstallField(field.key, value)}
+          <details className="formSection" open={Boolean(installEditId)}>
+            <summary>時程與進度</summary>
+            <div className="formGrid">
+              {INSTALLATION_DATE_FIELDS.map((field) => (
+                <div className="field" key={field.key} ref={(node) => { installFieldRefs.current[field.key] = node; }}>
+                  <div className="label">{field.label}</div>
+                  <DateInput
+                    value={installForm[field.key]}
+                    onChange={(value) => updateInstallField(field.key, value)}
+                  />
+                  {installErrors[field.key] ? <div style={{ color: "var(--destructive)", fontSize: 12 }}>{installErrors[field.key]}</div> : null}
+                </div>
+              ))}
+
+              <div className="field" style={{ gridColumn: "1 / -1" }}>
+                <div className="label">進度（0~100）</div>
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  step={5}
+                  value={installForm.progress}
+                  onChange={(e) => {
+                    const n = Number(e.target.value);
+                    const v = Number.isFinite(n) ? clamp(n, 0, 100) : 0;
+                    setInstallForm({ ...installForm, progress: v });
+                  }}
                 />
-                {installErrors[field.key] ? <div style={{ color: "var(--destructive)", fontSize: 12 }}>{installErrors[field.key]}</div> : null}
               </div>
-            ))}
+            </div>
+          </details>
 
-            {/* Checklist per phase */}
-            {(() => {
-              const checklistItems = PHASE_CHECKLIST[installForm.phase] ?? [];
-              if (checklistItems.length === 0) return null;
-              const done = checklistItems.filter((it) => installForm.checklist?.[it.id]).length;
-              return (
-                <div className="field" style={{ gridColumn: "1 / -1" }}>
-                  <div className="label" style={{ marginBottom: 8, fontWeight: 700 }}>
-                    檢查清單（{installForm.phase}）
-                    <span style={{ marginLeft: 8, fontWeight: 400, fontSize: 11, color: "var(--muted-foreground, #94a3b8)" }}>
-                      {done}/{checklistItems.length}
-                    </span>
-                  </div>
+          {(() => {
+            const checklistItems = PHASE_CHECKLIST[installForm.phase] ?? [];
+            if (checklistItems.length === 0) return null;
+            const done = checklistItems.filter((it) => installForm.checklist?.[it.id]).length;
+            return (
+              <details className="formSection" open={Boolean(installEditId)}>
+                <summary>檢查清單 <span>{done}/{checklistItems.length}</span></summary>
+                <div className="checklistGrid">
                   {checklistItems.map((item) => {
                     const checked = !!(installForm.checklist?.[item.id]);
                     return (
-                      <label key={item.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0", cursor: "pointer", userSelect: "none", borderBottom: "1px solid var(--border)" }}>
+                      <label key={item.id} className="checklistItem">
                         <input
                           type="checkbox"
                           checked={checked}
@@ -2607,37 +2707,33 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
                             const autoProgress = Math.round((nextDone / checklistItems.length) * 20) * 5;
                             setInstallForm({ ...installForm, checklist: nextChecklist, progress: autoProgress });
                           }}
-                          style={{ width: 16, height: 16, cursor: "pointer", accentColor: "var(--primary, #2563eb)" }}
                         />
-                        <span style={{ fontSize: 13, textDecoration: checked ? "line-through" : "none", color: checked ? "var(--muted-foreground, #94a3b8)" : "inherit" }}>{item.label}</span>
+                        <span style={{ textDecoration: checked ? "line-through" : "none" }}>{item.label}</span>
                       </label>
                     );
                   })}
                 </div>
-              );
-            })()}
+              </details>
+            );
+          })()}
 
-            <div className="field" style={{ gridColumn: "1 / -1" }}>
-              <div className="label">進度（0~100）</div>
-              <input
-                type="number"
-                min={0}
-                max={100}
-                step={5}
-                value={installForm.progress}
-                onChange={(e) => {
-                  const n = Number(e.target.value);
-                  const v = Number.isFinite(n) ? clamp(n, 0, 100) : 0;
-                  setInstallForm({ ...installForm, progress: v });
-                }}
-              />
+          <details className="formSection">
+            <summary>更多資料</summary>
+            <div className="formGrid">
+              <div className="field">
+                <div className="label">聯絡人</div>
+                <input value={installForm.custContact} onChange={(e) => updateInstallField("custContact", e.target.value)} placeholder="可選填" />
+              </div>
+              <div className="field">
+                <div className="label">聯絡電話</div>
+                <input value={installForm.custPhone} onChange={(e) => updateInstallField("custPhone", e.target.value)} placeholder="可選填" />
+              </div>
+              <div className="field" style={{ gridColumn: "1 / -1" }}>
+                <div className="label">備註</div>
+                <textarea value={installForm.notes} onChange={(e) => updateInstallField("notes", e.target.value)} rows={4} placeholder="補充限制、現場狀況或客戶要求" />
+              </div>
             </div>
-
-            <div className="field" style={{ gridColumn: "1 / -1" }}>
-              <div className="label">備註</div>
-              <textarea value={installForm.notes} onChange={(e) => updateInstallField("notes", e.target.value)} rows={4} />
-            </div>
-          </div>
+          </details>
 
           {installErrorSummary.length > 0 ? (
             <div

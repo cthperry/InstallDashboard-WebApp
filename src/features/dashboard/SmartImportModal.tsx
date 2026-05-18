@@ -64,6 +64,16 @@ function toPreviewRow(row: WorkbookRow & { rowIndex?: number }, idx: number, cus
   });
 }
 
+export function getPreviewRowIssues(row: PreviewRow): string[] {
+  const lifecycle = resolveWorkbookImportDisposition(row, row._phase);
+  const issues = [...validateWorkbookRow(row, "installation", lifecycle.phase)];
+  if (!row._regionMatched) issues.push("區域需確認");
+  if (lifecycle.transferToEquipment) {
+    issues.push(...validateWorkbookRow(row, "equipment", lifecycle.phase).map((issue) => "設備：" + issue));
+  }
+  return Array.from(new Set(issues));
+}
+
 export function SmartImportModal({ open, onClose, onImported, customerRegionMap = {}, machineModels = [] }: Props) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [rows, setRows] = useState<PreviewRow[]>([]);
@@ -71,6 +81,7 @@ export function SmartImportModal({ open, onClose, onImported, customerRegionMap 
   const [importing, setImporting] = useState(false);
   const [error, setError] = useState("");
   const [done, setDone] = useState<SmartImportCommitResult | null>(null);
+  const [showOnlyIssues, setShowOnlyIssues] = useState(true);
 
   function reset() {
     setRows([]);
@@ -78,6 +89,7 @@ export function SmartImportModal({ open, onClose, onImported, customerRegionMap 
     setImporting(false);
     setError("");
     setDone(null);
+    setShowOnlyIssues(true);
   }
 
   function handleClose() {
@@ -113,6 +125,7 @@ export function SmartImportModal({ open, onClose, onImported, customerRegionMap 
           return;
         }
         setRows(parsed.map((row, idx) => toPreviewRow(row, idx, customerRegionMap)));
+        setShowOnlyIssues(true);
       } catch (fileError) {
         setError(fileError instanceof Error ? fileError.message : "Excel 解析失敗");
       } finally {
@@ -148,6 +161,8 @@ export function SmartImportModal({ open, onClose, onImported, customerRegionMap 
   const selectedEquipments = selectedRows.filter((row) => row._createEquipment).length;
   const unmatchedRegions = selectedRows.filter((row) => !row._regionMatched).length;
   const equipmentWithoutSerial = selectedRows.filter((row) => row._createEquipment && !row.serialNo).length;
+  const issueRows = useMemo(() => rows.filter((row) => getPreviewRowIssues(row).length > 0), [rows]);
+  const visibleRows = showOnlyIssues && issueRows.length > 0 ? issueRows : rows;
   const previewTableMinWidth = 1320;
 
   async function handleImport() {
@@ -255,12 +270,39 @@ export function SmartImportModal({ open, onClose, onImported, customerRegionMap 
         </div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          <div className="importReviewSummary">
+            <div>
+              <span>總列數</span>
+              <strong>{rows.length}</strong>
+            </div>
+            <div>
+              <span>可直接處理</span>
+              <strong>{Math.max(0, rows.length - issueRows.length)}</strong>
+            </div>
+            <div className={issueRows.length ? "importReviewAttention" : ""}>
+              <span>需確認</span>
+              <strong>{issueRows.length}</strong>
+            </div>
+            <div>
+              <span>目前顯示</span>
+              <strong>{visibleRows.length}</strong>
+            </div>
+          </div>
+
           <div style={{ display: "flex", gap: 12, flexWrap: "wrap", fontSize: 12, color: "var(--muted-foreground)" }}>
             <span>已選：<strong>{selectedRows.length}</strong> 筆</span>
             <span>裝機：<strong>{selectedInstallations}</strong> 筆</span>
             <span>設備：<strong>{selectedEquipments}</strong> 筆</span>
             <span style={{ color: unmatchedRegions ? "#f59e0b" : undefined }}>未匹配區域：<strong>{unmatchedRegions}</strong> 筆</span>
             <span style={{ color: equipmentWithoutSerial ? "#ef4444" : undefined }}>設備缺序號：<strong>{equipmentWithoutSerial}</strong> 筆</span>
+          </div>
+
+          <div className="importReviewToolbar">
+            <label>
+              <input type="checkbox" checked={showOnlyIssues} onChange={(event) => setShowOnlyIssues(event.target.checked)} disabled={issueRows.length === 0} />
+              只顯示需人工確認的列
+            </label>
+            <span>{issueRows.length === 0 ? "目前沒有異常列，可直接匯入。" : "正常列已預設選取，不需要逐筆檢查。"}</span>
           </div>
 
           <div style={{ overflow: "auto", maxHeight: "70vh", maxWidth: "100%", border: "1px solid var(--border)", borderRadius: 12, background: "var(--card)" }}>
@@ -283,11 +325,17 @@ export function SmartImportModal({ open, onClose, onImported, customerRegionMap 
                 </tr>
               </thead>
               <tbody>
-                {rows.map((row) => (
+                {visibleRows.map((row) => {
+                  const rowIssues = getPreviewRowIssues(row);
+                  return (
                   <tr key={row._idx} style={{ borderTop: "1px solid var(--border)" }}>
                     <td style={{ position: "sticky", left: 0, zIndex: 4, padding: "8px 6px", textAlign: "center", whiteSpace: "nowrap", borderTop: "1px solid var(--border)", background: "var(--card)" }}><input type="checkbox" checked={row._selected} onChange={() => setRow(row._idx, (current) => ({ ...current, _selected: !current._selected }))} /></td>
                     <td style={{ position: "sticky", left: 40, zIndex: 4, padding: "8px 6px", fontSize: 12, whiteSpace: "nowrap", borderTop: "1px solid var(--border)", background: "var(--card)" }}>{row._idx + 1}</td>
-                    <td style={{ position: "sticky", left: 78, zIndex: 4, padding: "8px 6px", whiteSpace: "nowrap", borderTop: "1px solid var(--border)", background: "var(--card)", fontSize: 12, lineHeight: 1.35 }}><div style={{ fontWeight: 700 }}>{row._createEquipment ? "轉入設備" : "裝機案件"}</div><div style={{ color: row._createEquipment ? "#16a34a" : "var(--muted-foreground)" }}>{row._createEquipment ? "正式量產後自裝機移除" : "留在裝機"}</div></td>
+                    <td style={{ position: "sticky", left: 78, zIndex: 4, padding: "8px 6px", whiteSpace: "nowrap", borderTop: "1px solid var(--border)", background: "var(--card)", fontSize: 12, lineHeight: 1.35 }}>
+                      <div style={{ fontWeight: 700 }}>{row._createEquipment ? "轉入設備" : "裝機案件"}</div>
+                      <div style={{ color: row._createEquipment ? "#16a34a" : "var(--muted-foreground)" }}>{row._createEquipment ? "正式量產後自裝機移除" : "留在裝機"}</div>
+                      {rowIssues.length > 0 ? <div className="importIssueList">{rowIssues.slice(0, 2).join("、")}</div> : null}
+                    </td>
                     <td style={{ position: "sticky", left: 162, zIndex: 4, padding: "8px 8px", fontWeight: 700, whiteSpace: "normal", lineHeight: 1.4, wordBreak: "break-word", borderTop: "1px solid var(--border)", maxWidth: 160, background: "var(--card)" }}>{row.customer || "-"}</td>
                     <td style={{ padding: "8px 8px", whiteSpace: "nowrap", borderTop: "1px solid var(--border)", fontSize: 12 }}>{row.modelCode || "-"}</td>
                     <td style={{ padding: "8px 8px", whiteSpace: "nowrap", borderTop: "1px solid var(--border)", color: row._createEquipment && !row.serialNo ? "#ef4444" : undefined, fontSize: 12 }}>{row.serialNo}</td>
@@ -310,7 +358,7 @@ export function SmartImportModal({ open, onClose, onImported, customerRegionMap 
                     <td style={{ padding: "8px 8px", whiteSpace: "nowrap", borderTop: "1px solid var(--border)", fontVariantNumeric: "tabular-nums" }}>{row.actArrival || "-"}</td>
                     <td style={{ padding: "8px 8px", whiteSpace: "nowrap", borderTop: "1px solid var(--border)", fontVariantNumeric: "tabular-nums" }}>{row.actComplete || "-"}</td>
                   </tr>
-                ))}
+                );})}
               </tbody>
             </table>
           </div>
