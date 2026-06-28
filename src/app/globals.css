@@ -294,19 +294,6 @@ body {
   .progressOuter { @apply h-2.5 overflow-hidden rounded-full border border-border/60 bg-muted/40; }
   .progressInner { @apply h-full rounded-full; background: linear-gradient(90deg, oklch(0.58 0.24 295), oklch(0.70 0.15 220)); }
 
-  /* ── Install case cards ── */
-  .installCaseCard  { position: relative; overflow: hidden; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
-  .installCaseGlow  { position: absolute; right: -28px; top: -24px; width: 120px; height: 120px; border-radius: 999px; filter: blur(2px); opacity: 0.65; pointer-events: none; }
-  .installCaseHead  { position: relative; display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
-  .installCaseTitle { font-weight: 800; font-size: 14px; line-height: 1.25; }
-  .installCaseMeta  { color: var(--muted-foreground); font-size: 12px; margin-top: 3px; }
-  .installCaseTags  { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
-  .installCaseProgress { position: relative; display: grid; gap: 7px; }
-  .installCaseProgressTop { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; color: var(--muted-foreground); }
-  .installCaseFoot  { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-  .installCaseDue   { font-size: 12px; color: var(--muted-foreground); }
-  .installCaseActions { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
-
   /* ── Panel header ── */
   .panelHeader {
     @apply flex items-baseline justify-between gap-3 border-b border-border/70 px-4 py-3;
@@ -1228,23 +1215,11 @@ textarea:focus {
   background: linear-gradient(90deg, #38bdf8, #2563eb) !important;
 }
 
-.installCaseCard {
-  border-radius: 28px !important;
-  background: rgba(255,255,255,0.78) !important;
-}
-.installCaseGlow {
-  opacity: 0.26;
-  filter: blur(16px);
-}
-.installCaseTitle,
 .kanbanCaseName,
 .pipelineIntroTitle,
 .pipelineNodeCount {
   color: #0f172a;
 }
-.installCaseMeta,
-.installCaseDue,
-.installCaseProgressTop,
 .kanbanCaseMeta,
 .kanbanCaseProgress,
 .pipelineIntroDesc,

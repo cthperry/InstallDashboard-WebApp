@@ -1,4 +1,5 @@
 import { cn } from "@/lib/utils";
+import { isComposingKeyboardEvent } from "@/lib/keyboardEvents";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { XIcon } from "lucide-react";
 import * as React from "react";
@@ -104,7 +105,7 @@ function DialogContent({
     (e: KeyboardEvent) => {
       // Check both the native isComposing property and our context state
       // This handles Safari's timing issues with composition events
-      const isCurrentlyComposing = (e as any).isComposing || isComposing();
+      const isCurrentlyComposing = isComposingKeyboardEvent(e) || isComposing();
 
       // If IME is composing, prevent dialog from closing
       if (isCurrentlyComposing) {
@@ -206,4 +207,3 @@ export {
   DialogTitle,
   DialogTrigger
 };
-

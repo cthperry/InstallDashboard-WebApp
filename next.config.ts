@@ -10,6 +10,9 @@ const securityHeaders = [
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  turbopack: {
+    root: process.cwd(),
+  },
   // 關閉 dev 模式左下角的 Next.js「N」指示器
   devIndicators: false,
   async headers() {

@@ -8,6 +8,7 @@ import { useAuth } from "@/features/auth/AuthProvider";
 import { writeAuditLog } from "@/features/data/audit";
 import { listenAppVariables, saveAppVariables } from "@/features/data/settings";
 import { trackEvent } from "@/features/telemetry/track";
+import { getErrorMessage } from "@/lib/errors";
 
 import type { AppVariablesDoc, CustomerEntry, RegionKey } from "@/domain/types";
 import { REGIONS } from "@/domain/constants";
@@ -150,8 +151,8 @@ export default function AdminCustomerSitesPage() {
       await writeAuditLog("更新客戶清單設定", "settings/appVariables", `customers=${customers.length}`, user.email);
       trackEvent("admin_update_customer_settings", { customers: customers.length, appVersion });
       setMsg(`已儲存（${customers.length} 筆客戶）`);
-    } catch (saveError: any) {
-      setErr(saveError?.message || "儲存失敗");
+    } catch (saveError: unknown) {
+      setErr(getErrorMessage(saveError, "儲存失敗"));
     } finally {
       setBusy(false);
     }

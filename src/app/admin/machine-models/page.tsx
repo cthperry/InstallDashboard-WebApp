@@ -8,6 +8,7 @@ import { useAuth } from "@/features/auth/AuthProvider";
 import { writeAuditLog } from "@/features/data/audit";
 import { trackEvent } from "@/features/telemetry/track";
 import { listenMachineModels, saveMachineModels } from "@/features/data/settings";
+import { getErrorMessage } from "@/lib/errors";
 
 import { machineModelsDocSchema } from "@/domain/schemas";
 import type { MachineModel } from "@/domain/types";
@@ -109,8 +110,8 @@ export default function AdminMachineModelsPage() {
       });
 
       setMsg(`已套用：${parsed.data.models.length} 筆機型`);
-    } catch (e: any) {
-      setErr(e?.message || "套用失敗");
+    } catch (e: unknown) {
+      setErr(getErrorMessage(e, "套用失敗"));
     } finally {
       setBusy(false);
     }

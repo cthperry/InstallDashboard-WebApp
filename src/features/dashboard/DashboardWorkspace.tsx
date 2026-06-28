@@ -1,11 +1,11 @@
 "use client";
 
-import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useState, type CSSProperties } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/features/auth/AuthProvider";
 
 import { createInstallation, updateInstallation, removeInstallation } from "@/features/data/installations";
-import { createEquipment, updateEquipment, removeEquipment } from "@/features/data/equipments";
+import { createEquipment, updateEquipment, removeEquipment, type EquipmentUpdatePatch } from "@/features/data/equipments";
 import { deleteField } from "firebase/firestore";
 import { saveRetentionSettings } from "@/features/data/settings";
 import {
@@ -33,11 +33,12 @@ import {
   PHASE_CHECKLIST
 } from "@/domain/constants";
 import { equipmentSchema, installationSchema } from "@/domain/schemas";
-import { getInstallationDefaultDraft, INSTALLATION_DATE_FIELDS, normalizeInstallationDraft, doesInstallationPhaseRequireEngineer, doesInstallationPhaseRequireSerial } from "@/domain/installationContract";
-import { getInstallationModelSerial, getInstallationSerial, getInstallationTaskTitle } from "@/domain/installationDisplay";
+import { getInstallationDefaultDraft, INSTALLATION_DATE_FIELDS, doesInstallationPhaseRequireEngineer, doesInstallationPhaseRequireSerial, type InstallationDraft } from "@/domain/installationContract";
 import { buildOwnerListFromUserEmails, dedupeDisplayNames, toDisplayShortName } from "@/domain/personDisplay";
 
 import { useDashboardData } from "@/features/dashboard/hooks/useDashboardData";
+import { useInstallationFormState } from "@/features/dashboard/hooks/useInstallationFormState";
+import { useSavedFilters, type SavedFilter } from "@/features/dashboard/hooks/useSavedFilters";
 import {
   didInstallationEnterReleased,
   getInstallationProgressByPhase,
@@ -60,429 +61,63 @@ import { MiniTrend } from "@/features/ui/MiniTrend";
 import { RegionTabs } from "@/features/ui/RegionTabs";
 import { SmartImportModal } from "@/features/dashboard/SmartImportModal";
 import { GanttView } from "@/features/dashboard/GanttView";
-import { normalizeDateYmd, todayInTaipeiYmd } from "@/lib/utils";
-import { buildCapacitySnapshot, calculateUtilization, getLiveUtilization } from "@/domain/capacity";
+import {
+  filterAndSortEquipments,
+  filterAndSortInstallations,
+  getEquipmentSerialLabel,
+  type EquipSortKey,
+  type InstallSortKey,
+} from "@/features/dashboard/dashboardFilters";
+import { buildDashboardAnalytics } from "@/features/dashboard/dashboardAnalytics";
+import {
+  buildEquipmentActionQueue,
+  buildInstallActionQueue,
+} from "@/features/dashboard/dashboardActionQueue";
+import { downloadInstallationsCsv } from "@/features/dashboard/dashboardExports";
+import { buildEditInstallationDraft, buildNewInstallationDraft } from "@/features/dashboard/installationForm";
+import { calcCapacityLevel, calcEquipmentStats, calcInstallStats, isOverdueInstall } from "@/features/dashboard/dashboardStats";
+import {
+  buildEquipmentFormDraftFromEquipment,
+  buildEquipmentPayloadFromDraft,
+  buildSafeEquipmentBlocking,
+  buildSafeEquipmentMilestones,
+  defaultEquipSubStatus,
+  getEquipmentDefaultFormDraft,
+  updateEquipmentCapacityDraft,
+  type EquipmentFormDraft,
+  type EquipmentProductDraft,
+} from "@/features/dashboard/equipmentForm";
+import { MissionQueuePanel, SortableTh, type MissionQueueItem, type SortDirection } from "@/features/dashboard/dashboardWidgets";
+import { getErrorMessage } from "@/lib/errors";
+import { todayInTaipeiYmd } from "@/lib/utils";
+import { getLiveUtilization } from "@/domain/capacity";
+import {
+  clamp,
+  daysLeft,
+  fmtDate,
+  getInstallModelSerial,
+  getInstallSerial,
+  getInstallTaskLabel,
+  getPhaseHint,
+  normalizeOptionList,
+  parseCapacityFilter,
+  parseEquipmentStatusFilter,
+  parseInsightsTab,
+  parseInstallView,
+  parsePhaseFilter,
+  parsePhaseKey,
+  parseRegionKey,
+  pickColorByUtil,
+  regionLabel,
+  resolveCustomerRegionFromMap,
+  safeStr,
+  taipeiNowParts,
+  type InsightsTab,
+  type InstallView,
+} from "@/features/dashboard/dashboardViewUtils";
 
 type DashboardSection = "install" | "equipment" | "insights";
-type InsightsTab = "analytics" | "logs";
-type InstallView = "table" | "pipeline" | "gantt";
-type InstallSortKey = "updatedAt" | "estComplete" | "phase" | "customer" | "engineer" | "name";
-type EquipSortKey = "updatedAt" | "utilization" | "customer" | "owner" | "serialNo" | "statusMain";
-type SortDirection = "asc" | "desc";
 const TABLE_PAGE_SIZE = 120;
-
-function SortableTh({
-  label,
-  active,
-  dir,
-  onClick,
-  width,
-  className,
-}: {
-  label: string;
-  active: boolean;
-  dir: SortDirection;
-  onClick: () => void;
-  width?: number | string;
-  className?: string;
-}) {
-  const arrow = active ? (dir === "asc" ? "↑" : "↓") : "↕";
-  return (
-    <th className={className} style={width ? { width } : undefined}>
-      <button
-        type="button"
-        onClick={onClick}
-        style={{
-          display: "inline-flex",
-          alignItems: "center",
-          gap: 6,
-          border: 0,
-          background: "transparent",
-          padding: 0,
-          font: "inherit",
-          color: "inherit",
-          cursor: "pointer",
-          fontWeight: 800,
-        }}
-      >
-        <span>{label}</span>
-        <span
-          aria-hidden
-          style={{
-            fontSize: 11,
-            color: active ? "var(--primary, #2563eb)" : "var(--muted-foreground, #94a3b8)",
-            minWidth: 10,
-            textAlign: "center",
-          }}
-        >
-          {arrow}
-        </span>
-      </button>
-    </th>
-  );
-}
-
-type MissionQueueTone = "critical" | "warning" | "info" | "good";
-
-type MissionQueueItem = {
-  id: string;
-  label: string;
-  meta: string;
-  value: string;
-  tone: MissionQueueTone;
-  onClick?: () => void;
-};
-
-function MissionQueuePanel({
-  title,
-  subtitle,
-  items,
-  emptyText,
-}: {
-  title: string;
-  subtitle: string;
-  items: MissionQueueItem[];
-  emptyText: string;
-}) {
-  return (
-    <section className="missionQueuePanel" aria-label={title}>
-      <div className="missionQueueHead">
-        <div>
-          <div className="missionQueueEyebrow">MISSION QUEUE</div>
-          <div className="missionQueueTitle">{title}</div>
-        </div>
-        <div className="missionQueueSub">{subtitle}</div>
-      </div>
-
-      {items.length > 0 ? (
-        <div className="missionQueueList">
-          {items.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              className={`missionQueueRow missionQueueRow-${item.tone}`}
-              onClick={item.onClick}
-            >
-              <span className="missionQueueRail" aria-hidden />
-              <span className="missionQueueText">
-                <strong>{item.label}</strong>
-                <small>{item.meta}</small>
-              </span>
-              <span className="missionQueueValue">{item.value}</span>
-            </button>
-          ))}
-        </div>
-      ) : (
-        <div className="missionQueueEmpty">{emptyText}</div>
-      )}
-    </section>
-  );
-}
-
-function parseInstallView(v: string | null): InstallView {
-  if (v === "table" || v === "gantt") return v;
-  return "pipeline";
-}
-
-function parseInsightsTab(v: string | null): InsightsTab {
-  if (v === "logs") return "logs";
-  return "analytics";
-}
-
-function todayYYYYMMDD(): string {
-  return todayInTaipeiYmd();
-}
-
-type FieldErrorMap = Record<string, string>;
-
-function collectFieldErrors(issues: ReadonlyArray<{ path?: Array<string | number>; message: string }>) {
-  const fieldErrors: FieldErrorMap = {};
-  const summary: string[] = [];
-  for (const issue of issues) {
-    const field = typeof issue.path?.[0] === "string" ? String(issue.path[0]) : "form";
-    if (!fieldErrors[field]) fieldErrors[field] = issue.message;
-    if (!summary.includes(issue.message)) summary.push(issue.message);
-  }
-  return { fieldErrors, summary };
-}
-
-function fmtDate(ts?: number): string {
-  if (!ts) return "-";
-  const d = new Date(ts);
-  // zh-TW 會依環境決定上午/下午字串；避免 SSR hydration（本頁為 client-only，但仍保持一致）
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
-}
-
-function parseYmd(s?: string): Date | null {
-  if (!s) return null;
-  const m = String(s).trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (!m) return null;
-  const y = Number(m[1]);
-  const mo = Number(m[2]);
-  const d = Number(m[3]);
-  if (!Number.isFinite(y) || !Number.isFinite(mo) || !Number.isFinite(d)) return null;
-  const dt = new Date(y, mo - 1, d);
-  if (Number.isNaN(dt.getTime())) return null;
-  return dt;
-}
-
-function daysLeft(ymd?: string): number | null {
-  const dt = parseYmd(ymd);
-  if (!dt) return null;
-  const today = parseYmd(todayInTaipeiYmd());
-  if (!today) return null;
-  const a = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
-  const b = new Date(dt.getFullYear(), dt.getMonth(), dt.getDate()).getTime();
-  const diff = Math.round((b - a) / (24 * 60 * 60 * 1000));
-  return diff;
-}
-
-function daysSinceTimestamp(ts?: number): number {
-  if (!ts) return 999;
-  return Math.max(0, Math.floor((Date.now() - ts) / (24 * 60 * 60 * 1000)));
-}
-
-function taipeiNowParts(): { ymd: string; hhmm: string } {
-  // 以 Asia/Taipei 為準，避免跨時區導致定時清除不準。
-  const d = new Date();
-  const parts = new Intl.DateTimeFormat("zh-TW", {
-    timeZone: "Asia/Taipei",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  }).formatToParts(d);
-  const get = (t: string) => parts.find((p) => p.type === t)?.value || "";
-  const y = get("year");
-  const m = get("month");
-  const dd = get("day");
-  const hh = get("hour");
-  const mm = get("minute");
-  return { ymd: `${y}-${m}-${dd}`, hhmm: `${hh}:${mm}` };
-}
-
-function safeStr(v: unknown): string {
-  if (typeof v === "string") return v;
-  if (v == null) return "";
-  return String(v);
-}
-
-function clamp(n: number, a: number, b: number) {
-  return Math.max(a, Math.min(b, n));
-}
-
-function compareText(a: unknown, b: unknown): number {
-  return safeStr(a).trim().localeCompare(safeStr(b).trim(), "zh-Hant");
-}
-
-function compareYmd(a?: string, b?: string): number {
-  const aa = safeStr(a).trim();
-  const bb = safeStr(b).trim();
-  if (!aa && !bb) return 0;
-  if (!aa) return 1;
-  if (!bb) return -1;
-  return aa.localeCompare(bb);
-}
-
-function compareTimestamp(a?: number, b?: number): number {
-  const aa = Number.isFinite(a) ? Number(a) : -1;
-  const bb = Number.isFinite(b) ? Number(b) : -1;
-  return aa - bb;
-}
-
-function formatExcelCsvValue(key: string, value: unknown): string {
-  if (value == null) return "";
-  if (key === "updatedAt" || key === "createdAt") {
-    const timestamp = Number(value);
-    return Number.isFinite(timestamp) && timestamp > 0 ? fmtDate(timestamp) : "";
-  }
-  return String(value).replace(/\r?\n/g, " ");
-}
-
-function toCsvCell(value: string): string {
-  return `"${value.replaceAll('"', '""')}"`;
-}
-
-function exportInstallationsCSV(rows: Installation[]) {
-  const header = [
-    "name",
-    "modelCode",
-    "region",
-    "customer",
-    "phase",
-    "engineer",
-    "progress",
-    "orderDate",
-    "estArrival",
-    "actArrival",
-    "estComplete",
-    "actComplete",
-    "notes",
-    "updatedAt"
-  ];
-
-  const csv = [
-    header.join(","),
-    ...rows.map((r) =>
-      header
-        .map((k) => {
-          const v = (r as any)[k];
-          return toCsvCell(formatExcelCsvValue(k, v));
-        })
-        .join(",")
-    )
-  ].join("\r\n");
-
-  const blob = new Blob(["\uFEFF", csv], { type: "text/csv;charset=utf-8" });
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
-  a.download = `installations_${todayYYYYMMDD()}.csv`;
-  a.click();
-  URL.revokeObjectURL(a.href);
-}
-
-function isOverdueInstall(r: Installation, today: string): boolean {
-  const due = safeStr(r.estComplete);
-  if (!due) return false;
-  if (safeStr(r.phase) === "released") return false;
-  return due < today;
-}
-
-function calcInstallStats(rows: Installation[], today: string) {
-  const total = rows.length;
-  const wip = rows.filter((r) => r.phase !== "released").length;
-  const released = rows.filter((r) => r.phase === "released").length;
-  const overdue = rows.filter((r) => isOverdueInstall(r, today)).length;
-  const avgProg = total ? Math.round(rows.reduce((a, r) => a + (r.progress ?? 0), 0) / total) : 0;
-  const byPhase: Record<PhaseKey, number> = {
-    ordered: 0,
-    shipping: 0,
-    arrived: 0,
-    installing: 0,
-    trial: 0,
-    qual: 0,
-    released: 0
-  };
-  for (const r of rows) byPhase[r.phase] = (byPhase[r.phase] ?? 0) + 1;
-  return { total, wip, released, overdue, avgProg, byPhase };
-}
-
-// 容量風險：滿載代表機器很緊
-// 紅：≥ 80%（高負載） / 黃：30–79% / 綠：< 30%（容量充裕）
-function calcCapacityLevelStatic(uph: number, targetUph: number): "綠" | "黃" | "紅" {
-  if (targetUph <= 0) return "綠";
-  const ratio = uph / targetUph;
-  if (ratio >= 0.8) return "紅";
-  if (ratio >= 0.3) return "黃";
-  return "綠";
-}
-
-function calcEquipmentStats(rows: Equipment[]) {
-  const total = rows.length;
-  const avgUtil = total ? Math.round(rows.reduce((a, r) => a + getLiveUtilization(r.capacity), 0) / total) : 0;
-  const byStatus: Record<EquipmentMainStatus, number> = { "裝機": 0, "試產": 0, "正式生產中": 0 };
-  const byCap: Record<CapacityLevel, number> = { "綠": 0, "黃": 0, "紅": 0 };
-  let blocked = 0;
-  for (const r of rows) {
-    byStatus[r.statusMain] = (byStatus[r.statusMain] ?? 0) + 1;
-    // 即時重算，不依賴 Firestore 存的舊 level 值
-    const liveLevel = calcCapacityLevelStatic(Number(r.capacity.uph), Number(r.capacity.targetUph));
-    byCap[liveLevel] = (byCap[liveLevel] ?? 0) + 1;
-    if (r.blocking?.reasonCode) blocked++;
-  }
-  return { total, avgUtil, byStatus, byCap, blocked };
-}
-
-function normalizeOptionList(rows: string[]): string[] {
-  return Array.from(new Set(rows.map((s) => String(s).trim()).filter(Boolean)));
-}
-
-function getInstallSerial(r: Installation): string {
-  return getInstallationSerial(r);
-}
-
-function getInstallModelSerial(r: Installation): string {
-  return getInstallationModelSerial(r);
-}
-
-function getInstallTaskLabel(r: Installation): string {
-  return getInstallationTaskTitle(r);
-}
-
-function regionLabel(k: RegionKey): string {
-  return REGIONS[k]?.label ?? k;
-}
-
-export function getPhaseHint(phase: PhaseKey): string {
-  switch (phase) {
-    case "ordered":
-      return "先建立需求即可，機台序號與工程師可稍後補。";
-    case "shipping":
-      return "備貨 / 出貨階段可先追預計出貨與預計安裝日。";
-    case "arrived":
-      return "到廠後需補機台序號與負責工程師。";
-    case "installing":
-      return "開始安裝後需填實際安裝日期，進度可由檢查清單帶出。";
-    case "trial":
-      return "試產階段請維護工程師與試產檢查清單。";
-    case "qual":
-      return "Qual 驗證階段請追驗證與客戶確認項目。";
-    case "released":
-      return "正式量產會轉入設備台帳，請確認序號與工程師。";
-    default:
-      return "";
-  }
-}
-
-function pickColorByUtil(u: number): string {
-  if (u >= 80) return "#10b981";
-  if (u >= 50) return "#f59e0b";
-  return "#ef4444";
-}
-
-function defaultEquipSubStatus(statusMain: EquipmentMainStatus): string {
-  return EQUIPMENT_SUB_STATUS_OPTIONS[statusMain]?.[0] ?? "";
-}
-
-export function resolveCustomerRegionFromMap(customerRegionMap: Record<string, RegionKey>, customer: string): RegionKey | null {
-  const target = customer.trim();
-  if (!target) return null;
-  const direct = customerRegionMap[target];
-  if (direct) return direct;
-  const lower = target.toLowerCase();
-  const match = Object.entries(customerRegionMap).find(([name]) => name.trim().toLowerCase() === lower);
-  return match?.[1] ?? null;
-}
-
-// --- Saved Filter ---
-const SAVED_FILTERS_KEY = "premtek_saved_filters";
-
-type SavedFilter = {
-  id: string;
-  name: string;
-  region: string;
-  model: string;
-  phase: string;
-  customer: string;
-  engineer: string;
-  keyword: string;
-  savedAt: number;
-};
-
-function loadSavedFilters(): SavedFilter[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const raw = localStorage.getItem(SAVED_FILTERS_KEY);
-    return raw ? (JSON.parse(raw) as SavedFilter[]) : [];
-  } catch { return []; }
-}
-
-function persistSavedFilters(filters: SavedFilter[]) {
-  if (typeof window === "undefined") return;
-  localStorage.setItem(SAVED_FILTERS_KEY, JSON.stringify(filters));
-}
 
 export function DashboardWorkspace({ section }: { section: DashboardSection }) {
   const { user, isAdmin, appVersion } = useAuth();
@@ -529,7 +164,7 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
   const [installSortDir, setInstallSortDir] = useState<"asc" | "desc">("desc");
   const [installVisibleCount, setInstallVisibleCount] = useState(TABLE_PAGE_SIZE);
   // ───────── Saved Filters ─────────
-  const [savedFilters, setSavedFilters] = useState<SavedFilter[]>(() => loadSavedFilters());
+  const { savedFilters, addSavedFilter, deleteSavedFilter } = useSavedFilters();
   const [saveFilterName, setSaveFilterName] = useState<string>("");
   const [showSaveFilterInput, setShowSaveFilterInput] = useState(false);
 
@@ -551,10 +186,18 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
   // ───────── Modal: Installation ─────────
   const [installModalOpen, setInstallModalOpen] = useState(false);
   const [installEditId, setInstallEditId] = useState<string | null>(null);
-  const [installForm, setInstallForm] = useState<any>(() => getInstallationDefaultDraft(DEFAULT_MACHINE_MODELS));
-  const [installErrors, setInstallErrors] = useState<FieldErrorMap>({});
-  const [installErrorSummary, setInstallErrorSummary] = useState<string[]>([]);
-  const installFieldRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const {
+    installForm,
+    setInstallForm,
+    installErrors,
+    installErrorSummary,
+    installFieldRefs,
+    clearInstallErrors,
+    updateInstallField,
+    updateInstallCustomer: updateInstallCustomerDraft,
+    updateInstallPhase,
+    showInstallValidationErrors,
+  } = useInstallationFormState(getInstallationDefaultDraft(DEFAULT_MACHINE_MODELS));
 
   // ───────── Modal: Excel Import ─────────
   const [smartImportOpen, setSmartImportOpen] = useState(false);
@@ -562,40 +205,7 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
   // ───────── Modal: Equipment ─────────
   const [equipModalOpen, setEquipModalOpen] = useState(false);
   const [equipEditId, setEquipEditId] = useState<string | null>(null);
-  const [equipForm, setEquipForm] = useState<any>({
-    equipmentId: "",
-    region: "north",
-    customer: "",
-    site: "",
-    modelCode: "FlexTRAK-S",
-    serialNo: "",
-    statusMain: "裝機",
-    statusSub: "",
-    owner: "",
-    milestones: {
-      installStart: "",
-      installDone: "",
-      trialStart: "",
-      trialPass: "",
-      prodStart: "",
-      reachTargetDate: ""
-    },
-    hasBlocking: false,
-    blocking: {
-      reasonCode: "",
-      detail: "",
-      owner: "",
-      eta: ""
-    },
-    capacity: {
-      utilization: 0,
-      uph: 0,
-      targetUph: 0,
-      level: "綠",
-      trend7dCsv: ""
-    },
-    products: [] as { name: string; dailyCap: number | string }[]
-  });
+  const [equipForm, setEquipForm] = useState<EquipmentFormDraft>(() => getEquipmentDefaultFormDraft());
 
   useEffect(() => {
     if (!toast) return;
@@ -621,7 +231,7 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
     setEquipVisibleCount(TABLE_PAGE_SIZE);
   }, [deferredEquipmentKeyword, eRegion, eStatus, eCap, equipSortKey, equipSortDir]);
 
-  const today = todayYYYYMMDD();
+  const today = todayInTaipeiYmd();
 
   const retentionCfg: RetentionSettingsDoc = useMemo(() => {
     if (retention) return retention;
@@ -688,8 +298,8 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
 
       setToast(`已清除：auditLogs ${aDeleted} 筆、events ${eDeleted} 筆（依保留天數）`);
       trackEvent("admin_purge_by_retention", { aDeleted, eDeleted, aDays, eDays, appVersion });
-    } catch (e: any) {
-      setToast(`清除失敗：${e?.message || "unknown"}`);
+    } catch (e: unknown) {
+      setToast(`清除失敗：${getErrorMessage(e, "unknown")}`);
     } finally {
       setPurgeBusy(false);
       setPurgeHint("");
@@ -710,8 +320,8 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
       const eDeleted = await clearAllEvents(800);
       setToast(`已清除：auditLogs ${aDeleted} 筆、events ${eDeleted} 筆（最多 800 筆/次）`);
       trackEvent("admin_clear_all_logs", { aDeleted, eDeleted, appVersion });
-    } catch (e: any) {
-      setToast(`清除失敗：${e?.message || "unknown"}`);
+    } catch (e: unknown) {
+      setToast(`清除失敗：${getErrorMessage(e, "unknown")}`);
     } finally {
       setPurgeBusy(false);
       setPurgeHint("");
@@ -748,17 +358,6 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
 
     return () => clearInterval(timer);
   }, [isAdmin, user?.email, retentionCfg.autoPurgeEnabled, retentionCfg.autoPurgeTime, retentionCfg.lastAutoPurgeAt, doPurgeByRetention, saveRetention]);
-
-  // ───────── 工具：舊 Firestore region 中文 → 英文 key ─────────
-  function normalizeRegionKey(raw: string | undefined): "north" | "central" | "south" {
-    if (raw === "north" || raw === "central" || raw === "south") return raw;
-    if (raw === "北區") return "north";
-    if (raw === "中區") return "central";
-    return "south";
-  }
-
-  // ───────── 工具：UPH → 容量等級自動換算（呼叫外部 static 版本）─────────
-  const calcCapacityLevel = calcCapacityLevelStatic;
 
   // ───────── Owner / 工程師顯示名稱：一律走短名規則─────────
   const ownerList = useMemo(() => {
@@ -811,65 +410,15 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
   }, [customerRegionMap]);
 
   const filteredInstallations = useMemo(() => {
-    const k = deferredKeyword.trim().toLowerCase();
-    const rows = installations.filter((r) => {
-      if (fRegion && r.region !== fRegion) return false;
-      if (fModel && r.modelCode !== fModel) return false;
-      if (fPhase && r.phase !== fPhase) return false;
-      if (fCustomer && r.customer !== fCustomer) return false;
-      if (fEngineer && toDisplayShortName(r.engineer) !== fEngineer) return false;
-      if (k) {
-        const blob = [
-          r.name,
-          r.customer,
-          toDisplayShortName(r.engineer),
-          r.notes,
-          r.custContact,
-          r.modelCode,
-          r.phase
-        ]
-          .filter(Boolean)
-          .join(" ")
-          .toLowerCase();
-        if (!blob.includes(k)) return false;
-      }
-      return true;
-    });
-
-    const phaseOrder = new Map(PHASES.map((p, index) => [p.key, index] as const));
-    const direction = installSortDir === "asc" ? 1 : -1;
-
-    return [...rows].sort((a, b) => {
-      let result = 0;
-      switch (installSortKey) {
-        case "name":
-          result = compareText(a.name, b.name);
-          break;
-        case "customer":
-          result = compareText(a.customer, b.customer);
-          break;
-        case "engineer":
-          result = compareText(toDisplayShortName(a.engineer), toDisplayShortName(b.engineer));
-          break;
-        case "phase":
-          result = (phaseOrder.get(a.phase) ?? 999) - (phaseOrder.get(b.phase) ?? 999);
-          break;
-        case "estComplete":
-          result = compareYmd(a.estComplete, b.estComplete);
-          break;
-        case "updatedAt":
-        default:
-          result = compareTimestamp(a.updatedAt, b.updatedAt);
-          break;
-      }
-
-      if (result === 0) {
-        result = compareTimestamp(a.updatedAt, b.updatedAt);
-      }
-      if (result === 0) {
-        result = compareText(a.name, b.name);
-      }
-      return result * direction;
+    return filterAndSortInstallations(installations, {
+      region: fRegion,
+      model: fModel,
+      phase: fPhase,
+      customer: fCustomer,
+      engineer: fEngineer,
+      keyword: deferredKeyword,
+      sortKey: installSortKey,
+      sortDir: installSortDir,
     });
   }, [installations, fRegion, fModel, fPhase, fCustomer, fEngineer, deferredKeyword, installSortDir, installSortKey]);
 
@@ -881,67 +430,13 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
   const installStats = useMemo(() => calcInstallStats(filteredInstallations, today), [filteredInstallations, today]);
 
   const filteredEquipments = useMemo(() => {
-    const k = deferredEquipmentKeyword.trim().toLowerCase();
-    const rows = equipments.filter((r) => {
-      if (eRegion && r.region !== eRegion) return false;
-      if (eStatus && r.statusMain !== eStatus) return false;
-      if (eCap && r.capacity.level !== eCap) return false;
-      if (k) {
-        const blob = [
-          r.equipmentId,
-          r.customer,
-          r.site,
-          r.modelCode,
-          // 相容舊欄位：早期資料可能用 name 當作機台序號
-          (r as any).serialNo || (r as any).name,
-          r.statusMain,
-          r.statusSub,
-          r.owner,
-          r.blocking?.reasonCode,
-          r.blocking?.detail
-        ]
-          .filter(Boolean)
-          .join(" ")
-          .toLowerCase();
-        if (!blob.includes(k)) return false;
-      }
-      return true;
-    });
-
-    const statusOrder = new Map(EQUIPMENT_MAIN_STATUSES.map((status, index) => [status, index] as const));
-    const direction = equipSortDir === "asc" ? 1 : -1;
-
-    return [...rows].sort((a, b) => {
-      let result = 0;
-      switch (equipSortKey) {
-        case "customer":
-          result = compareText(a.customer, b.customer);
-          break;
-        case "owner":
-          result = compareText(toDisplayShortName(a.owner), toDisplayShortName(b.owner));
-          break;
-        case "serialNo":
-          result = compareText((a as any).serialNo || (a as any).name, (b as any).serialNo || (b as any).name);
-          break;
-        case "statusMain":
-          result = (statusOrder.get(a.statusMain) ?? 999) - (statusOrder.get(b.statusMain) ?? 999);
-          break;
-        case "utilization":
-          result = getLiveUtilization(a.capacity) - getLiveUtilization(b.capacity);
-          break;
-        case "updatedAt":
-        default:
-          result = compareTimestamp(a.updatedAt, b.updatedAt);
-          break;
-      }
-
-      if (result === 0) {
-        result = compareTimestamp(a.updatedAt, b.updatedAt);
-      }
-      if (result === 0) {
-        result = compareText(a.equipmentId, b.equipmentId);
-      }
-      return result * direction;
+    return filterAndSortEquipments(equipments, {
+      region: eRegion,
+      status: eStatus,
+      capacity: eCap,
+      keyword: deferredEquipmentKeyword,
+      sortKey: equipSortKey,
+      sortDir: equipSortDir,
     });
   }, [equipments, eRegion, eStatus, eCap, deferredEquipmentKeyword, equipSortDir, equipSortKey]);
 
@@ -953,166 +448,47 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
   const equipStats = useMemo(() => calcEquipmentStats(filteredEquipments), [filteredEquipments]);
 
   // ───────── Analytics ─────────
-  const anPhase = useMemo(() => {
-    const total = filteredInstallations.length;
-    const by: Record<string, number> = {};
-    for (const p of PHASES) by[p.key] = 0;
-    for (const r of filteredInstallations) by[r.phase] = (by[r.phase] ?? 0) + 1;
-    return { total, by };
-  }, [filteredInstallations]);
-
-  const anRegion = useMemo(() => {
-    return (Object.entries(REGIONS) as any).map(([k, v]: [RegionKey, any]) => {
-      const rows = filteredInstallations.filter((r) => r.region === k);
-      const avg = rows.length ? Math.round(rows.reduce((a, r) => a + (r.progress ?? 0), 0) / rows.length) : 0;
-      return { key: k, label: v.label, color: v.color, total: rows.length, avg, rows: rows.slice(0, 10) };
-    });
-  }, [filteredInstallations]);
-
-  const anEngineer = useMemo(() => {
-    const total = filteredInstallations.length || 1;
-    return engineers.map((name) => {
-      const rows = filteredInstallations.filter((r) => toDisplayShortName(r.engineer) === name);
-      const active = rows.filter((r) => r.phase !== "released").length;
-      const pct = Math.round((rows.length / total) * 100);
-      return { name, total: rows.length, active, pct };
-    });
-  }, [filteredInstallations, engineers]);
-
-  const anDue = useMemo(() => {
-    return filteredInstallations
-      .filter((r) => r.phase !== "released" && r.estComplete)
-      .map((r) => ({
-        ...r,
-        dl: daysLeft(r.estComplete || "")
-      }))
-      .filter((r: any) => r.dl != null && r.dl < 14)
-      .sort((a: any, b: any) => (a.dl ?? 9999) - (b.dl ?? 9999));
-  }, [filteredInstallations]);
-
-  // 地區產品產能摘要（全部設備，有填 products 者）
-  const regionProductStats = useMemo(() => {
-    type RegionEntry = { label: string; color: string; productMap: Record<string, number> };
-    const map: Record<string, RegionEntry> = {};
-    equipments
-      .filter((e) => (e.products ?? []).length > 0)
-      .forEach((e) => {
-        const rKey = (e.region as string) ?? "north";
-        const reg = (REGIONS as any)[rKey] ?? { label: rKey, color: "#3b82f6" };
-        if (!map[rKey]) map[rKey] = { label: reg.label, color: reg.color, productMap: {} };
-        (e.products ?? []).forEach((p) => {
-          if (p.name.trim()) {
-            map[rKey].productMap[p.name] = (map[rKey].productMap[p.name] ?? 0) + p.dailyCap;
-          }
-        });
-      });
-    return Object.entries(map).map(([key, val]) => ({
-      key,
-      label: val.label,
-      color: val.color,
-      products: Object.entries(val.productMap)
-        .map(([name, cap]) => ({ name, cap }))
-        .sort((a, b) => b.cap - a.cap),
-    }));
-  }, [equipments]);
-
-  const clearInstallErrors = () => {
-    setInstallErrors({});
-    setInstallErrorSummary([]);
-  };
-
-  const updateInstallField = (field: string, value: unknown) => {
-    setInstallForm((prev: any) => ({ ...prev, [field]: value }));
-    setInstallErrors((prev) => {
-      if (!prev[field]) return prev;
-      const next = { ...prev };
-      delete next[field];
-      return next;
-    });
-    setInstallErrorSummary([]);
-  };
+  const analytics = useMemo(
+    () => buildDashboardAnalytics({
+      installations: filteredInstallations,
+      equipments,
+      engineers,
+    }),
+    [filteredInstallations, equipments, engineers],
+  );
+  const anPhase = analytics.phase;
+  const anRegion = analytics.region;
+  const anEngineer = analytics.engineer;
+  const anDue = analytics.due;
+  const regionProductStats = analytics.regionProductStats;
 
   const updateInstallCustomer = (value: string) => {
     const inferredRegion = resolveCustomerRegion(value);
-    setInstallForm((prev: any) => ({
-      ...prev,
-      customer: value,
-      ...(inferredRegion ? { region: inferredRegion } : {}),
-    }));
-    setInstallErrors((prev) => {
-      if (!prev.customer && !prev.region) return prev;
-      const next = { ...prev };
-      delete next.customer;
-      if (inferredRegion) delete next.region;
-      return next;
-    });
-    setInstallErrorSummary([]);
-  };
-
-  const updateInstallPhase = (phase: PhaseKey) => {
-    setInstallForm((prev: any) => ({
-      ...prev,
-      phase,
-      progress: getInstallationProgressByPhase(phase),
-    }));
-    setInstallErrors((prev) => {
-      if (!prev.phase) return prev;
-      const next = { ...prev };
-      delete next.phase;
-      return next;
-    });
-    setInstallErrorSummary([]);
-  };
-
-  const focusInstallErrorField = (field: string) => {
-    const container = installFieldRefs.current[field];
-    if (!container) return;
-    container.scrollIntoView({ behavior: "smooth", block: "center" });
-    const target = container.querySelector("input, select, textarea, button") as HTMLElement | null;
-    target?.focus();
+    updateInstallCustomerDraft(value, inferredRegion);
   };
 
   // ───────── Actions: Installations ─────────
   const openAddInstall = () => {
     setInstallEditId(null);
-    const draft = getInstallationDefaultDraft(machineModels);
     const inferredRegion = fCustomer ? resolveCustomerRegion(fCustomer) : null;
-    setInstallForm({
-      ...draft,
-      customer: fCustomer || "",
-      region: inferredRegion ?? (fRegion || draft.region),
-      modelCode: fModel || draft.modelCode,
-      phase: fPhase || draft.phase,
-      engineer: fEngineer || "",
-      progress: fPhase ? getInstallationProgressByPhase(fPhase) : draft.progress,
-    });
+    setInstallForm(buildNewInstallationDraft(machineModels, {
+      customer: fCustomer,
+      region: fRegion,
+      modelCode: fModel,
+      phase: fPhase,
+      engineer: fEngineer,
+      inferredRegion,
+    }));
     clearInstallErrors();
     setInstallModalOpen(true);
   };
 
-  const openEditInstall = (r: Installation) => {
+  const openEditInstall = useCallback((r: Installation) => {
     setInstallEditId(r.id);
-    setInstallForm(normalizeInstallationDraft({
-      name: getInstallSerial(r),
-      modelCode: r.modelCode ?? "",
-      region: r.region ?? "north",
-      customer: r.customer ?? "",
-      phase: r.phase ?? "ordered",
-      engineer: toDisplayShortName(r.engineer) || "",
-      custContact: r.custContact ?? "",
-      custPhone: r.custPhone ?? "",
-      orderDate: r.orderDate ?? "",
-      estArrival: normalizeDateYmd(r.estArrival),
-      actArrival: normalizeDateYmd(r.actArrival),
-      estComplete: normalizeDateYmd(r.estComplete),
-      actComplete: normalizeDateYmd(r.actComplete),
-      notes: r.notes ?? "",
-      progress: r.progress ?? 0,
-      checklist: r.checklist ?? {},
-    }, machineModels));
+    setInstallForm(buildEditInstallationDraft(r, machineModels));
     clearInstallErrors();
     setInstallModalOpen(true);
-  };
+  }, [clearInstallErrors, machineModels, setInstallForm]);
 
 
   const submitInstall = async () => {
@@ -1124,25 +500,18 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
     }, machineModels);
     const parsed = installationSchema.safeParse(normalized);
     if (!parsed.success) {
-      const { fieldErrors, summary } = collectFieldErrors(parsed.error.issues ?? []);
-      setInstallErrors(fieldErrors);
-      setInstallErrorSummary(summary);
-      const firstField = Object.keys(fieldErrors)[0];
-      if (firstField) {
-        window.setTimeout(() => focusInstallErrorField(firstField), 0);
-      }
-      setToast(summary[0] ?? "表單驗證失敗");
+      setToast(showInstallValidationErrors(parsed.error.issues ?? []));
       return;
     }
     clearInstallErrors();
     try {
       let createdInstallId: string | null = null;
       if (installEditId) {
-        await updateInstallation(installEditId, parsed.data as any);
+        await updateInstallation(installEditId, parsed.data);
         await writeAuditLog("更新", parsed.data.name, `更新裝機案：${parsed.data.phase}`, user.email);
         trackEvent("installation_update", { name: parsed.data.name, phase: parsed.data.phase });
       } else {
-        createdInstallId = await createInstallation(parsed.data as any);
+        createdInstallId = await createInstallation(parsed.data);
         await writeAuditLog("新增", parsed.data.name, `新增至${regionLabel(parsed.data.region)} — ${parsed.data.customer}`, user.email);
         trackEvent("installation_create", { name: parsed.data.name, phase: parsed.data.phase });
       }
@@ -1152,7 +521,7 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
 
       if (shouldTransferInstallationToEquipment(parsed.data)) {
         const transferResult = await transferReleasedInstallationToEquipment({
-          installation: parsed.data as Installation,
+          installation: { id: installEditId || createdInstallId || "", ...parsed.data },
           installationId: installEditId || createdInstallId,
           userEmail: user.email,
           trigger: didInstallationEnterReleased(previousInstall?.phase, parsed.data.phase) ? "transition" : "refresh",
@@ -1202,7 +571,7 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
       if (shouldTransferInstallationToEquipment(parsed.data)) {
         const label = getInstallTaskLabel(r);
         const transferResult = await transferReleasedInstallationToEquipment({
-          installation: parsed.data as Installation,
+          installation: { id: r.id, ...parsed.data },
           installationId: r.id,
           userEmail: user.email,
           trigger: didInstallationEnterReleased(r.phase, next.key) ? "transition" : "refresh",
@@ -1214,7 +583,7 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
       }
 
       const label = getInstallTaskLabel(r);
-      await updateInstallation(r.id, { phase: next.key, progress: getInstallationProgressByPhase(next.key) } as any);
+      await updateInstallation(r.id, { phase: next.key, progress: getInstallationProgressByPhase(next.key) });
       await writeAuditLog("推進", label, `${cur?.label ?? r.phase} → ${next.label}`, user.email);
       trackEvent("installation_advance", { name: label, from: r.phase, to: next.key });
       setToast("已推進階段");
@@ -1226,170 +595,47 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
   // ───────── Actions: Equipments ─────────
   const openAddEquip = () => {
     setEquipEditId(null);
-    setEquipForm({
-      equipmentId: "",
-      region: "north",
-      customer: "",
-      site: "",
-      modelCode: machineModels?.[0]?.code ?? "FlexTRAK-S",
-      serialNo: "",
-      statusMain: "裝機",
-      statusSub: defaultEquipSubStatus("裝機"),
-      owner: "",
-      milestones: {
-        installStart: "",
-        installDone: "",
-        trialStart: "",
-        trialPass: "",
-        prodStart: "",
-        reachTargetDate: ""
-      },
-      hasBlocking: false,
-      blocking: { reasonCode: "", detail: "", owner: "", eta: "" },
-      capacity: { utilization: 0, uph: "0", targetUph: "0", level: "綠", trend7dCsv: "" },
-      products: []
-    });
+    setEquipForm(getEquipmentDefaultFormDraft(machineModels?.[0]?.code ?? "FlexTRAK-S"));
     setEquipModalOpen(true);
   };
 
   const openEditEquip = (r: Equipment) => {
     setEquipEditId(r.id);
-    setEquipForm({
-      equipmentId: r.equipmentId ?? "",
-      region: normalizeRegionKey(r.region),
-      customer: r.customer ?? "",
-      site: r.site ?? "",
-      modelCode: r.modelCode ?? "",
-      // 相容舊欄位：若 serialNo 空白但 name 有值，仍可直接編輯/儲存
-      serialNo: (r as any).serialNo ?? (r as any).name ?? "",
-      statusMain: r.statusMain ?? "裝機",
-      statusSub: r.statusSub ?? "",
-      owner: toDisplayShortName(r.owner) || "",
-      milestones: {
-        installStart: r.milestones?.installStart ?? "",
-        installDone: r.milestones?.installDone ?? "",
-        trialStart: r.milestones?.trialStart ?? "",
-        trialPass: r.milestones?.trialPass ?? "",
-        prodStart: r.milestones?.prodStart ?? "",
-        reachTargetDate: r.milestones?.reachTargetDate ?? ""
-      },
-      hasBlocking: !!r.blocking?.reasonCode,
-      blocking: {
-        reasonCode: r.blocking?.reasonCode ?? "",
-        detail: r.blocking?.detail ?? "",
-        owner: r.blocking?.owner ?? "",
-        eta: r.blocking?.eta ?? ""
-      },
-      capacity: (() => {
-        const snapshot = buildCapacitySnapshot(r.capacity);
-        return {
-          utilization: snapshot.utilization,
-          uph: String(snapshot.uph),       // 以 string 儲存，避免 React controlled number input "01.8" bug
-          targetUph: String(snapshot.targetUph),
-          level: calcCapacityLevel(snapshot.uph, snapshot.targetUph),   // 開啟時就重算，不沿用舊值
-          trend7dCsv: (r.capacity?.trend7d ?? []).join(",")
-        };
-      })(),
-      products: (r.products ?? []).map(p => ({ name: p.name, dailyCap: p.dailyCap }))
-    });
+    setEquipForm(buildEquipmentFormDraftFromEquipment(r));
     setEquipModalOpen(true);
-  };
-
-  const parseTrend7d = (csv: string, fallback: number): number[] => {
-    const parts = csv
-      .split(",")
-      .map((s) => s.trim())
-      .filter(Boolean)
-      .map((s) => Number(s));
-    const vals = parts.filter((n) => Number.isFinite(n)).map((n) => clamp(n, 0, 100));
-    if (vals.length === 7) return vals;
-    // fallback: 以 utilization 做 7 天微波動
-    const base = clamp(fallback, 0, 100);
-    const out = Array.from({ length: 7 }, (_, i) => clamp(base + (i - 3) * 1.5, 0, 100));
-    return out.map((n) => Math.round(n));
   };
 
   const submitEquip = async () => {
     if (!user?.email) return;
 
-    const payload = {
-      equipmentId: equipForm.equipmentId,
-      region: equipForm.region,
-      customer: equipForm.customer,
-      site: equipForm.site,
-      modelCode: equipForm.modelCode,
-      serialNo: equipForm.serialNo,
-      statusMain: equipForm.statusMain,
-      statusSub: equipForm.statusSub ?? "",
-      owner: toDisplayShortName(equipForm.owner),
-      milestones: equipForm.milestones,
-      blocking: equipForm.hasBlocking
-        ? {
-            reasonCode: equipForm.blocking.reasonCode,
-            detail: equipForm.blocking.detail,
-            owner: equipForm.blocking.owner,
-            eta: equipForm.blocking.eta || undefined
-          }
-        : undefined,
-      capacity: (() => {
-        const uph = Number(equipForm.capacity.uph);
-        const targetUph = Number(equipForm.capacity.targetUph);
-        const utilization = calculateUtilization(uph, targetUph);
-        return {
-          utilization,
-          uph,
-          targetUph,
-          level: calcCapacityLevel(uph, targetUph),
-          trend7d: parseTrend7d(equipForm.capacity.trend7dCsv ?? "", utilization)
-        };
-      })(),
-      products: (equipForm.products ?? [])
-        .filter((p: { name: string; dailyCap: number | string }) => p.name.trim())
-        .map((p: { name: string; dailyCap: number | string }) => ({ name: p.name.trim(), dailyCap: Number(p.dailyCap) || 0 }))
-    };
-
+    const payload = buildEquipmentPayloadFromDraft(equipForm);
     const parsed = equipmentSchema.safeParse(payload);
     if (!parsed.success) {
       setToast(parsed.error.issues?.[0]?.message ?? "表單驗證失敗");
       return;
     }
 
-    // ── Firestore 安全 payload：所有欄位明確指定，無 undefined ──────────────
-    const safeMilestones = {
-      installStart:    parsed.data.milestones?.installStart    ?? "",
-      installDone:     parsed.data.milestones?.installDone     ?? "",
-      trialStart:      parsed.data.milestones?.trialStart      ?? "",
-      trialPass:       parsed.data.milestones?.trialPass       ?? "",
-      prodStart:       parsed.data.milestones?.prodStart       ?? "",
-      reachTargetDate: parsed.data.milestones?.reachTargetDate ?? "",
-    };
-    const safeBlocking = parsed.data.blocking
-      ? {
-          reasonCode: parsed.data.blocking.reasonCode ?? "",
-          detail:     parsed.data.blocking.detail     ?? "",
-          owner:      parsed.data.blocking.owner      ?? "",
-          eta:        parsed.data.blocking.eta        ?? "",
-        }
-      : null; // null = delete from Firestore on update
+    const safeMilestones = buildSafeEquipmentMilestones(parsed.data.milestones);
+    const safeBlocking = buildSafeEquipmentBlocking(parsed.data.blocking);
 
     try {
       if (equipEditId) {
-        const patch: Record<string, any> = {
+        const patch: EquipmentUpdatePatch = {
           ...parsed.data,
           milestones: safeMilestones,
           blocking: safeBlocking ?? deleteField(), // deleteField() removes the field when no blocking
         };
-        await updateEquipment(equipEditId, patch as any);
+        await updateEquipment(equipEditId, patch);
         await writeAuditLog("更新", parsed.data.equipmentId, `更新設備狀態：${parsed.data.statusMain}`, user.email);
         trackEvent("equipment_update", { equipmentId: parsed.data.equipmentId, statusMain: parsed.data.statusMain });
         setToast("已更新");
       } else {
-        const createData: Record<string, any> = {
+        const createData: Omit<Equipment, "id"> = {
           ...parsed.data,
           milestones: safeMilestones,
           ...(safeBlocking ? { blocking: safeBlocking } : {}),
         };
-        await createEquipment(createData as any);
+        await createEquipment(createData);
         await writeAuditLog("新增", parsed.data.equipmentId, `新增設備：${parsed.data.customer} — ${parsed.data.modelCode}`, user.email);
         trackEvent("equipment_create", { equipmentId: parsed.data.equipmentId, statusMain: parsed.data.statusMain });
         setToast("已新增");
@@ -1413,17 +659,16 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
     }
   };
 
-  const openDrawer = (r: Equipment) => {
+  const openDrawer = useCallback((r: Equipment) => {
     setDrawerEq(r);
     setDrawerOpen(true);
-  };
+  }, []);
 
   // ───────── Saved Filter callbacks ─────────
   const saveCurrentFilter = useCallback(() => {
     const name = saveFilterName.trim();
     if (!name) return;
-    const filter: SavedFilter = {
-      id: Date.now().toString(36),
+    addSavedFilter({
       name,
       region: fRegion,
       model: fModel,
@@ -1431,29 +676,19 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
       customer: fCustomer,
       engineer: fEngineer,
       keyword,
-      savedAt: Date.now(),
-    };
-    const next = [...savedFilters, filter];
-    setSavedFilters(next);
-    persistSavedFilters(next);
+    });
     setSaveFilterName("");
     setShowSaveFilterInput(false);
-  }, [saveFilterName, fRegion, fModel, fPhase, fCustomer, fEngineer, keyword, savedFilters]);
+  }, [addSavedFilter, saveFilterName, fRegion, fModel, fPhase, fCustomer, fEngineer, keyword]);
 
   const applyFilter = useCallback((f: SavedFilter) => {
-    setFRegion(f.region as any);
+    setFRegion(f.region);
     setFModel(f.model);
-    setFPhase(f.phase as any);
+    setFPhase(f.phase);
     setFCustomer(f.customer);
     setFEngineer(f.engineer);
     setKeyword(f.keyword);
   }, []);
-
-  const deleteSavedFilter = useCallback((id: string) => {
-    const next = savedFilters.filter((f) => f.id !== id);
-    setSavedFilters(next);
-    persistSavedFilters(next);
-  }, [savedFilters]);
 
   const switchInstallView = useCallback((view: InstallView) => {
     setInstallView(view);
@@ -1485,165 +720,28 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
     setEquipSortDir(key === "updatedAt" ? "desc" : "asc");
   }, [equipSortKey]);
 
-  const installActionQueue = filteredInstallations
-    .map((r): (MissionQueueItem & { priority: number }) | null => {
-      if (r.phase === "released") return null;
-      const phaseLabel = PHASE_MAP[r.phase]?.label ?? r.phase;
-      const owner = toDisplayShortName(r.engineer) || "未指派";
-      const meta = `${r.customer} · ${phaseLabel} · ${owner}`;
-      const serial = getInstallSerial(r);
-
-      if (doesInstallationPhaseRequireSerial(r.phase) && !serial) {
-        return {
-          id: `install-serial-${r.id}`,
-          label: getInstallTaskLabel(r),
-          meta,
-          value: "缺序號",
-          tone: "critical",
-          priority: 0,
-          onClick: () => openEditInstall(r),
-        };
-      }
-
-      if (!toDisplayShortName(r.engineer) && doesInstallationPhaseRequireEngineer(r.phase)) {
-        return {
-          id: `install-owner-${r.id}`,
-          label: getInstallTaskLabel(r),
-          meta,
-          value: "未指派",
-          tone: "warning",
-          priority: 10,
-          onClick: () => openEditInstall(r),
-        };
-      }
-
-      if (!r.estComplete && r.phase !== "ordered") {
-        return {
-          id: `install-date-${r.id}`,
-          label: getInstallTaskLabel(r),
-          meta,
-          value: "缺預計日",
-          tone: "warning",
-          priority: 20,
-          onClick: () => openEditInstall(r),
-        };
-      }
-
-      const staleDays = daysSinceTimestamp(r.updatedAt);
-      if (staleDays >= 7) {
-        return {
-          id: `install-stale-${r.id}`,
-          label: getInstallTaskLabel(r),
-          meta,
-          value: `${staleDays} 天未更新`,
-          tone: "info",
-          priority: 30 + staleDays,
-          onClick: () => openEditInstall(r),
-        };
-      }
-
-      return null;
-    })
-    .filter((item): item is MissionQueueItem & { priority: number } => Boolean(item))
-    .sort((a, b) => a.priority - b.priority)
-    .slice(0, 5)
-    .map(({ priority: _priority, ...item }) => item);
-
-  const equipmentActionQueue = filteredEquipments
-    .map((r): (MissionQueueItem & { priority: number }) | null => {
-      const utilization = getLiveUtilization(r.capacity);
-      const liveLevel = calcCapacityLevel(r.capacity.uph, r.capacity.targetUph);
-      const serial = (r as any).serialNo || (r as any).name || r.equipmentId || r.id;
-      const meta = `${r.customer} · ${regionLabel(r.region)} · ${toDisplayShortName(r.owner) || "未指派"}`;
-
-      if (r.blocking?.reasonCode) {
-        return {
-          id: `equipment-blocked-${r.id}`,
-          label: serial,
-          meta: `${meta} · ${r.blocking.reasonCode}`,
-          value: "阻塞",
-          tone: "critical",
-          priority: 0,
-          onClick: () => openDrawer(r),
-        };
-      }
-
-      if (liveLevel === "紅") {
-        return {
-          id: `equipment-capacity-${r.id}`,
-          label: serial,
-          meta,
-          value: `紅燈 ${utilization}%`,
-          tone: "warning",
-          priority: 10 + (100 - utilization),
-          onClick: () => openDrawer(r),
-        };
-      }
-
-      if (utilization >= 80) {
-        return {
-          id: `equipment-util-${r.id}`,
-          label: serial,
-          meta,
-          value: `高稼動 ${utilization}%`,
-          tone: "info",
-          priority: 30 + (100 - utilization),
-          onClick: () => openDrawer(r),
-        };
-      }
-
-      return null;
-    })
-    .filter((item): item is MissionQueueItem & { priority: number } => Boolean(item))
-    .sort((a, b) => a.priority - b.priority)
-    .slice(0, 5)
-    .map(({ priority: _priority, ...item }) => item);
-
-  // ───────── Render helpers ─────────
-  const installCard = (r: Installation) => {
-    const phase = PHASE_MAP[r.phase];
-    const overdue = isOverdueInstall(r, today);
-    return (
-      <article key={r.id} className="card installCaseCard">
-        <div className="installCaseGlow" aria-hidden style={{ background: `${phase.color}24` }} />
-        <div className="installCaseHead">
-          <div>
-            <div className="installCaseTitle mono">{getInstallSerial(r)}</div>
-            <div className="installCaseMeta">
-              {regionLabel(r.region)} · {r.customer}
-            </div>
-          </div>
-          <div className="installCaseTags">
-            <Badge text={r.modelCode} color="#3b82f6" subtle />
-            <Badge text={`${phase.icon} ${phase.label}`} color={phase.color} subtle />
-            {overdue ? <Badge text="逾期" color="#ef4444" /> : null}
-          </div>
-        </div>
-
-        <div className="installCaseProgress">
-          <div className="installCaseProgressTop">
-            <span>工程師：{toDisplayShortName(r.engineer) || "-"}</span>
-            <span className="mono">{r.progress ?? 0}%</span>
-          </div>
-          <div className="progressOuter">
-            <div className="progressInner" style={{ width: `${clamp(r.progress ?? 0, 0, 100)}%` }} />
-          </div>
-        </div>
-
-        <div className="installCaseFoot">
-          <div className="installCaseDue">
-            {r.estComplete ? `預計 ${r.estComplete}` : "未設定安裝日"}
-          </div>
-        </div>
-
-        <div className="installCaseActions">
-          <button className="btn btnSmall" onClick={() => advanceInstall(r)}>推進</button>
-          <button className="btn btnSmall" onClick={() => openEditInstall(r)}>編輯</button>
-          <button className="btn btnSmall btnDanger" onClick={() => delInstall(r)}>刪除</button>
-        </div>
-      </article>
-    );
-  };
+  const installRowsById = useMemo(() => new Map(filteredInstallations.map((row) => [row.id, row])), [filteredInstallations]);
+  const equipmentRowsById = useMemo(() => new Map(filteredEquipments.map((row) => [row.id, row])), [filteredEquipments]);
+  const installActionQueue: MissionQueueItem[] = useMemo(
+    () => buildInstallActionQueue(filteredInstallations).map(({ targetId, priority: _priority, ...item }) => ({
+      ...item,
+      onClick: () => {
+        const row = installRowsById.get(targetId);
+        if (row) openEditInstall(row);
+      },
+    })),
+    [filteredInstallations, installRowsById, openEditInstall],
+  );
+  const equipmentActionQueue: MissionQueueItem[] = useMemo(
+    () => buildEquipmentActionQueue(filteredEquipments, regionLabel).map(({ targetId, priority: _priority, ...item }) => ({
+      ...item,
+      onClick: () => {
+        const row = equipmentRowsById.get(targetId);
+        if (row) openDrawer(row);
+      },
+    })),
+    [filteredEquipments, equipmentRowsById, openDrawer],
+  );
 
   const equipSubStatusOptions = EQUIPMENT_SUB_STATUS_OPTIONS[(equipForm.statusMain as EquipmentMainStatus) || "裝機"] ?? [];
 
@@ -1674,7 +772,7 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
                     <button className={installView === "pipeline" ? "segTab segTabActive" : "segTab"} onClick={() => switchInstallView("pipeline")}>Pipeline</button>
                     <button className={installView === "gantt" ? "segTab segTabActive" : "segTab"} onClick={() => switchInstallView("gantt")}>甘特圖</button>
                   </div>
-                  <button className="btn btnSmall" onClick={() => exportInstallationsCSV(filteredInstallations)}>匯出 CSV</button>
+                  <button className="btn btnSmall" onClick={() => downloadInstallationsCsv(filteredInstallations)}>匯出 CSV</button>
                   <button className="btn btnSmall" onClick={() => setSmartImportOpen(true)}>⬆ Excel 智慧匯入</button>
                   <button className="btn btnAccent" onClick={openAddInstall}>新增裝機案</button>
                 </div>
@@ -1687,7 +785,7 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
                 </div>
                 <div className="field">
                   <div className="label">階段</div>
-                  <select value={fPhase} onChange={(e) => setFPhase(e.target.value as any)}>
+                  <select value={fPhase} onChange={(e) => setFPhase(parsePhaseFilter(e.target.value))}>
                     <option value="">全部</option>
                     {PHASES.map((p) => <option key={p.key} value={p.key}>{p.icon} {p.label}</option>)}
                   </select>
@@ -2003,7 +1101,7 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
 
                 <div className="field">
                   <div className="label">主狀態</div>
-                  <select value={eStatus} onChange={(e) => setEStatus(e.target.value as any)}>
+                  <select value={eStatus} onChange={(e) => setEStatus(parseEquipmentStatusFilter(e.target.value))}>
                     <option value="">全部</option>
                     {EQUIPMENT_MAIN_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
                   </select>
@@ -2011,7 +1109,7 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
 
                 <div className="field">
                   <div className="label">容量</div>
-                  <select value={eCap} onChange={(e) => setECap(e.target.value as any)}>
+                  <select value={eCap} onChange={(e) => setECap(parseCapacityFilter(e.target.value))}>
                     <option value="">全部</option>
                     {CAPACITY_LEVELS.map((c) => <option key={c} value={c}>{c}</option>)}
                   </select>
@@ -2104,7 +1202,7 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
                       const capColor = CAPACITY_COLOR[liveLevel];
                       return (
                         <tr key={r.id}>
-                          <td className="tableStickyLeft tableSerialCell mono" title={(r as any).serialNo || (r as any).name || "-"}>{(r as any).serialNo || (r as any).name || "-"}</td>
+                          <td className="tableStickyLeft tableSerialCell mono" title={getEquipmentSerialLabel(r) || "-"}>{getEquipmentSerialLabel(r) || "-"}</td>
                           <td className="tableTextClip" title={`${r.customer} ${r.site || ""}`}>
                             <div style={{ fontWeight: 900 }}>{r.customer}</div>
                             <div className="tableSecondaryText">{regionLabel(r.region)} · {r.site}</div>
@@ -2275,8 +1373,8 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
                     <div style={{ padding: 10, color: "#10b981", fontWeight: 900 }}>✅ 所有案件如期進行</div>
                   ) : (
                     <div style={{ display: "grid", gap: 8 }}>
-                      {anDue.map((r: any) => {
-                        const dl = Number(r.dl ?? 9999);
+                      {anDue.map((r) => {
+                        const dl = r.dl;
                         const isOver = dl < 0;
                         return (
                           <div
@@ -2293,7 +1391,7 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
                                 {getInstallModelSerial(r)} <span style={{ color: "#94a3b8", fontWeight: 600 }}>· {r.customer}</span>
                               </div>
                               <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                                <Badge text={PHASE_MAP[r.phase as PhaseKey]?.label ?? r.phase} color={PHASE_MAP[r.phase as PhaseKey]?.color ?? "#3b82f6"} subtle />
+                                <Badge text={PHASE_MAP[r.phase]?.label ?? r.phase} color={PHASE_MAP[r.phase]?.color ?? "#3b82f6"} subtle />
                                 <span style={{ fontWeight: 900, color: isOver ? "#ef4444" : "#f59e0b" }}>
                                   {isOver ? `逾期 ${Math.abs(dl)} 天` : dl === 0 ? "今日到期" : `${dl} 天`}
                                 </span>
@@ -2520,7 +1618,7 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                   <Badge text={regionLabel(drawerEq.region)} color={REGIONS[drawerEq.region].color} subtle />
                   <Badge text={drawerEq.modelCode} color="#3b82f6" subtle />
-                  <Badge text={(drawerEq as any).serialNo || (drawerEq as any).name || "-"} color="#94a3b8" subtle />
+                  <Badge text={getEquipmentSerialLabel(drawerEq) || "-"} color="#94a3b8" subtle />
                 </div>
 
                 <div style={{ marginTop: 10, display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -2584,9 +1682,9 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
           <div className="quickFormIntro">
             <div>
               <strong>{installEditId ? "維護必要狀態即可" : "快速新增只需要先填基本資料"}</strong>
-              <p>{getPhaseHint(installForm.phase as PhaseKey)}</p>
+              <p>{getPhaseHint(installForm.phase)}</p>
             </div>
-            <span className="quickFormBadge">{PHASE_MAP[installForm.phase as PhaseKey]?.label ?? "裝機案"} · {installForm.progress ?? 0}%</span>
+            <span className="quickFormBadge">{PHASE_MAP[installForm.phase]?.label ?? "裝機案"} · {installForm.progress ?? 0}%</span>
           </div>
 
           <div className="formGrid quickFormGrid">
@@ -2603,7 +1701,7 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
 
             <div className="field" ref={(node) => { installFieldRefs.current.region = node; }}>
               <div className="label">區域</div>
-              <select value={installForm.region} onChange={(e) => updateInstallField("region", e.target.value)} aria-invalid={!!installErrors.region}>
+              <select value={installForm.region} onChange={(e) => updateInstallField("region", parseRegionKey(e.target.value))} aria-invalid={!!installErrors.region}>
                 {Object.entries(REGIONS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
               </select>
               {installErrors.region ? <div style={{ color: "var(--destructive)", fontSize: 12 }}>{installErrors.region}</div> : null}
@@ -2619,7 +1717,7 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
 
             <div className="field" ref={(node) => { installFieldRefs.current.phase = node; }}>
               <div className="label">階段</div>
-              <select value={installForm.phase} onChange={(e) => updateInstallPhase(e.target.value as PhaseKey)}>
+              <select value={installForm.phase} onChange={(e) => updateInstallPhase(parsePhaseKey(e.target.value))}>
                 {PHASES.map((p) => <option key={p.key} value={p.key}>{p.icon} {p.label}</option>)}
               </select>
               {installErrors.phase ? <div style={{ color: "var(--destructive)", fontSize: 12 }}>{installErrors.phase}</div> : null}
@@ -2772,7 +1870,7 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
             </div>
             <div className="field">
               <div className="label">區域</div>
-              <select value={equipForm.region} onChange={(e) => setEquipForm({ ...equipForm, region: e.target.value })}>
+              <select value={equipForm.region} onChange={(e) => setEquipForm({ ...equipForm, region: parseRegionKey(e.target.value) })}>
                 {Object.entries(REGIONS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
               </select>
             </div>
@@ -2864,19 +1962,12 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
                 onChange={(e) => {
                   // 只更新字串；不在 onChange 做 round，避免 "01.8" 顯示問題
                   const raw = e.target.value;
-                  const nextUph = parseFloat(raw) || 0;
-                  const target = Number(equipForm.capacity.targetUph);
-                  const level = calcCapacityLevel(nextUph, target);
-                  const utilization = calculateUtilization(nextUph, target);
-                  setEquipForm({ ...equipForm, capacity: { ...equipForm.capacity, uph: raw, utilization, level } });
+                  setEquipForm({ ...equipForm, capacity: updateEquipmentCapacityDraft(equipForm.capacity, { uph: raw }) });
                 }}
                 onBlur={(e) => {
                   // blur 時 round 到小數一位
                   const v = Math.round((parseFloat(e.target.value) || 0) * 10) / 10;
-                  const target = Number(equipForm.capacity.targetUph);
-                  const level = calcCapacityLevel(v, target);
-                  const utilization = calculateUtilization(v, target);
-                  setEquipForm({ ...equipForm, capacity: { ...equipForm.capacity, uph: String(v), utilization, level } });
+                  setEquipForm({ ...equipForm, capacity: updateEquipmentCapacityDraft(equipForm.capacity, { uph: String(v) }) });
                 }} />
             </div>
             <div className="field">
@@ -2884,18 +1975,11 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
               <input type="number" min={0} step={0.1} value={equipForm.capacity.targetUph}
                 onChange={(e) => {
                   const raw = e.target.value;
-                  const uph = Number(equipForm.capacity.uph);
-                  const nextTarget = parseFloat(raw) || 0;
-                  const level = calcCapacityLevel(uph, nextTarget);
-                  const utilization = calculateUtilization(uph, nextTarget);
-                  setEquipForm({ ...equipForm, capacity: { ...equipForm.capacity, targetUph: raw, utilization, level } });
+                  setEquipForm({ ...equipForm, capacity: updateEquipmentCapacityDraft(equipForm.capacity, { targetUph: raw }) });
                 }}
                 onBlur={(e) => {
                   const v = Math.round((parseFloat(e.target.value) || 0) * 10) / 10;
-                  const uph = Number(equipForm.capacity.uph);
-                  const level = calcCapacityLevel(uph, v);
-                  const utilization = calculateUtilization(uph, v);
-                  setEquipForm({ ...equipForm, capacity: { ...equipForm.capacity, targetUph: String(v), utilization, level } });
+                  setEquipForm({ ...equipForm, capacity: updateEquipmentCapacityDraft(equipForm.capacity, { targetUph: String(v) }) });
                 }} />
             </div>
             <div className="field">

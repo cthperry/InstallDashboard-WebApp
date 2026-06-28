@@ -8,24 +8,25 @@ import { useAuth } from "@/features/auth/AuthProvider";
 import { writeAuditLog } from "@/features/data/audit";
 import { trackEvent } from "@/features/telemetry/track";
 import { deleteUserByUid, listenUsers, upsertUserRoleByUid, type ManagedUser } from "@/features/data/users";
+import { isPremtekEmail } from "@/domain/accessPolicy";
+import { DEFAULT_USER_ROLE, USER_ROLES, isUserRole, type UserRole } from "@/domain/userRoles";
+import { getErrorMessage } from "@/lib/errors";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Input } from "@/components/ui/input";
 
-type Role = "admin" | "engineer";
-
 export default function AdminUsersPage() {
   const { isAdmin, user, appVersion } = useAuth();
   const canUse = useMemo(() => isAdmin, [isAdmin]);
 
   const [users, setUsers] = useState<ManagedUser[]>([]);
-  const [roleDraft, setRoleDraft] = useState<Record<string, Role>>({});
+  const [roleDraft, setRoleDraft] = useState<Record<string, UserRole>>({});
 
   const [uid, setUid] = useState("");
   const [email, setEmail] = useState("");
-  const [role, setRole] = useState<Role>("engineer");
+  const [role, setRole] = useState<UserRole>(DEFAULT_USER_ROLE);
 
   const [msg, setMsg] = useState("");
   const [err, setErr] = useState("");
@@ -46,7 +47,7 @@ export default function AdminUsersPage() {
         });
       },
       (e) => {
-        const raw = String((e as any)?.message || e || "");
+        const raw = getErrorMessage(e, "無法讀取 users 清單");
         setListErr(raw || "無法讀取 users 清單");
       },
     );
@@ -65,7 +66,7 @@ export default function AdminUsersPage() {
       const cleanedEmail = email.trim();
       if (!cleanedUid) throw new Error("請輸入 UID");
       if (!cleanedEmail) throw new Error("請輸入 Email");
-      if (!/@premtek\.com\.tw$/i.test(cleanedEmail)) throw new Error("Email 必須為 @premtek.com.tw");
+      if (!isPremtekEmail(cleanedEmail)) throw new Error("Email 必須為 @premtek.com.tw");
 
       setBusy(true);
       await upsertUserRoleByUid({
@@ -90,9 +91,9 @@ export default function AdminUsersPage() {
       setMsg(`已儲存 users/${cleanedUid}（${role}）`);
       setUid("");
       setEmail("");
-      setRole("engineer");
-    } catch (e: any) {
-      setErr(e?.message || "儲存失敗");
+      setRole(DEFAULT_USER_ROLE);
+    } catch (e: unknown) {
+      setErr(getErrorMessage(e, "儲存失敗"));
     } finally {
       setBusy(false);
     }
@@ -128,8 +129,8 @@ export default function AdminUsersPage() {
       });
 
       setMsg(`已更新 ${row.email} → ${nextRole}`);
-    } catch (e: any) {
-      setErr(e?.message || "更新失敗");
+    } catch (e: unknown) {
+      setErr(getErrorMessage(e, "更新失敗"));
     } finally {
       setBusy(false);
     }
@@ -167,8 +168,8 @@ export default function AdminUsersPage() {
         return next;
       });
       setMsg(`已刪除 users/${row.id}`);
-    } catch (e: any) {
-      setErr(e?.message || "刪除失敗");
+    } catch (e: unknown) {
+      setErr(getErrorMessage(e, "刪除失敗"));
     } finally {
       setBusy(false);
     }
@@ -217,9 +218,16 @@ export default function AdminUsersPage() {
                 </div>
                 <div className="space-y-1">
                   <div className="label">角色</div>
-                  <select value={role} onChange={(e) => setRole(e.target.value as Role)}>
-                    <option value="engineer">engineer</option>
-                    <option value="admin">admin</option>
+                  <select
+                    value={role}
+                    onChange={(e) => {
+                      const nextRole = e.target.value;
+                      if (isUserRole(nextRole)) setRole(nextRole);
+                    }}
+                  >
+                    {USER_ROLES.map((option) => (
+                      <option key={option} value={option}>{option}</option>
+                    ))}
                   </select>
                 </div>
                 <div className="md:col-span-4 flex justify-end">
@@ -269,7 +277,7 @@ export default function AdminUsersPage() {
                                   onChange={(e) => {
                                     setRoleDraft((prev) => ({
                                       ...prev,
-                                      [r.id]: e.target.checked ? "admin" : "engineer",
+                                      [r.id]: e.target.checked ? "admin" : DEFAULT_USER_ROLE,
                                     }));
                                   }}
                                 />

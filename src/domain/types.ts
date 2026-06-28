@@ -1,3 +1,5 @@
+import type { UserRole } from "@/domain/userRoles";
+
 export type RegionKey = "north" | "central" | "south";
 
 export type PhaseKey =
@@ -38,7 +40,7 @@ export type Installation = {
 
 export type UserProfile = {
   email: string;
-  role: "admin" | "engineer";
+  role: UserRole;
   updatedAt: number;
 };
 

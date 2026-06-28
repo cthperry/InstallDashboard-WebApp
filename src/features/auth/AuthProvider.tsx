@@ -14,6 +14,8 @@ import { auth, db } from "@/lib/firebase/client";
 import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
 import { USERS_COL } from "@/domain/constants";
 import type { UserProfile } from "@/domain/types";
+import { isPremtekEmail } from "@/domain/accessPolicy";
+import { DEFAULT_USER_ROLE } from "@/domain/userRoles";
 import { trackEvent } from "@/features/telemetry/track";
 
 type AuthCtx = {
@@ -29,11 +31,6 @@ type AuthCtx = {
 
 const Ctx = createContext<AuthCtx | null>(null);
 
-function isPremtekEmail(email?: string | null): boolean {
-  if (!email) return false;
-  return /@premtek\.com\.tw$/i.test(email);
-}
-
 async function ensureUserProfile(u: User): Promise<UserProfile> {
   const ref = doc(db, USERS_COL, u.uid);
   const snap = await getDoc(ref);
@@ -41,7 +38,7 @@ async function ensureUserProfile(u: User): Promise<UserProfile> {
 
   const p: UserProfile = {
     email: u.email ?? "",
-    role: "engineer",
+    role: DEFAULT_USER_ROLE,
     updatedAt: Date.now()
   };
   await setDoc(ref, { ...p, updatedAt: Date.now(), updatedAtServer: serverTimestamp(), createdAt: serverTimestamp() }, { merge: true });
