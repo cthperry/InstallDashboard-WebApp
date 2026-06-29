@@ -741,6 +741,14 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
     if (fEngineer) chips.push({ id: "engineer", label: "工程師", value: fEngineer, onClear: () => setFEngineer("") });
     return chips;
   }, [deferredKeyword, fCustomer, fEngineer, fModel, fPhase, fRegion, machineModels]);
+  const saveFilterNameTrimmed = saveFilterName.trim();
+  const hasSavableInstallFilter = installActiveFilters.length > 0;
+  const saveFilterDisabled = !saveFilterNameTrimmed || !hasSavableInstallFilter;
+  const saveFilterTitle = !hasSavableInstallFilter
+    ? "請先設定至少一個裝機篩選條件"
+    : !saveFilterNameTrimmed
+      ? "請輸入書籤名稱"
+      : "儲存目前裝機篩選";
 
   const equipmentActiveFilters = useMemo<ActiveFilterChip[]>(() => {
     const chips: ActiveFilterChip[] = [];
@@ -1053,7 +1061,8 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
 
   // ───────── Saved Filter callbacks ─────────
   const saveCurrentFilter = useCallback(() => {
-    const name = saveFilterName.trim();
+    if (saveFilterDisabled) return;
+    const name = saveFilterNameTrimmed;
     if (!name) return;
     addSavedFilter({
       name,
@@ -1066,7 +1075,7 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
     });
     setSaveFilterName("");
     setShowSaveFilterInput(false);
-  }, [addSavedFilter, saveFilterName, fRegion, fModel, fPhase, fCustomer, fEngineer, keyword]);
+  }, [addSavedFilter, saveFilterDisabled, saveFilterNameTrimmed, fRegion, fModel, fPhase, fCustomer, fEngineer, keyword]);
 
   const applyFilter = useCallback((f: SavedFilter) => {
     setFRegion(f.region);
@@ -1295,13 +1304,13 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
 
               {showSaveFilterInput ? (
                 <div style={{ marginTop: 8, display: "flex", gap: 8, alignItems: "center" }}>
-                  <input style={{ flex: 1, maxWidth: 240 }} value={saveFilterName} onChange={(e) => setSaveFilterName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && saveCurrentFilter()} placeholder="書籤名稱..." autoFocus />
-                  <button className="btn btnSmall btnAccent" onClick={saveCurrentFilter}>儲存</button>
+                  <input style={{ flex: 1, maxWidth: 240 }} value={saveFilterName} onChange={(e) => setSaveFilterName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && !saveFilterDisabled && saveCurrentFilter()} placeholder="書籤名稱..." autoFocus />
+                  <button className="btn btnSmall btnAccent" onClick={saveCurrentFilter} disabled={saveFilterDisabled} title={saveFilterTitle}>儲存</button>
                   <button className="btn btnSmall btnGhost" onClick={() => { setShowSaveFilterInput(false); setSaveFilterName(""); }}>取消</button>
                 </div>
               ) : (
                 <div style={{ marginTop: 6 }}>
-                  <button className="btn btnSmall btnGhost" style={{ fontSize: 11 }} onClick={() => setShowSaveFilterInput(true)}>+ 儲存目前篩選</button>
+                  <button className="btn btnSmall btnGhost" style={{ fontSize: 11 }} onClick={() => setShowSaveFilterInput(true)} disabled={!hasSavableInstallFilter} title={saveFilterTitle}>+ 儲存目前篩選</button>
                 </div>
               )}
             </div>
