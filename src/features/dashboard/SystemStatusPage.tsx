@@ -16,6 +16,7 @@ function buildReleaseNotes(releaseLabel: string): string[] {
     "品質流程新增輕量 unit test runner，將治理、分析與報表純邏輯納入 verify:quality gate。",
     "GitHub Actions 新增版本、品質與 build 守門，PR 與 main/codex 分支推送都會留下可追蹤的 CI 紀錄。",
     "效能優化：智慧匯入 modal 改為開啟時載入，降低 dashboard 首屏 bundle 壓力。",
+    "效能優化：甘特圖改為切換到甘特模式時載入，並快取時間軸計算以提升拖曳流暢度。",
   ];
 }
 
