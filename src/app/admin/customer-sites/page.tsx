@@ -109,6 +109,13 @@ export default function AdminCustomerSitesPage() {
     central: customers.filter((customer) => customer.region === "central").length,
     south: customers.filter((customer) => customer.region === "south").length,
   }), [customers, filteredCustomers]);
+  const hasActiveFilters = search.trim().length > 0 || regionFilter !== "all";
+  const activeRegionLabel = regionFilter === "all" ? "全部區域" : REGIONS[regionFilter].label;
+
+  function clearFilters() {
+    setSearch("");
+    setRegionFilter("all");
+  }
 
   function addCustomer() {
     const name = newName.trim();
@@ -275,9 +282,30 @@ export default function AdminCustomerSitesPage() {
                   </div>
                 </CardHeader>
                 <CardContent className="space-y-3 pt-4">
+                  <div className="flex flex-col gap-2 rounded-lg border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
+                    <span>
+                      顯示 {counts.filtered} / {counts.total} 筆
+                      {hasActiveFilters ? `，條件：${activeRegionLabel}${search.trim() ? ` / ${search.trim()}` : ""}` : "，目前未套用篩選"}
+                    </span>
+                    {hasActiveFilters ? (
+                      <Button type="button" variant="secondary" size="sm" onClick={clearFilters}>
+                        清除篩選
+                      </Button>
+                    ) : null}
+                  </div>
+                  {counts.total > 0 && counts.filtered === 0 ? (
+                    <div className="rounded-lg border border-dashed border-border bg-card px-4 py-6 text-center">
+                      <div className="text-sm font-bold">沒有符合條件的客戶</div>
+                      <div className="mt-1 text-xs text-muted-foreground">請調整搜尋字或區域篩選，客戶資料仍保留在清單中。</div>
+                      <Button type="button" variant="secondary" size="sm" onClick={clearFilters} className="mt-3">
+                        顯示全部客戶
+                      </Button>
+                    </div>
+                  ) : null}
                   {(Object.entries(REGIONS) as [RegionKey, { label: string; color: string }][]).map(([region, meta]) => {
                     const rows = groupedCustomers[region];
                     const hidden = collapsed[region];
+                    const emptyRegionText = hasActiveFilters ? "此區沒有符合目前篩選的客戶" : "此區目前沒有客戶";
                     return (
                       <section key={region} className="rounded-lg border border-border">
                         <button
@@ -305,7 +333,7 @@ export default function AdminCustomerSitesPage() {
                         {!hidden ? (
                           <div style={{ borderTop: "1px solid var(--border)" }}>
                             {rows.length === 0 ? (
-                              <div style={{ padding: "14px", color: "var(--muted-foreground)", fontSize: 13 }}>此區目前沒有客戶</div>
+                              <div style={{ padding: "14px", color: "var(--muted-foreground)", fontSize: 13 }}>{emptyRegionText}</div>
                             ) : (
                               rows.map((customer) => (
                                 <div
