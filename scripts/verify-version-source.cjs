@@ -18,6 +18,8 @@ if (fs.existsSync(generatedVersionPath)) {
   if (!content.includes(`APP_VERSION = ${JSON.stringify(packageVersion)}`)) {
     problems.push(`src/generated/appBuild.ts 版本需等於 package.json (${packageVersion})`);
   }
+} else {
+  problems.push('src/generated/appBuild.ts 不可缺少，請執行 npm run sync:version');
 }
 
 const publicVersionPath = path.join(root, 'public', 'version.json');
@@ -26,6 +28,8 @@ if (fs.existsSync(publicVersionPath)) {
   if (content.version !== packageVersion) {
     problems.push(`public/version.json 版本需等於 package.json (${packageVersion})`);
   }
+} else {
+  problems.push('public/version.json 不可缺少，請執行 npm run sync:version');
 }
 
 const packageLockPath = path.join(root, 'package-lock.json');
@@ -37,6 +41,8 @@ if (fs.existsSync(packageLockPath)) {
   if (content.packages?.['']?.version !== packageVersion) {
     problems.push(`package-lock.json packages[""].version 需等於 package.json (${packageVersion})`);
   }
+} else {
+  problems.push('package-lock.json 不可缺少，請同步 npm lockfile');
 }
 
 const swPath = path.join(root, 'public', 'sw.js');
@@ -45,6 +51,8 @@ if (fs.existsSync(swPath)) {
   if (!content.includes(`const APP_VERSION = ${JSON.stringify(packageVersion)};`)) {
     problems.push(`public/sw.js 版本需等於 package.json (${packageVersion})`);
   }
+} else {
+  problems.push('public/sw.js 不可缺少，請執行 npm run sync:version');
 }
 
 if (problems.length) {

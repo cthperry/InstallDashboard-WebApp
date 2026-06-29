@@ -20,6 +20,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Input } from "@/components/ui/input";
 
 type EditableAlias = { alias: string; target: string };
+type AliasStats = { complete: number; partial: number; blank: number };
 
 const FIELD_LABELS: Record<ImportFieldKey, string> = {
   serialNo: "機台序號",
@@ -65,6 +66,16 @@ function emptyAlias(): EditableAlias {
   return { alias: "", target: "" };
 }
 
+function summarizeAliases(rows: EditableAlias[]): AliasStats {
+  return rows.reduce<AliasStats>((stats, row) => {
+    const hasAlias = row.alias.trim().length > 0;
+    const hasTarget = row.target.trim().length > 0;
+    if (hasAlias && hasTarget) return { ...stats, complete: stats.complete + 1 };
+    if (hasAlias || hasTarget) return { ...stats, partial: stats.partial + 1 };
+    return { ...stats, blank: stats.blank + 1 };
+  }, { complete: 0, partial: 0, blank: 0 });
+}
+
 export default function AdminImportConfigPage() {
   const { isAdmin, user, appVersion } = useAuth();
   const canUse = useMemo(() => isAdmin, [isAdmin]);
@@ -77,6 +88,8 @@ export default function AdminImportConfigPage() {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
   const [err, setErr] = useState("");
+  const customerAliasStats = useMemo(() => summarizeAliases(customerAliases), [customerAliases]);
+  const modelAliasStats = useMemo(() => summarizeAliases(modelAliases), [modelAliases]);
 
   useEffect(() => {
     if (!canUse) return;
@@ -207,11 +220,14 @@ export default function AdminImportConfigPage() {
                   </div>
                 </CardHeader>
                 <CardContent className="space-y-3 pt-4">
+                  <div className="rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                    將儲存 {customerAliasStats.complete} 筆；{customerAliasStats.partial > 0 ? `${customerAliasStats.partial} 筆未完成會被略過` : "空白列會自動略過"}
+                  </div>
                   {customerAliases.map((row, index) => (
                     <div key={`${index}-${row.alias}`} className="grid gap-2 md:grid-cols-[minmax(0,1fr),minmax(0,1fr),auto]">
                       <Input value={row.alias} onChange={(event) => updateCustomerAlias(index, { alias: event.target.value })} placeholder="Excel 客戶別名" />
                       <input list="importCustomerTargets" value={row.target} onChange={(event) => updateCustomerAlias(index, { target: event.target.value })} placeholder="正式客戶名稱" />
-                      <Button variant="outline" onClick={() => setCustomerAliases((prev) => prev.filter((_, rowIndex) => rowIndex !== index))}>刪除</Button>
+                      <Button variant="outline" onClick={() => setCustomerAliases((prev) => prev.filter((_, rowIndex) => rowIndex !== index))} disabled={customerAliases.length <= 1}>刪除</Button>
                     </div>
                   ))}
                 </CardContent>
@@ -225,6 +241,9 @@ export default function AdminImportConfigPage() {
                   </div>
                 </CardHeader>
                 <CardContent className="space-y-3 pt-4">
+                  <div className="rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                    將儲存 {modelAliasStats.complete} 筆；{modelAliasStats.partial > 0 ? `${modelAliasStats.partial} 筆未完成會被略過` : "空白列會自動略過"}
+                  </div>
                   {modelAliases.map((row, index) => (
                     <div key={`${index}-${row.alias}`} className="grid gap-2 md:grid-cols-[minmax(0,1fr),minmax(0,1fr),auto]">
                       <Input value={row.alias} onChange={(event) => updateModelAlias(index, { alias: event.target.value })} placeholder="Excel 機型別名" />
@@ -232,7 +251,7 @@ export default function AdminImportConfigPage() {
                         <option value="">選擇正式機型</option>
                         {models.map((model) => <option key={model.code} value={model.code}>{model.displayName}</option>)}
                       </select>
-                      <Button variant="outline" onClick={() => setModelAliases((prev) => prev.filter((_, rowIndex) => rowIndex !== index))}>刪除</Button>
+                      <Button variant="outline" onClick={() => setModelAliases((prev) => prev.filter((_, rowIndex) => rowIndex !== index))} disabled={modelAliases.length <= 1}>刪除</Button>
                     </div>
                   ))}
                 </CardContent>
