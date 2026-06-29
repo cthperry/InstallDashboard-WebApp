@@ -649,6 +649,13 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
 
   const installStats = useMemo(() => calcInstallStats(filteredInstallations, today), [filteredInstallations, today]);
 
+  const installationRowsByPhase = useMemo(() => {
+    const rowsByPhase = new Map<PhaseKey, Installation[]>();
+    for (const phase of PHASES) rowsByPhase.set(phase.key, []);
+    for (const row of filteredInstallations) rowsByPhase.get(row.phase)?.push(row);
+    return rowsByPhase;
+  }, [filteredInstallations]);
+
   const filteredEquipments = useMemo(() => {
     return filterAndSortEquipments(equipments, {
       region: eRegion,
@@ -1543,7 +1550,7 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
 
             <div className="kanban pipelineKanban auroraPipelineKanban" style={{ marginTop: 12 }}>
               {PHASES.map((p) => {
-                const rows = filteredInstallations.filter((r) => r.phase === p.key);
+                const rows = installationRowsByPhase.get(p.key) ?? [];
                 const phaseStyle = { ["--phase-color" as string]: p.color } as CSSProperties;
                 return (
                   <div key={p.key} className="kanbanCol" style={phaseStyle}>
