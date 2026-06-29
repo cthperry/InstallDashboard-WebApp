@@ -259,6 +259,7 @@ export function SmartImportModal({ open, onClose, onImported, customerRegionMap 
 
   const selectedRows = useMemo(() => rows.filter((row) => row._selected), [rows]);
   const allSelected = rows.length > 0 && rows.every((row) => row._selected);
+  const someSelected = rows.some((row) => row._selected) && !allSelected;
   const selectedInstallations = selectedRows.filter((row) => !row._createEquipment).length;
   const selectedEquipments = selectedRows.filter((row) => row._createEquipment).length;
   const unmatchedRegions = selectedRows.filter((row) => !row._regionMatched).length;
@@ -266,6 +267,11 @@ export function SmartImportModal({ open, onClose, onImported, customerRegionMap 
   const issueRows = useMemo(() => rows.filter((row) => getPreviewRowIssues(row).length > 0), [rows]);
   const selectedIssueRows = useMemo(() => selectedRows.filter((row) => getPreviewRowIssues(row).length > 0), [selectedRows]);
   const visibleRows = showOnlyIssues && issueRows.length > 0 ? issueRows : rows;
+  const importBlockedReason = selectedRows.length === 0
+    ? "請至少選取 1 筆資料後再匯入。"
+    : selectedIssueRows.length > 0
+      ? `已選資料仍有 ${selectedIssueRows.length} 筆需確認；請修正區域、階段或序號，或取消勾選後再匯入。`
+      : "";
   const previewTableMinWidth = 1320;
 
   async function recordImportSession(status: ImportSessionStatus, counts: SmartImportCommitResult | null, errorSample: string[]) {
@@ -301,6 +307,11 @@ export function SmartImportModal({ open, onClose, onImported, customerRegionMap 
 
   async function handleImport() {
     if (selectedRows.length === 0) return;
+    if (selectedIssueRows.length > 0) {
+      setShowOnlyIssues(true);
+      setError(importBlockedReason);
+      return;
+    }
     if (selectedRows.length > MAX_ATOMIC_IMPORT_ROWS) {
       setError(`智慧匯入目前採單批原子寫入，單次最多 ${MAX_ATOMIC_IMPORT_ROWS} 筆，請拆成多次匯入`);
       return;
@@ -471,7 +482,15 @@ export function SmartImportModal({ open, onClose, onImported, customerRegionMap 
             <table style={{ width: "max-content", minWidth: previewTableMinWidth, tableLayout: "fixed", borderCollapse: "separate", borderSpacing: 0, fontSize: 12 }}>
               <thead>
                 <tr>
-                  <th style={{ position: "sticky", top: 0, left: 0, zIndex: 5, padding: "8px 6px", whiteSpace: "nowrap", background: "var(--muted)", borderBottom: "1px solid var(--border)", width: 40 }}><input type="checkbox" checked={allSelected} onChange={(event) => toggleAll(event.target.checked)} /></th>
+                  <th style={{ position: "sticky", top: 0, left: 0, zIndex: 5, padding: "8px 6px", whiteSpace: "nowrap", background: "var(--muted)", borderBottom: "1px solid var(--border)", width: 40 }}>
+                    <input
+                      aria-label="選取全部匯入列"
+                      type="checkbox"
+                      checked={allSelected}
+                      ref={(element) => { if (element) element.indeterminate = someSelected; }}
+                      onChange={(event) => toggleAll(event.target.checked)}
+                    />
+                  </th>
                   <th style={{ position: "sticky", top: 0, left: 40, zIndex: 5, padding: "8px 6px", whiteSpace: "nowrap", background: "var(--muted)", borderBottom: "1px solid var(--border)", width: 38 }}>#</th>
                   <th style={{ position: "sticky", top: 0, left: 78, zIndex: 5, padding: "8px 6px", whiteSpace: "nowrap", background: "var(--muted)", borderBottom: "1px solid var(--border)", width: 84 }}>匯入內容</th>
                   <th style={{ position: "sticky", top: 0, left: 162, zIndex: 5, padding: "8px 8px", whiteSpace: "nowrap", background: "var(--muted)", borderBottom: "1px solid var(--border)", width: 160 }}>客戶</th>
@@ -491,7 +510,14 @@ export function SmartImportModal({ open, onClose, onImported, customerRegionMap 
                   const rowIssues = getPreviewRowIssues(row);
                   return (
                   <tr key={row._idx} style={{ borderTop: "1px solid var(--border)" }}>
-                    <td style={{ position: "sticky", left: 0, zIndex: 4, padding: "8px 6px", textAlign: "center", whiteSpace: "nowrap", borderTop: "1px solid var(--border)", background: "var(--card)" }}><input type="checkbox" checked={row._selected} onChange={() => setRow(row._idx, (current) => ({ ...current, _selected: !current._selected }))} /></td>
+                    <td style={{ position: "sticky", left: 0, zIndex: 4, padding: "8px 6px", textAlign: "center", whiteSpace: "nowrap", borderTop: "1px solid var(--border)", background: "var(--card)" }}>
+                      <input
+                        aria-label={`選取第 ${row._idx + 1} 列`}
+                        type="checkbox"
+                        checked={row._selected}
+                        onChange={() => setRow(row._idx, (current) => ({ ...current, _selected: !current._selected }))}
+                      />
+                    </td>
                     <td style={{ position: "sticky", left: 40, zIndex: 4, padding: "8px 6px", fontSize: 12, whiteSpace: "nowrap", borderTop: "1px solid var(--border)", background: "var(--card)" }}>{row._idx + 1}</td>
                     <td style={{ position: "sticky", left: 78, zIndex: 4, padding: "8px 6px", whiteSpace: "nowrap", borderTop: "1px solid var(--border)", background: "var(--card)", fontSize: 12, lineHeight: 1.35 }}>
                       <div style={{ fontWeight: 700 }}>{row._createEquipment ? "轉入設備" : "裝機案件"}</div>
@@ -527,10 +553,19 @@ export function SmartImportModal({ open, onClose, onImported, customerRegionMap 
 
           {error ? <div style={{ color: "#ef4444", fontSize: 12 }}>{error}</div> : null}
           {sessionNotice ? <div style={{ color: "#10b981", fontSize: 12 }}>{sessionNotice}</div> : null}
+          {importBlockedReason ? <div className="importReviewBlocker" id="smart-import-blocker">{importBlockedReason}</div> : null}
 
           <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
             <button className="btn" onClick={handleClose}>取消</button>
-            <button className="btn btnAccent" onClick={handleImport} disabled={importing || selectedRows.length === 0}>{importing ? "匯入中…" : `匯入 ${selectedRows.length} 筆`}</button>
+            <button
+              className="btn btnAccent"
+              onClick={handleImport}
+              disabled={importing || Boolean(importBlockedReason)}
+              aria-describedby={importBlockedReason ? "smart-import-blocker" : undefined}
+              title={importBlockedReason || undefined}
+            >
+              {importing ? "匯入中…" : `匯入 ${selectedRows.length} 筆`}
+            </button>
           </div>
         </div>
       )}

@@ -633,6 +633,16 @@ body {
     height: 16px;
     accent-color: #0e7490;
   }
+  .importReviewBlocker {
+    border: 1px solid rgba(245, 158, 11, 0.34);
+    border-radius: 10px;
+    background: rgba(255, 251, 235, 0.88);
+    color: #92400e;
+    padding: 9px 12px;
+    font-size: 12px;
+    font-weight: 850;
+    line-height: 1.5;
+  }
   .importIssueList {
     margin-top: 5px;
     max-width: 136px;
