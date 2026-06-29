@@ -147,6 +147,7 @@ const GanttView = dynamic(
 
 type DashboardSection = "install" | "equipment" | "insights";
 const TABLE_PAGE_SIZE = 120;
+const EMPTY_MISSION_QUEUE: MissionQueueItem[] = [];
 
 const EMPTY_DASHBOARD_ANALYTICS: DashboardAnalytics = {
   phase: { total: 0, by: {} },
@@ -1217,27 +1218,33 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
     setEquipSortDir(key === "updatedAt" ? "desc" : "asc");
   }, [equipSortKey]);
 
-  const installRowsById = useMemo(() => new Map(filteredInstallations.map((row) => [row.id, row])), [filteredInstallations]);
-  const equipmentRowsById = useMemo(() => new Map(filteredEquipments.map((row) => [row.id, row])), [filteredEquipments]);
   const installActionQueue: MissionQueueItem[] = useMemo(
-    () => buildInstallActionQueue(filteredInstallations).map(({ targetId, priority: _priority, ...item }) => ({
-      ...item,
-      onClick: () => {
-        const row = installRowsById.get(targetId);
-        if (row) openEditInstall(row);
-      },
-    })),
-    [filteredInstallations, installRowsById, openEditInstall],
+    () => {
+      if (section !== "install") return EMPTY_MISSION_QUEUE;
+      const rowsById = new Map(filteredInstallations.map((row) => [row.id, row]));
+      return buildInstallActionQueue(filteredInstallations).map(({ targetId, priority: _priority, ...item }) => ({
+        ...item,
+        onClick: () => {
+          const row = rowsById.get(targetId);
+          if (row) openEditInstall(row);
+        },
+      }));
+    },
+    [filteredInstallations, openEditInstall, section],
   );
   const equipmentActionQueue: MissionQueueItem[] = useMemo(
-    () => buildEquipmentActionQueue(filteredEquipments, regionLabel).map(({ targetId, priority: _priority, ...item }) => ({
-      ...item,
-      onClick: () => {
-        const row = equipmentRowsById.get(targetId);
-        if (row) openDrawer(row);
-      },
-    })),
-    [filteredEquipments, equipmentRowsById, openDrawer],
+    () => {
+      if (section !== "equipment") return EMPTY_MISSION_QUEUE;
+      const rowsById = new Map(filteredEquipments.map((row) => [row.id, row]));
+      return buildEquipmentActionQueue(filteredEquipments, regionLabel).map(({ targetId, priority: _priority, ...item }) => ({
+        ...item,
+        onClick: () => {
+          const row = rowsById.get(targetId);
+          if (row) openDrawer(row);
+        },
+      }));
+    },
+    [filteredEquipments, openDrawer, section],
   );
 
   const equipSubStatusOptions = EQUIPMENT_SUB_STATUS_OPTIONS[(equipForm.statusMain as EquipmentMainStatus) || "裝機"] ?? [];
