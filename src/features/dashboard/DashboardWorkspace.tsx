@@ -75,13 +75,13 @@ import {
   type EquipSortKey,
   type InstallSortKey,
 } from "@/features/dashboard/dashboardFilters";
-import { buildDashboardAnalytics } from "@/features/dashboard/dashboardAnalytics";
+import { buildDashboardAnalytics, type DashboardAnalytics } from "@/features/dashboard/dashboardAnalytics";
 import {
   buildEquipmentActionQueue,
   buildInstallActionQueue,
 } from "@/features/dashboard/dashboardActionQueue";
 import { getInstallSlaStatus } from "@/features/dashboard/installSla";
-import { buildDashboardGovernanceReport, type GovernanceIssueTone } from "@/features/dashboard/dashboardGovernance";
+import { buildDashboardGovernanceReport, type DashboardGovernanceReport, type GovernanceIssueTone } from "@/features/dashboard/dashboardGovernance";
 import { buildInsightsMarkdownReport } from "@/features/dashboard/insightsReport";
 import { downloadMarkdownFile } from "@/features/dashboard/warRoomBrief";
 import { downloadEquipmentsCsv, downloadInstallationsCsv } from "@/features/dashboard/dashboardExports";
@@ -147,6 +147,28 @@ const GanttView = dynamic(
 
 type DashboardSection = "install" | "equipment" | "insights";
 const TABLE_PAGE_SIZE = 120;
+
+const EMPTY_DASHBOARD_ANALYTICS: DashboardAnalytics = {
+  phase: { total: 0, by: {} },
+  region: [],
+  engineer: [],
+  due: [],
+  cycleTime: { completedCount: 0, avgDays: 0, p50Days: 0, longestRows: [] },
+  phaseAging: [],
+  customerHealth: [],
+  modelHealth: [],
+  regionProductStats: [],
+};
+
+const EMPTY_GOVERNANCE_REPORT: DashboardGovernanceReport = {
+  score: 100,
+  tone: "good",
+  activeInstallations: 0,
+  equipments: 0,
+  totalIssues: 0,
+  criticalIssues: 0,
+  issueRows: [],
+};
 
 type ActiveFilterChip = {
   id: string;
@@ -717,19 +739,29 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
             ? "請先填寫 Owner、ETA 或下一步"
             : `套用至目前篩選 ${bulkInstallTargetCount} 筆進行中裝機案`;
 
+  const shouldBuildInsightsData = section === "insights" && activeInsightsTab === "analytics";
+
   const governanceReport = useMemo(
-    () => buildDashboardGovernanceReport(filteredInstallations, equipments),
-    [filteredInstallations, equipments],
+    () => (
+      shouldBuildInsightsData
+        ? buildDashboardGovernanceReport(filteredInstallations, equipments)
+        : EMPTY_GOVERNANCE_REPORT
+    ),
+    [filteredInstallations, equipments, shouldBuildInsightsData],
   );
 
   // ───────── Analytics ─────────
   const analytics = useMemo(
-    () => buildDashboardAnalytics({
-      installations: filteredInstallations,
-      equipments,
-      engineers,
-    }),
-    [filteredInstallations, equipments, engineers],
+    () => (
+      shouldBuildInsightsData
+        ? buildDashboardAnalytics({
+          installations: filteredInstallations,
+          equipments,
+          engineers,
+        })
+        : EMPTY_DASHBOARD_ANALYTICS
+    ),
+    [filteredInstallations, equipments, engineers, shouldBuildInsightsData],
   );
   const anPhase = analytics.phase;
   const anRegion = analytics.region;
@@ -816,18 +848,28 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
 
   const downloadInsightsReport = () => {
     if (insightsReportDisabled) return;
+    const reportGovernance = shouldBuildInsightsData
+      ? governanceReport
+      : buildDashboardGovernanceReport(filteredInstallations, equipments);
+    const reportAnalytics = shouldBuildInsightsData
+      ? analytics
+      : buildDashboardAnalytics({
+        installations: filteredInstallations,
+        equipments,
+        engineers,
+      });
     const markdown = buildInsightsMarkdownReport({
       today,
       appVersion,
       filterSummary: insightsFilterSummary,
-      governance: governanceReport,
-      analytics,
+      governance: reportGovernance,
+      analytics: reportAnalytics,
     });
     downloadMarkdownFile(`install_insights_${today}.md`, markdown);
     trackEvent("insights_markdown_download", {
       appVersion,
-      score: governanceReport.score,
-      issues: governanceReport.totalIssues,
+      score: reportGovernance.score,
+      issues: reportGovernance.totalIssues,
       installs: filteredInstallations.length,
       equipments: equipments.length,
     });

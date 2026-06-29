@@ -18,6 +18,7 @@ function buildReleaseNotes(releaseLabel: string): string[] {
     "效能優化：智慧匯入 modal 改為開啟時載入，降低 dashboard 首屏 bundle 壓力。",
     "效能優化：甘特圖改為切換到甘特模式時載入，並快取時間軸計算以提升拖曳流暢度。",
     "效能優化：Pipeline Kanban 依階段分組改為單次快取，減少每次 render 的重複篩選。",
+    "效能優化：Insights 分析與治理報表改為進入分析頁或下載報告時才建構，降低一般 dashboard 操作重算成本。",
   ];
 }
 
