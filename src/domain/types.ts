@@ -1,3 +1,5 @@
+import type { UserRole } from "@/domain/userRoles";
+
 export type RegionKey = "north" | "central" | "south";
 
 export type PhaseKey =
@@ -27,6 +29,11 @@ export type Installation = {
   estComplete?: string;
   actComplete?: string;
 
+  nextAction?: string;
+  nextOwner?: string;
+  nextDueDate?: string;
+  overdueReason?: string;
+
   notes?: string;
   progress: number;
 
@@ -38,7 +45,7 @@ export type Installation = {
 
 export type UserProfile = {
   email: string;
-  role: "admin" | "engineer";
+  role: UserRole;
   updatedAt: number;
 };
 
@@ -79,9 +86,66 @@ export type RetentionSettingsDoc = {
   updatedBy: string;
 };
 
+export type ImportSessionStatus = "dryRun" | "committed" | "failed";
+
+export type ImportSessionDoc = {
+  id?: string;
+  fileName: string;
+  status: ImportSessionStatus;
+  totalRows: number;
+  selectedRows: number;
+  acceptedRows: number;
+  rejectedRows: number;
+  createdInstallations: number;
+  updatedInstallations: number;
+  createdEquipments: number;
+  updatedEquipments: number;
+  removedInstallations: number;
+  skippedDuplicateEquipments: number;
+  errorSample: string[];
+  actorEmail: string;
+  createdAt?: number;
+  updatedAt?: number;
+};
+
+export type ImportFieldKey =
+  | "serialNo"
+  | "modelCode"
+  | "customer"
+  | "estArrival"
+  | "estComplete"
+  | "actArrival"
+  | "actComplete"
+  | "engineer";
+
+export type ImportColumnAlias = {
+  field: ImportFieldKey;
+  headers: string[];
+};
+
+export type CustomerAliasEntry = {
+  alias: string;
+  customer: string;
+};
+
+export type MachineModelAliasEntry = {
+  alias: string;
+  modelCode: string;
+};
+
+export type ImportConfigDoc = {
+  version: string;
+  columnAliases: ImportColumnAlias[];
+  customerAliases: CustomerAliasEntry[];
+  machineModelAliases: MachineModelAliasEntry[];
+  updatedAt: number;
+  updatedBy: string;
+};
+
 
 export type EquipmentMainStatus = "裝機" | "試產" | "正式生產中";
 export type CapacityLevel = "綠" | "黃" | "紅";
+export type EquipmentBlockingStatus = "open" | "resolved" | "reopened";
 
 // 每個機台所生產的產品 + 對應日產能
 export type ProductCapacity = {
@@ -118,6 +182,12 @@ export type Equipment = {
     detail: string;
     owner: string;
     eta?: string; // YYYY-MM-DD
+    status?: EquipmentBlockingStatus;
+    openedAt?: number;
+    resolvedAt?: number;
+    reopenedAt?: number;
+    reopenCount?: number;
+    resolutionNote?: string;
   };
 
   capacity: {

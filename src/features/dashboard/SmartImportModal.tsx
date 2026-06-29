@@ -1,9 +1,10 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Modal } from "@/features/ui/Modal";
+import { useAuth } from "@/features/auth/AuthProvider";
 import { PHASES, REGIONS } from "@/domain/constants";
-import type { EquipmentMainStatus, MachineModel, PhaseKey, RegionKey } from "@/domain/types";
+import type { EquipmentMainStatus, ImportConfigDoc, ImportSessionStatus, MachineModel, PhaseKey, RegionKey } from "@/domain/types";
 import {
   buildEquipmentPayload,
   buildInstallationPayload,
@@ -19,6 +20,8 @@ import {
 } from "@/domain/importRules";
 import { toDisplayShortName } from "@/domain/personDisplay";
 import { MAX_ATOMIC_IMPORT_ROWS, commitSmartImportBatch, type SmartImportCommitResult, type SmartImportTransferInput } from "@/features/dashboard/services/smartImportService";
+import { createImportSession, listenImportSessions, type ImportSessionRow } from "@/features/data/importSessions";
+import { todayInTaipeiYmd } from "@/lib/utils";
 
 type PreviewRow = WorkbookRow & {
   _idx: number;
@@ -37,6 +40,7 @@ type Props = {
   onImported?: (counts: SmartImportCommitResult) => void;
   customerRegionMap?: Record<string, RegionKey>;
   machineModels?: readonly MachineModel[];
+  importConfig?: ImportConfigDoc | null;
 };
 
 function applyLifecycleToPreviewRow(row: PreviewRow, phaseOverride?: PhaseKey): PreviewRow {
@@ -74,23 +78,120 @@ export function getPreviewRowIssues(row: PreviewRow): string[] {
   return Array.from(new Set(issues));
 }
 
-export function SmartImportModal({ open, onClose, onImported, customerRegionMap = {}, machineModels = [] }: Props) {
+function toCsvCell(value: string): string {
+  return `"${value.replaceAll('"', '""')}"`;
+}
+
+function buildRejectRowsCsv(rows: PreviewRow[]): string {
+  const columns = [
+    "sourceRow",
+    "customer",
+    "modelCode",
+    "serialNo",
+    "engineer",
+    "region",
+    "phase",
+    "estArrival",
+    "estComplete",
+    "actArrival",
+    "actComplete",
+    "issues",
+  ];
+  return [
+    columns.join(","),
+    ...rows.map((row) => [
+      String(row._sourceRowIndex + 1),
+      row.customer,
+      row.modelCode,
+      row.serialNo,
+      row.engineer,
+      row._region,
+      row._phase,
+      row.estArrival,
+      row.estComplete,
+      row.actArrival,
+      row.actComplete,
+      getPreviewRowIssues(row).join("；"),
+    ].map((value) => toCsvCell(String(value ?? "").replace(/\r?\n/g, " "))).join(",")),
+  ].join("\r\n");
+}
+
+function downloadRejectRowsCsv(rows: PreviewRow[], fileName: string): void {
+  const csv = buildRejectRowsCsv(rows);
+  const blob = new Blob(["\uFEFF", csv], { type: "text/csv;charset=utf-8" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `import_rejects_${fileName.replace(/\.[^.]+$/, "") || todayInTaipeiYmd()}.csv`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+function formatSessionTime(value?: number): string {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "-";
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")} ${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+}
+
+function ImportSessionList({ rows, error }: { rows: ImportSessionRow[]; error: string }) {
+  if (error) {
+    return <div style={{ color: "#f59e0b", fontSize: 12 }}>匯入紀錄讀取失敗：{error}</div>;
+  }
+  if (rows.length === 0) {
+    return <div style={{ color: "var(--muted-foreground)", fontSize: 12 }}>尚無匯入 session history。</div>;
+  }
+  return (
+    <div style={{ display: "grid", gap: 6 }}>
+      {rows.map((session) => (
+        <div key={session.id} style={{ display: "flex", gap: 8, alignItems: "center", justifyContent: "space-between", padding: "8px 10px", border: "1px solid var(--border)", borderRadius: 10, fontSize: 12 }}>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontWeight: 900, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{session.fileName}</div>
+            <div style={{ color: "var(--muted-foreground)" }}>{formatSessionTime(session.createdAt)} · {session.actorEmail}</div>
+          </div>
+          <div style={{ textAlign: "right", whiteSpace: "nowrap" }}>
+            <div style={{ fontWeight: 900, color: session.status === "committed" ? "#10b981" : "#ef4444" }}>{session.status.toUpperCase()}</div>
+            <div style={{ color: "var(--muted-foreground)" }}>OK {session.acceptedRows} / Reject {session.rejectedRows}</div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export function SmartImportModal({ open, onClose, onImported, customerRegionMap = {}, machineModels = [], importConfig = null }: Props) {
+  const { user } = useAuth();
   const fileRef = useRef<HTMLInputElement>(null);
   const [rows, setRows] = useState<PreviewRow[]>([]);
+  const [sourceFileName, setSourceFileName] = useState("");
   const [loading, setLoading] = useState(false);
   const [importing, setImporting] = useState(false);
   const [error, setError] = useState("");
   const [done, setDone] = useState<SmartImportCommitResult | null>(null);
   const [showOnlyIssues, setShowOnlyIssues] = useState(true);
+  const [sessions, setSessions] = useState<ImportSessionRow[]>([]);
+  const [sessionErr, setSessionErr] = useState("");
+  const [sessionNotice, setSessionNotice] = useState("");
 
   function reset() {
     setRows([]);
+    setSourceFileName("");
     setLoading(false);
     setImporting(false);
     setError("");
     setDone(null);
+    setSessionNotice("");
     setShowOnlyIssues(true);
   }
+
+  useEffect(() => {
+    if (!open) return;
+    const unsubscribe = listenImportSessions(
+      setSessions,
+      (sessionError) => setSessionErr(sessionError instanceof Error ? sessionError.message : String(sessionError)),
+      5,
+    );
+    return () => unsubscribe?.();
+  }, [open]);
 
   function handleClose() {
     reset();
@@ -104,6 +205,7 @@ export function SmartImportModal({ open, onClose, onImported, customerRegionMap 
       return;
     }
     setRows([]);
+    setSourceFileName(file.name);
     setDone(null);
     setError("");
     setLoading(true);
@@ -118,7 +220,7 @@ export function SmartImportModal({ open, onClose, onImported, customerRegionMap 
         const data = event.target?.result;
         if (!(data instanceof ArrayBuffer)) throw new Error("讀取 Excel 檔案失敗");
         const jsonRows = await readWorkbookJsonRows(data);
-        const parsed = parseWorkbookJsonRows(jsonRows, machineModels);
+        const parsed = parseWorkbookJsonRows(jsonRows, machineModels, importConfig);
         if (parsed.length === 0) {
           setError("找不到有效資料列，請確認欄位名稱與範本一致。");
           setLoading(false);
@@ -157,16 +259,59 @@ export function SmartImportModal({ open, onClose, onImported, customerRegionMap 
 
   const selectedRows = useMemo(() => rows.filter((row) => row._selected), [rows]);
   const allSelected = rows.length > 0 && rows.every((row) => row._selected);
+  const someSelected = rows.some((row) => row._selected) && !allSelected;
   const selectedInstallations = selectedRows.filter((row) => !row._createEquipment).length;
   const selectedEquipments = selectedRows.filter((row) => row._createEquipment).length;
   const unmatchedRegions = selectedRows.filter((row) => !row._regionMatched).length;
   const equipmentWithoutSerial = selectedRows.filter((row) => row._createEquipment && !row.serialNo).length;
   const issueRows = useMemo(() => rows.filter((row) => getPreviewRowIssues(row).length > 0), [rows]);
+  const selectedIssueRows = useMemo(() => selectedRows.filter((row) => getPreviewRowIssues(row).length > 0), [selectedRows]);
   const visibleRows = showOnlyIssues && issueRows.length > 0 ? issueRows : rows;
+  const importBlockedReason = selectedRows.length === 0
+    ? "請至少選取 1 筆資料後再匯入。"
+    : selectedIssueRows.length > 0
+      ? `已選資料仍有 ${selectedIssueRows.length} 筆需確認；請修正區域、階段或序號，或取消勾選後再匯入。`
+      : "";
   const previewTableMinWidth = 1320;
+
+  async function recordImportSession(status: ImportSessionStatus, counts: SmartImportCommitResult | null, errorSample: string[]) {
+    if (!user?.email) return;
+    try {
+      await createImportSession({
+        fileName: sourceFileName || "unknown.xlsx",
+        status,
+        totalRows: rows.length,
+        selectedRows: selectedRows.length,
+        acceptedRows: Math.max(0, selectedRows.length - selectedIssueRows.length),
+        rejectedRows: selectedIssueRows.length,
+        createdInstallations: counts?.createdInstallations ?? 0,
+        updatedInstallations: counts?.updatedInstallations ?? 0,
+        createdEquipments: counts?.createdEquipments ?? 0,
+        updatedEquipments: counts?.updatedEquipments ?? 0,
+        removedInstallations: counts?.removedInstallations ?? 0,
+        skippedDuplicateEquipments: counts?.skippedDuplicateEquipments ?? 0,
+        errorSample,
+        actorEmail: user.email,
+      });
+    } catch (sessionError) {
+      setSessionErr(sessionError instanceof Error ? sessionError.message : String(sessionError));
+    }
+  }
+
+  async function handleSaveDryRunSession() {
+    if (rows.length === 0) return;
+    await recordImportSession("dryRun", null, selectedIssueRows.flatMap((row) => getPreviewRowIssues(row)).slice(0, 20));
+    setError("");
+    setSessionNotice("已儲存 dry-run session");
+  }
 
   async function handleImport() {
     if (selectedRows.length === 0) return;
+    if (selectedIssueRows.length > 0) {
+      setShowOnlyIssues(true);
+      setError(importBlockedReason);
+      return;
+    }
     if (selectedRows.length > MAX_ATOMIC_IMPORT_ROWS) {
       setError(`智慧匯入目前採單批原子寫入，單次最多 ${MAX_ATOMIC_IMPORT_ROWS} 筆，請拆成多次匯入`);
       return;
@@ -216,6 +361,7 @@ export function SmartImportModal({ open, onClose, onImported, customerRegionMap 
       }
 
       if (rowErrors.length > 0) {
+        await recordImportSession("failed", null, rowErrors);
         setError(`未匯入：${rowErrors.slice(0, 3).join("；")}${rowErrors.length > 3 ? "…" : ""}`);
         setImporting(false);
         return;
@@ -225,10 +371,13 @@ export function SmartImportModal({ open, onClose, onImported, customerRegionMap 
         installations: installationPayloads,
         transfers,
       });
+      await recordImportSession("committed", counts, selectedIssueRows.flatMap((row) => getPreviewRowIssues(row)).slice(0, 20));
       setDone(counts);
       onImported?.(counts);
     } catch (rowError) {
-      setError(rowError instanceof Error ? rowError.message : String(rowError));
+      const message = rowError instanceof Error ? rowError.message : String(rowError);
+      await recordImportSession("failed", null, [message]);
+      setError(message);
     } finally {
       setImporting(false);
     }
@@ -264,6 +413,11 @@ export function SmartImportModal({ open, onClose, onImported, customerRegionMap 
           <div style={{ color: "var(--muted-foreground)", fontSize: 12, lineHeight: 1.7 }}>
             規則：<strong>正式量產（機台序號必填）不保留於裝機案件。</strong> 驗收完成日期不再是轉量產的阻擋條件；該列會直接寫入 / 更新設備台帳；若裝機案件內已有同序號資料，匯入時會同步移除。<br />
             智慧匯入採單批原子寫入；若單次超過 {MAX_ATOMIC_IMPORT_ROWS} 筆，請拆批匯入。
+          </div>
+
+          <div style={{ borderTop: "1px solid var(--border)", paddingTop: 12 }}>
+            <div style={{ fontWeight: 900, marginBottom: 8 }}>最近匯入紀錄</div>
+            <ImportSessionList rows={sessions} error={sessionErr} />
           </div>
 
           {error ? <div style={{ color: "#ef4444", fontSize: 12 }}>{error}</div> : null}
@@ -303,13 +457,40 @@ export function SmartImportModal({ open, onClose, onImported, customerRegionMap 
               只顯示需人工確認的列
             </label>
             <span>{issueRows.length === 0 ? "目前沒有異常列，可直接匯入。" : "正常列已預設選取，不需要逐筆檢查。"}</span>
+            {issueRows.length > 0 ? (
+              <button className="btn btnSmall" type="button" onClick={() => downloadRejectRowsCsv(issueRows, sourceFileName)}>
+                下載 reject CSV
+              </button>
+            ) : null}
+            <button className="btn btnSmall" type="button" onClick={handleSaveDryRunSession}>
+              儲存 dry-run session
+            </button>
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 8, fontSize: 12 }}>
+            <div className="card" style={{ padding: 10 }}>
+              <div style={{ color: "var(--muted-foreground)", fontWeight: 900 }}>Dry-run 結果</div>
+              <div style={{ marginTop: 4 }}>Accepted {Math.max(0, selectedRows.length - selectedIssueRows.length)} / Rejected {selectedIssueRows.length}</div>
+            </div>
+            <div className="card" style={{ padding: 10 }}>
+              <div style={{ color: "var(--muted-foreground)", fontWeight: 900 }}>最近匯入</div>
+              <div style={{ marginTop: 4 }}>{sessions[0]?.fileName ?? "尚無紀錄"}</div>
+            </div>
           </div>
 
           <div style={{ overflow: "auto", maxHeight: "70vh", maxWidth: "100%", border: "1px solid var(--border)", borderRadius: 12, background: "var(--card)" }}>
             <table style={{ width: "max-content", minWidth: previewTableMinWidth, tableLayout: "fixed", borderCollapse: "separate", borderSpacing: 0, fontSize: 12 }}>
               <thead>
                 <tr>
-                  <th style={{ position: "sticky", top: 0, left: 0, zIndex: 5, padding: "8px 6px", whiteSpace: "nowrap", background: "var(--muted)", borderBottom: "1px solid var(--border)", width: 40 }}><input type="checkbox" checked={allSelected} onChange={(event) => toggleAll(event.target.checked)} /></th>
+                  <th style={{ position: "sticky", top: 0, left: 0, zIndex: 5, padding: "8px 6px", whiteSpace: "nowrap", background: "var(--muted)", borderBottom: "1px solid var(--border)", width: 40 }}>
+                    <input
+                      aria-label="選取全部匯入列"
+                      type="checkbox"
+                      checked={allSelected}
+                      ref={(element) => { if (element) element.indeterminate = someSelected; }}
+                      onChange={(event) => toggleAll(event.target.checked)}
+                    />
+                  </th>
                   <th style={{ position: "sticky", top: 0, left: 40, zIndex: 5, padding: "8px 6px", whiteSpace: "nowrap", background: "var(--muted)", borderBottom: "1px solid var(--border)", width: 38 }}>#</th>
                   <th style={{ position: "sticky", top: 0, left: 78, zIndex: 5, padding: "8px 6px", whiteSpace: "nowrap", background: "var(--muted)", borderBottom: "1px solid var(--border)", width: 84 }}>匯入內容</th>
                   <th style={{ position: "sticky", top: 0, left: 162, zIndex: 5, padding: "8px 8px", whiteSpace: "nowrap", background: "var(--muted)", borderBottom: "1px solid var(--border)", width: 160 }}>客戶</th>
@@ -329,7 +510,14 @@ export function SmartImportModal({ open, onClose, onImported, customerRegionMap 
                   const rowIssues = getPreviewRowIssues(row);
                   return (
                   <tr key={row._idx} style={{ borderTop: "1px solid var(--border)" }}>
-                    <td style={{ position: "sticky", left: 0, zIndex: 4, padding: "8px 6px", textAlign: "center", whiteSpace: "nowrap", borderTop: "1px solid var(--border)", background: "var(--card)" }}><input type="checkbox" checked={row._selected} onChange={() => setRow(row._idx, (current) => ({ ...current, _selected: !current._selected }))} /></td>
+                    <td style={{ position: "sticky", left: 0, zIndex: 4, padding: "8px 6px", textAlign: "center", whiteSpace: "nowrap", borderTop: "1px solid var(--border)", background: "var(--card)" }}>
+                      <input
+                        aria-label={`選取第 ${row._idx + 1} 列`}
+                        type="checkbox"
+                        checked={row._selected}
+                        onChange={() => setRow(row._idx, (current) => ({ ...current, _selected: !current._selected }))}
+                      />
+                    </td>
                     <td style={{ position: "sticky", left: 40, zIndex: 4, padding: "8px 6px", fontSize: 12, whiteSpace: "nowrap", borderTop: "1px solid var(--border)", background: "var(--card)" }}>{row._idx + 1}</td>
                     <td style={{ position: "sticky", left: 78, zIndex: 4, padding: "8px 6px", whiteSpace: "nowrap", borderTop: "1px solid var(--border)", background: "var(--card)", fontSize: 12, lineHeight: 1.35 }}>
                       <div style={{ fontWeight: 700 }}>{row._createEquipment ? "轉入設備" : "裝機案件"}</div>
@@ -364,10 +552,20 @@ export function SmartImportModal({ open, onClose, onImported, customerRegionMap 
           </div>
 
           {error ? <div style={{ color: "#ef4444", fontSize: 12 }}>{error}</div> : null}
+          {sessionNotice ? <div style={{ color: "#10b981", fontSize: 12 }}>{sessionNotice}</div> : null}
+          {importBlockedReason ? <div className="importReviewBlocker" id="smart-import-blocker">{importBlockedReason}</div> : null}
 
           <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
             <button className="btn" onClick={handleClose}>取消</button>
-            <button className="btn btnAccent" onClick={handleImport} disabled={importing || selectedRows.length === 0}>{importing ? "匯入中…" : `匯入 ${selectedRows.length} 筆`}</button>
+            <button
+              className="btn btnAccent"
+              onClick={handleImport}
+              disabled={importing || Boolean(importBlockedReason)}
+              aria-describedby={importBlockedReason ? "smart-import-blocker" : undefined}
+              title={importBlockedReason || undefined}
+            >
+              {importing ? "匯入中…" : `匯入 ${selectedRows.length} 筆`}
+            </button>
           </div>
         </div>
       )}

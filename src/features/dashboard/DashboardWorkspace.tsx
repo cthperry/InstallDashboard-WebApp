@@ -1,11 +1,11 @@
 "use client";
 
-import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useState, type CSSProperties } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/features/auth/AuthProvider";
 
-import { createInstallation, updateInstallation, removeInstallation } from "@/features/data/installations";
-import { createEquipment, updateEquipment, removeEquipment } from "@/features/data/equipments";
+import { createInstallation, updateInstallation, updateInstallationsBulk, removeInstallation } from "@/features/data/installations";
+import { createEquipment, updateEquipment, removeEquipment, type EquipmentUpdatePatch } from "@/features/data/equipments";
 import { deleteField } from "firebase/firestore";
 import { saveRetentionSettings } from "@/features/data/settings";
 import {
@@ -17,7 +17,7 @@ import {
 import { writeAuditLog } from "@/features/data/audit";
 import { trackEvent } from "@/features/telemetry/track";
 
-import type { CapacityLevel, CustomerEntry, Equipment, EquipmentMainStatus, Installation, PhaseKey, RegionKey, RetentionSettingsDoc } from "@/domain/types";
+import type { CapacityLevel, CustomerEntry, Equipment, EquipmentMainStatus, Installation, MachineModel, PhaseKey, RegionKey, RetentionSettingsDoc } from "@/domain/types";
 import {
   CAPACITY_COLOR,
   CAPACITY_LEVELS,
@@ -33,11 +33,20 @@ import {
   PHASE_CHECKLIST
 } from "@/domain/constants";
 import { equipmentSchema, installationSchema } from "@/domain/schemas";
-import { getInstallationDefaultDraft, INSTALLATION_DATE_FIELDS, normalizeInstallationDraft, doesInstallationPhaseRequireEngineer, doesInstallationPhaseRequireSerial } from "@/domain/installationContract";
-import { getInstallationModelSerial, getInstallationSerial, getInstallationTaskTitle } from "@/domain/installationDisplay";
+import { getInstallationDefaultDraft, INSTALLATION_DATE_FIELDS, doesInstallationPhaseRequireEngineer, doesInstallationPhaseRequireSerial, type InstallationDraft } from "@/domain/installationContract";
+import {
+  EQUIPMENT_BLOCKING_STATUS_COLOR,
+  EQUIPMENT_BLOCKING_STATUS_LABEL,
+  getEquipmentBlockingAgeDays,
+  isActiveEquipmentBlocking,
+  mergeEquipmentBlockingLifecycle,
+  normalizeEquipmentBlockingStatus,
+} from "@/domain/equipmentBlocking";
 import { buildOwnerListFromUserEmails, dedupeDisplayNames, toDisplayShortName } from "@/domain/personDisplay";
 
 import { useDashboardData } from "@/features/dashboard/hooks/useDashboardData";
+import { useInstallationFormState } from "@/features/dashboard/hooks/useInstallationFormState";
+import { useSavedFilters, type SavedFilter } from "@/features/dashboard/hooks/useSavedFilters";
 import {
   didInstallationEnterReleased,
   getInstallationProgressByPhase,
@@ -60,428 +69,246 @@ import { MiniTrend } from "@/features/ui/MiniTrend";
 import { RegionTabs } from "@/features/ui/RegionTabs";
 import { SmartImportModal } from "@/features/dashboard/SmartImportModal";
 import { GanttView } from "@/features/dashboard/GanttView";
-import { normalizeDateYmd, todayInTaipeiYmd } from "@/lib/utils";
-import { buildCapacitySnapshot, calculateUtilization, getLiveUtilization } from "@/domain/capacity";
+import {
+  filterAndSortEquipments,
+  filterAndSortInstallations,
+  getEquipmentSerialLabel,
+  type EquipSortKey,
+  type InstallSortKey,
+} from "@/features/dashboard/dashboardFilters";
+import { buildDashboardAnalytics } from "@/features/dashboard/dashboardAnalytics";
+import {
+  buildEquipmentActionQueue,
+  buildInstallActionQueue,
+} from "@/features/dashboard/dashboardActionQueue";
+import { getInstallSlaStatus } from "@/features/dashboard/installSla";
+import { buildDashboardGovernanceReport, type GovernanceIssueTone } from "@/features/dashboard/dashboardGovernance";
+import { buildInsightsMarkdownReport } from "@/features/dashboard/insightsReport";
+import { downloadMarkdownFile } from "@/features/dashboard/warRoomBrief";
+import { downloadEquipmentsCsv, downloadInstallationsCsv } from "@/features/dashboard/dashboardExports";
+import { buildEditInstallationDraft, buildNewInstallationDraft } from "@/features/dashboard/installationForm";
+import { calcCapacityLevel, calcEquipmentStats, calcInstallStats, isOverdueInstall } from "@/features/dashboard/dashboardStats";
+import {
+  buildEquipmentFormDraftFromEquipment,
+  buildEquipmentPayloadFromDraft,
+  buildSafeEquipmentBlocking,
+  buildSafeEquipmentMilestones,
+  defaultEquipSubStatus,
+  getEquipmentDefaultFormDraft,
+  updateEquipmentCapacityDraft,
+  type EquipmentFormDraft,
+  type EquipmentProductDraft,
+} from "@/features/dashboard/equipmentForm";
+import { MissionQueuePanel, SortableTh, type MissionQueueItem, type SortDirection } from "@/features/dashboard/dashboardWidgets";
+import { getErrorMessage } from "@/lib/errors";
+import { todayInTaipeiYmd } from "@/lib/utils";
+import { getLiveUtilization } from "@/domain/capacity";
+import {
+  clamp,
+  daysLeft,
+  fmtDate,
+  getInstallModelSerial,
+  getInstallSerial,
+  getInstallTaskLabel,
+  getPhaseHint,
+  normalizeOptionList,
+  parseCapacityFilter,
+  parseEquipmentStatusFilter,
+  parseInsightsTab,
+  parseInstallView,
+  parsePhaseFilter,
+  parsePhaseKey,
+  parseRegionKey,
+  pickColorByUtil,
+  regionLabel,
+  resolveCustomerRegionFromMap,
+  safeStr,
+  taipeiNowParts,
+  type InsightsTab,
+  type InstallView,
+} from "@/features/dashboard/dashboardViewUtils";
 
 type DashboardSection = "install" | "equipment" | "insights";
-type InsightsTab = "analytics" | "logs";
-type InstallView = "table" | "pipeline" | "gantt";
-type InstallSortKey = "updatedAt" | "estComplete" | "phase" | "customer" | "engineer" | "name";
-type EquipSortKey = "updatedAt" | "utilization" | "customer" | "owner" | "serialNo" | "statusMain";
-type SortDirection = "asc" | "desc";
 const TABLE_PAGE_SIZE = 120;
 
-function SortableTh({
-  label,
-  active,
-  dir,
-  onClick,
-  width,
-  className,
-}: {
-  label: string;
-  active: boolean;
-  dir: SortDirection;
-  onClick: () => void;
-  width?: number | string;
-  className?: string;
-}) {
-  const arrow = active ? (dir === "asc" ? "↑" : "↓") : "↕";
-  return (
-    <th className={className} style={width ? { width } : undefined}>
-      <button
-        type="button"
-        onClick={onClick}
-        style={{
-          display: "inline-flex",
-          alignItems: "center",
-          gap: 6,
-          border: 0,
-          background: "transparent",
-          padding: 0,
-          font: "inherit",
-          color: "inherit",
-          cursor: "pointer",
-          fontWeight: 800,
-        }}
-      >
-        <span>{label}</span>
-        <span
-          aria-hidden
-          style={{
-            fontSize: 11,
-            color: active ? "var(--primary, #2563eb)" : "var(--muted-foreground, #94a3b8)",
-            minWidth: 10,
-            textAlign: "center",
-          }}
-        >
-          {arrow}
-        </span>
-      </button>
-    </th>
-  );
-}
-
-type MissionQueueTone = "critical" | "warning" | "info" | "good";
-
-type MissionQueueItem = {
+type ActiveFilterChip = {
   id: string;
   label: string;
-  meta: string;
   value: string;
-  tone: MissionQueueTone;
-  onClick?: () => void;
+  onClear: () => void;
 };
 
-function MissionQueuePanel({
-  title,
-  subtitle,
-  items,
-  emptyText,
-}: {
-  title: string;
-  subtitle: string;
-  items: MissionQueueItem[];
-  emptyText: string;
-}) {
-  return (
-    <section className="missionQueuePanel" aria-label={title}>
-      <div className="missionQueueHead">
-        <div>
-          <div className="missionQueueEyebrow">MISSION QUEUE</div>
-          <div className="missionQueueTitle">{title}</div>
-        </div>
-        <div className="missionQueueSub">{subtitle}</div>
-      </div>
+type DashboardEmptyStateAction = {
+  label: string;
+  onClick: () => void;
+  variant?: "accent" | "ghost";
+};
 
-      {items.length > 0 ? (
-        <div className="missionQueueList">
-          {items.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              className={`missionQueueRow missionQueueRow-${item.tone}`}
-              onClick={item.onClick}
-            >
-              <span className="missionQueueRail" aria-hidden />
-              <span className="missionQueueText">
-                <strong>{item.label}</strong>
-                <small>{item.meta}</small>
-              </span>
-              <span className="missionQueueValue">{item.value}</span>
-            </button>
-          ))}
-        </div>
-      ) : (
-        <div className="missionQueueEmpty">{emptyText}</div>
-      )}
-    </section>
-  );
+type DashboardStatusTone = "info" | "error";
+type EquipmentValidationIssue = { path: readonly PropertyKey[]; message: string };
+type EquipmentFieldErrorMap = Partial<Record<string, string>>;
+
+const EQUIPMENT_VALIDATION_LABELS: Record<string, string> = {
+  equipmentId: "設備 ID",
+  region: "區域",
+  customer: "客戶",
+  site: "站點",
+  modelCode: "機型",
+  serialNo: "機台序號",
+  statusMain: "主狀態",
+  statusSub: "子狀態",
+  owner: "Owner",
+  capacity: "容量",
+  "capacity.uph": "UPH",
+  "capacity.targetUph": "Target UPH",
+  "capacity.trend7d": "7 天趨勢",
+  products: "產品產能",
+  blocking: "阻塞資料",
+  "blocking.reasonCode": "阻塞原因",
+  "blocking.owner": "阻塞 Owner",
+  "blocking.eta": "阻塞 ETA",
+};
+
+function getEquipmentValidationFieldKey(path: string[]): string {
+  if (path[0] === "capacity" && path[1]) return `capacity.${path[1]}`;
+  if (path[0] === "blocking" && path[1]) return `blocking.${path[1]}`;
+  if (path[0] === "products") return "products";
+  return path[0] ?? "equipment";
 }
 
-function parseInstallView(v: string | null): InstallView {
-  if (v === "table" || v === "gantt") return v;
-  return "pipeline";
+function formatEquipmentValidationIssue(issue: EquipmentValidationIssue): string {
+  const path = issue.path.map(String);
+  const key = path.join(".");
+  const root = path[0] ?? "";
+  const label = EQUIPMENT_VALIDATION_LABELS[key] ?? EQUIPMENT_VALIDATION_LABELS[root] ?? "設備資料";
+  const rowIndex = root === "products" && path.length > 1 && Number.isFinite(Number(path[1]))
+    ? `第 ${Number(path[1]) + 1} 筆`
+    : "";
+  return `${label}${rowIndex ? `（${rowIndex}）` : ""}：${issue.message}`;
 }
 
-function parseInsightsTab(v: string | null): InsightsTab {
-  if (v === "logs") return "logs";
-  return "analytics";
+function formatEquipmentValidationIssues(issues: EquipmentValidationIssue[]): string[] {
+  const messages = issues.map(formatEquipmentValidationIssue);
+
+  return Array.from(new Set(messages));
 }
 
-function todayYYYYMMDD(): string {
-  return todayInTaipeiYmd();
+function buildEquipmentFieldErrors(issues: EquipmentValidationIssue[]): EquipmentFieldErrorMap {
+  return issues.reduce<EquipmentFieldErrorMap>((acc, issue) => {
+    const path = issue.path.map(String);
+    const key = getEquipmentValidationFieldKey(path);
+    if (!acc[key]) acc[key] = formatEquipmentValidationIssue(issue);
+    return acc;
+  }, {});
 }
 
-type FieldErrorMap = Record<string, string>;
-
-function collectFieldErrors(issues: ReadonlyArray<{ path?: Array<string | number>; message: string }>) {
-  const fieldErrors: FieldErrorMap = {};
-  const summary: string[] = [];
-  for (const issue of issues) {
-    const field = typeof issue.path?.[0] === "string" ? String(issue.path[0]) : "form";
-    if (!fieldErrors[field]) fieldErrors[field] = issue.message;
-    if (!summary.includes(issue.message)) summary.push(issue.message);
-  }
-  return { fieldErrors, summary };
-}
-
-function fmtDate(ts?: number): string {
-  if (!ts) return "-";
-  const d = new Date(ts);
-  // zh-TW 會依環境決定上午/下午字串；避免 SSR hydration（本頁為 client-only，但仍保持一致）
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
-}
-
-function parseYmd(s?: string): Date | null {
-  if (!s) return null;
-  const m = String(s).trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (!m) return null;
-  const y = Number(m[1]);
-  const mo = Number(m[2]);
-  const d = Number(m[3]);
-  if (!Number.isFinite(y) || !Number.isFinite(mo) || !Number.isFinite(d)) return null;
-  const dt = new Date(y, mo - 1, d);
-  if (Number.isNaN(dt.getTime())) return null;
-  return dt;
-}
-
-function daysLeft(ymd?: string): number | null {
-  const dt = parseYmd(ymd);
-  if (!dt) return null;
-  const today = parseYmd(todayInTaipeiYmd());
-  if (!today) return null;
-  const a = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
-  const b = new Date(dt.getFullYear(), dt.getMonth(), dt.getDate()).getTime();
-  const diff = Math.round((b - a) / (24 * 60 * 60 * 1000));
-  return diff;
-}
-
-function daysSinceTimestamp(ts?: number): number {
-  if (!ts) return 999;
-  return Math.max(0, Math.floor((Date.now() - ts) / (24 * 60 * 60 * 1000)));
-}
-
-function taipeiNowParts(): { ymd: string; hhmm: string } {
-  // 以 Asia/Taipei 為準，避免跨時區導致定時清除不準。
-  const d = new Date();
-  const parts = new Intl.DateTimeFormat("zh-TW", {
-    timeZone: "Asia/Taipei",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  }).formatToParts(d);
-  const get = (t: string) => parts.find((p) => p.type === t)?.value || "";
-  const y = get("year");
-  const m = get("month");
-  const dd = get("day");
-  const hh = get("hour");
-  const mm = get("minute");
-  return { ymd: `${y}-${m}-${dd}`, hhmm: `${hh}:${mm}` };
-}
-
-function safeStr(v: unknown): string {
-  if (typeof v === "string") return v;
-  if (v == null) return "";
-  return String(v);
-}
-
-function clamp(n: number, a: number, b: number) {
-  return Math.max(a, Math.min(b, n));
-}
-
-function compareText(a: unknown, b: unknown): number {
-  return safeStr(a).trim().localeCompare(safeStr(b).trim(), "zh-Hant");
-}
-
-function compareYmd(a?: string, b?: string): number {
-  const aa = safeStr(a).trim();
-  const bb = safeStr(b).trim();
-  if (!aa && !bb) return 0;
-  if (!aa) return 1;
-  if (!bb) return -1;
-  return aa.localeCompare(bb);
-}
-
-function compareTimestamp(a?: number, b?: number): number {
-  const aa = Number.isFinite(a) ? Number(a) : -1;
-  const bb = Number.isFinite(b) ? Number(b) : -1;
-  return aa - bb;
-}
-
-function formatExcelCsvValue(key: string, value: unknown): string {
-  if (value == null) return "";
-  if (key === "updatedAt" || key === "createdAt") {
-    const timestamp = Number(value);
-    return Number.isFinite(timestamp) && timestamp > 0 ? fmtDate(timestamp) : "";
-  }
-  return String(value).replace(/\r?\n/g, " ");
-}
-
-function toCsvCell(value: string): string {
-  return `"${value.replaceAll('"', '""')}"`;
-}
-
-function exportInstallationsCSV(rows: Installation[]) {
-  const header = [
-    "name",
-    "modelCode",
-    "region",
-    "customer",
-    "phase",
-    "engineer",
-    "progress",
-    "orderDate",
-    "estArrival",
-    "actArrival",
-    "estComplete",
-    "actComplete",
-    "notes",
-    "updatedAt"
-  ];
-
-  const csv = [
-    header.join(","),
-    ...rows.map((r) =>
-      header
-        .map((k) => {
-          const v = (r as any)[k];
-          return toCsvCell(formatExcelCsvValue(k, v));
-        })
-        .join(",")
-    )
-  ].join("\r\n");
-
-  const blob = new Blob(["\uFEFF", csv], { type: "text/csv;charset=utf-8" });
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
-  a.download = `installations_${todayYYYYMMDD()}.csv`;
-  a.click();
-  URL.revokeObjectURL(a.href);
-}
-
-function isOverdueInstall(r: Installation, today: string): boolean {
-  const due = safeStr(r.estComplete);
-  if (!due) return false;
-  if (safeStr(r.phase) === "released") return false;
-  return due < today;
-}
-
-function calcInstallStats(rows: Installation[], today: string) {
-  const total = rows.length;
-  const wip = rows.filter((r) => r.phase !== "released").length;
-  const released = rows.filter((r) => r.phase === "released").length;
-  const overdue = rows.filter((r) => isOverdueInstall(r, today)).length;
-  const avgProg = total ? Math.round(rows.reduce((a, r) => a + (r.progress ?? 0), 0) / total) : 0;
-  const byPhase: Record<PhaseKey, number> = {
-    ordered: 0,
-    shipping: 0,
-    arrived: 0,
-    installing: 0,
-    trial: 0,
-    qual: 0,
-    released: 0
-  };
-  for (const r of rows) byPhase[r.phase] = (byPhase[r.phase] ?? 0) + 1;
-  return { total, wip, released, overdue, avgProg, byPhase };
-}
-
-// 容量風險：滿載代表機器很緊
-// 紅：≥ 80%（高負載） / 黃：30–79% / 綠：< 30%（容量充裕）
-function calcCapacityLevelStatic(uph: number, targetUph: number): "綠" | "黃" | "紅" {
-  if (targetUph <= 0) return "綠";
-  const ratio = uph / targetUph;
-  if (ratio >= 0.8) return "紅";
-  if (ratio >= 0.3) return "黃";
-  return "綠";
-}
-
-function calcEquipmentStats(rows: Equipment[]) {
-  const total = rows.length;
-  const avgUtil = total ? Math.round(rows.reduce((a, r) => a + getLiveUtilization(r.capacity), 0) / total) : 0;
-  const byStatus: Record<EquipmentMainStatus, number> = { "裝機": 0, "試產": 0, "正式生產中": 0 };
-  const byCap: Record<CapacityLevel, number> = { "綠": 0, "黃": 0, "紅": 0 };
-  let blocked = 0;
-  for (const r of rows) {
-    byStatus[r.statusMain] = (byStatus[r.statusMain] ?? 0) + 1;
-    // 即時重算，不依賴 Firestore 存的舊 level 值
-    const liveLevel = calcCapacityLevelStatic(Number(r.capacity.uph), Number(r.capacity.targetUph));
-    byCap[liveLevel] = (byCap[liveLevel] ?? 0) + 1;
-    if (r.blocking?.reasonCode) blocked++;
-  }
-  return { total, avgUtil, byStatus, byCap, blocked };
-}
-
-function normalizeOptionList(rows: string[]): string[] {
-  return Array.from(new Set(rows.map((s) => String(s).trim()).filter(Boolean)));
-}
-
-function getInstallSerial(r: Installation): string {
-  return getInstallationSerial(r);
-}
-
-function getInstallModelSerial(r: Installation): string {
-  return getInstallationModelSerial(r);
-}
-
-function getInstallTaskLabel(r: Installation): string {
-  return getInstallationTaskTitle(r);
-}
-
-function regionLabel(k: RegionKey): string {
-  return REGIONS[k]?.label ?? k;
-}
-
-export function getPhaseHint(phase: PhaseKey): string {
-  switch (phase) {
-    case "ordered":
-      return "先建立需求即可，機台序號與工程師可稍後補。";
-    case "shipping":
-      return "備貨 / 出貨階段可先追預計出貨與預計安裝日。";
-    case "arrived":
-      return "到廠後需補機台序號與負責工程師。";
-    case "installing":
-      return "開始安裝後需填實際安裝日期，進度可由檢查清單帶出。";
-    case "trial":
-      return "試產階段請維護工程師與試產檢查清單。";
-    case "qual":
-      return "Qual 驗證階段請追驗證與客戶確認項目。";
-    case "released":
-      return "正式量產會轉入設備台帳，請確認序號與工程師。";
-    default:
-      return "";
-  }
-}
-
-function pickColorByUtil(u: number): string {
-  if (u >= 80) return "#10b981";
-  if (u >= 50) return "#f59e0b";
+function pickHealthColor(score: number): string {
+  if (score >= 80) return "#10b981";
+  if (score >= 60) return "#f59e0b";
   return "#ef4444";
 }
 
-function defaultEquipSubStatus(statusMain: EquipmentMainStatus): string {
-  return EQUIPMENT_SUB_STATUS_OPTIONS[statusMain]?.[0] ?? "";
+function pickGovernanceToneColor(tone: GovernanceIssueTone): string {
+  if (tone === "good") return "#10b981";
+  if (tone === "info") return "#3b82f6";
+  if (tone === "warning") return "#f59e0b";
+  return "#ef4444";
 }
 
-export function resolveCustomerRegionFromMap(customerRegionMap: Record<string, RegionKey>, customer: string): RegionKey | null {
-  const target = customer.trim();
-  if (!target) return null;
-  const direct = customerRegionMap[target];
-  if (direct) return direct;
-  const lower = target.toLowerCase();
-  const match = Object.entries(customerRegionMap).find(([name]) => name.trim().toLowerCase() === lower);
-  return match?.[1] ?? null;
+function ActiveFilterSummary({
+  filters,
+  visibleCount,
+  totalCount,
+  onClearAll,
+}: {
+  filters: ActiveFilterChip[];
+  visibleCount: number;
+  totalCount: number;
+  onClearAll: () => void;
+}) {
+  if (filters.length === 0) return null;
+
+  return (
+    <div className="activeFilterSummary" aria-label="目前篩選條件">
+      <div className="activeFilterCount">
+        {visibleCount}/{totalCount}
+      </div>
+      <div className="activeFilterChips">
+        {filters.map((filter) => (
+          <button key={filter.id} type="button" className="activeFilterChip" onClick={filter.onClear} title={`移除 ${filter.label}`}>
+            <span>{filter.label}</span>
+            <strong>{filter.value}</strong>
+            <span aria-hidden="true">×</span>
+          </button>
+        ))}
+      </div>
+      <button type="button" className="btn btnSmall btnGhost" onClick={onClearAll}>
+        清除全部
+      </button>
+    </div>
+  );
 }
 
-// --- Saved Filter ---
-const SAVED_FILTERS_KEY = "premtek_saved_filters";
-
-type SavedFilter = {
-  id: string;
-  name: string;
-  region: string;
-  model: string;
-  phase: string;
-  customer: string;
-  engineer: string;
-  keyword: string;
-  savedAt: number;
-};
-
-function loadSavedFilters(): SavedFilter[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const raw = localStorage.getItem(SAVED_FILTERS_KEY);
-    return raw ? (JSON.parse(raw) as SavedFilter[]) : [];
-  } catch { return []; }
+function DashboardStatusBanner({
+  tone,
+  title,
+  detail,
+}: {
+  tone: DashboardStatusTone;
+  title: string;
+  detail: string;
+}) {
+  return (
+    <div
+      className={`card dashboardStatusBanner ${tone === "error" ? "dashboardStatusBannerError" : "dashboardStatusBannerInfo"}`}
+      role={tone === "error" ? "alert" : "status"}
+      aria-live={tone === "error" ? "assertive" : "polite"}
+    >
+      <div className="dashboardStatusTitle">{title}</div>
+      <div className="dashboardStatusDetail">{detail}</div>
+    </div>
+  );
 }
 
-function persistSavedFilters(filters: SavedFilter[]) {
-  if (typeof window === "undefined") return;
-  localStorage.setItem(SAVED_FILTERS_KEY, JSON.stringify(filters));
+function DashboardEmptyState({
+  title,
+  detail,
+  primaryAction,
+  secondaryAction,
+}: {
+  title: string;
+  detail: string;
+  primaryAction?: DashboardEmptyStateAction;
+  secondaryAction?: DashboardEmptyStateAction;
+}) {
+  const actionClassName = (action: DashboardEmptyStateAction) => {
+    if (action.variant === "accent") return "btn btnSmall btnAccent";
+    if (action.variant === "ghost") return "btn btnSmall btnGhost";
+    return "btn btnSmall";
+  };
+
+  return (
+    <div className="dashboardEmptyState">
+      <div>
+        <div className="dashboardEmptyTitle">{title}</div>
+        <div className="dashboardEmptyDetail">{detail}</div>
+      </div>
+      {primaryAction || secondaryAction ? (
+        <div className="dashboardEmptyActions">
+          {primaryAction ? (
+            <button type="button" className={actionClassName(primaryAction)} onClick={primaryAction.onClick}>
+              {primaryAction.label}
+            </button>
+          ) : null}
+          {secondaryAction ? (
+            <button type="button" className={actionClassName(secondaryAction)} onClick={secondaryAction.onClick}>
+              {secondaryAction.label}
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 export function DashboardWorkspace({ section }: { section: DashboardSection }) {
@@ -500,10 +327,13 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
     machineModels,
     appVars,
     retention,
+    importConfig,
     managedUsers,
     installations,
+    installLoading,
     installErr,
     equipments,
+    equipLoading,
     equipErr,
     auditLogs,
     events,
@@ -528,8 +358,12 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
   const [installSortKey, setInstallSortKey] = useState<InstallSortKey>("updatedAt");
   const [installSortDir, setInstallSortDir] = useState<"asc" | "desc">("desc");
   const [installVisibleCount, setInstallVisibleCount] = useState(TABLE_PAGE_SIZE);
+  const [bulkInstallOwner, setBulkInstallOwner] = useState("");
+  const [bulkInstallEta, setBulkInstallEta] = useState("");
+  const [bulkInstallAction, setBulkInstallAction] = useState("");
+  const [bulkInstallBusy, setBulkInstallBusy] = useState(false);
   // ───────── Saved Filters ─────────
-  const [savedFilters, setSavedFilters] = useState<SavedFilter[]>(() => loadSavedFilters());
+  const { savedFilters, addSavedFilter, deleteSavedFilter } = useSavedFilters();
   const [saveFilterName, setSaveFilterName] = useState<string>("");
   const [showSaveFilterInput, setShowSaveFilterInput] = useState(false);
 
@@ -551,10 +385,19 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
   // ───────── Modal: Installation ─────────
   const [installModalOpen, setInstallModalOpen] = useState(false);
   const [installEditId, setInstallEditId] = useState<string | null>(null);
-  const [installForm, setInstallForm] = useState<any>(() => getInstallationDefaultDraft(DEFAULT_MACHINE_MODELS));
-  const [installErrors, setInstallErrors] = useState<FieldErrorMap>({});
-  const [installErrorSummary, setInstallErrorSummary] = useState<string[]>([]);
-  const installFieldRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const [installSubmitBusy, setInstallSubmitBusy] = useState(false);
+  const {
+    installForm,
+    setInstallForm,
+    installErrors,
+    installErrorSummary,
+    installFieldRefs,
+    clearInstallErrors,
+    updateInstallField,
+    updateInstallCustomer: updateInstallCustomerDraft,
+    updateInstallPhase,
+    showInstallValidationErrors,
+  } = useInstallationFormState(getInstallationDefaultDraft(DEFAULT_MACHINE_MODELS));
 
   // ───────── Modal: Excel Import ─────────
   const [smartImportOpen, setSmartImportOpen] = useState(false);
@@ -562,40 +405,10 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
   // ───────── Modal: Equipment ─────────
   const [equipModalOpen, setEquipModalOpen] = useState(false);
   const [equipEditId, setEquipEditId] = useState<string | null>(null);
-  const [equipForm, setEquipForm] = useState<any>({
-    equipmentId: "",
-    region: "north",
-    customer: "",
-    site: "",
-    modelCode: "FlexTRAK-S",
-    serialNo: "",
-    statusMain: "裝機",
-    statusSub: "",
-    owner: "",
-    milestones: {
-      installStart: "",
-      installDone: "",
-      trialStart: "",
-      trialPass: "",
-      prodStart: "",
-      reachTargetDate: ""
-    },
-    hasBlocking: false,
-    blocking: {
-      reasonCode: "",
-      detail: "",
-      owner: "",
-      eta: ""
-    },
-    capacity: {
-      utilization: 0,
-      uph: 0,
-      targetUph: 0,
-      level: "綠",
-      trend7dCsv: ""
-    },
-    products: [] as { name: string; dailyCap: number | string }[]
-  });
+  const [equipSubmitBusy, setEquipSubmitBusy] = useState(false);
+  const [equipErrorSummary, setEquipErrorSummary] = useState<string[]>([]);
+  const [equipErrors, setEquipErrors] = useState<EquipmentFieldErrorMap>({});
+  const [equipForm, setEquipForm] = useState<EquipmentFormDraft>(() => getEquipmentDefaultFormDraft());
 
   useEffect(() => {
     if (!toast) return;
@@ -621,7 +434,7 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
     setEquipVisibleCount(TABLE_PAGE_SIZE);
   }, [deferredEquipmentKeyword, eRegion, eStatus, eCap, equipSortKey, equipSortDir]);
 
-  const today = todayYYYYMMDD();
+  const today = todayInTaipeiYmd();
 
   const retentionCfg: RetentionSettingsDoc = useMemo(() => {
     if (retention) return retention;
@@ -688,8 +501,8 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
 
       setToast(`已清除：auditLogs ${aDeleted} 筆、events ${eDeleted} 筆（依保留天數）`);
       trackEvent("admin_purge_by_retention", { aDeleted, eDeleted, aDays, eDays, appVersion });
-    } catch (e: any) {
-      setToast(`清除失敗：${e?.message || "unknown"}`);
+    } catch (e: unknown) {
+      setToast(`清除失敗：${getErrorMessage(e, "unknown")}`);
     } finally {
       setPurgeBusy(false);
       setPurgeHint("");
@@ -710,8 +523,8 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
       const eDeleted = await clearAllEvents(800);
       setToast(`已清除：auditLogs ${aDeleted} 筆、events ${eDeleted} 筆（最多 800 筆/次）`);
       trackEvent("admin_clear_all_logs", { aDeleted, eDeleted, appVersion });
-    } catch (e: any) {
-      setToast(`清除失敗：${e?.message || "unknown"}`);
+    } catch (e: unknown) {
+      setToast(`清除失敗：${getErrorMessage(e, "unknown")}`);
     } finally {
       setPurgeBusy(false);
       setPurgeHint("");
@@ -748,17 +561,6 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
 
     return () => clearInterval(timer);
   }, [isAdmin, user?.email, retentionCfg.autoPurgeEnabled, retentionCfg.autoPurgeTime, retentionCfg.lastAutoPurgeAt, doPurgeByRetention, saveRetention]);
-
-  // ───────── 工具：舊 Firestore region 中文 → 英文 key ─────────
-  function normalizeRegionKey(raw: string | undefined): "north" | "central" | "south" {
-    if (raw === "north" || raw === "central" || raw === "south") return raw;
-    if (raw === "北區") return "north";
-    if (raw === "中區") return "central";
-    return "south";
-  }
-
-  // ───────── 工具：UPH → 容量等級自動換算（呼叫外部 static 版本）─────────
-  const calcCapacityLevel = calcCapacityLevelStatic;
 
   // ───────── Owner / 工程師顯示名稱：一律走短名規則─────────
   const ownerList = useMemo(() => {
@@ -811,65 +613,15 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
   }, [customerRegionMap]);
 
   const filteredInstallations = useMemo(() => {
-    const k = deferredKeyword.trim().toLowerCase();
-    const rows = installations.filter((r) => {
-      if (fRegion && r.region !== fRegion) return false;
-      if (fModel && r.modelCode !== fModel) return false;
-      if (fPhase && r.phase !== fPhase) return false;
-      if (fCustomer && r.customer !== fCustomer) return false;
-      if (fEngineer && toDisplayShortName(r.engineer) !== fEngineer) return false;
-      if (k) {
-        const blob = [
-          r.name,
-          r.customer,
-          toDisplayShortName(r.engineer),
-          r.notes,
-          r.custContact,
-          r.modelCode,
-          r.phase
-        ]
-          .filter(Boolean)
-          .join(" ")
-          .toLowerCase();
-        if (!blob.includes(k)) return false;
-      }
-      return true;
-    });
-
-    const phaseOrder = new Map(PHASES.map((p, index) => [p.key, index] as const));
-    const direction = installSortDir === "asc" ? 1 : -1;
-
-    return [...rows].sort((a, b) => {
-      let result = 0;
-      switch (installSortKey) {
-        case "name":
-          result = compareText(a.name, b.name);
-          break;
-        case "customer":
-          result = compareText(a.customer, b.customer);
-          break;
-        case "engineer":
-          result = compareText(toDisplayShortName(a.engineer), toDisplayShortName(b.engineer));
-          break;
-        case "phase":
-          result = (phaseOrder.get(a.phase) ?? 999) - (phaseOrder.get(b.phase) ?? 999);
-          break;
-        case "estComplete":
-          result = compareYmd(a.estComplete, b.estComplete);
-          break;
-        case "updatedAt":
-        default:
-          result = compareTimestamp(a.updatedAt, b.updatedAt);
-          break;
-      }
-
-      if (result === 0) {
-        result = compareTimestamp(a.updatedAt, b.updatedAt);
-      }
-      if (result === 0) {
-        result = compareText(a.name, b.name);
-      }
-      return result * direction;
+    return filterAndSortInstallations(installations, {
+      region: fRegion,
+      model: fModel,
+      phase: fPhase,
+      customer: fCustomer,
+      engineer: fEngineer,
+      keyword: deferredKeyword,
+      sortKey: installSortKey,
+      sortDir: installSortDir,
     });
   }, [installations, fRegion, fModel, fPhase, fCustomer, fEngineer, deferredKeyword, installSortDir, installSortKey]);
 
@@ -881,67 +633,13 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
   const installStats = useMemo(() => calcInstallStats(filteredInstallations, today), [filteredInstallations, today]);
 
   const filteredEquipments = useMemo(() => {
-    const k = deferredEquipmentKeyword.trim().toLowerCase();
-    const rows = equipments.filter((r) => {
-      if (eRegion && r.region !== eRegion) return false;
-      if (eStatus && r.statusMain !== eStatus) return false;
-      if (eCap && r.capacity.level !== eCap) return false;
-      if (k) {
-        const blob = [
-          r.equipmentId,
-          r.customer,
-          r.site,
-          r.modelCode,
-          // 相容舊欄位：早期資料可能用 name 當作機台序號
-          (r as any).serialNo || (r as any).name,
-          r.statusMain,
-          r.statusSub,
-          r.owner,
-          r.blocking?.reasonCode,
-          r.blocking?.detail
-        ]
-          .filter(Boolean)
-          .join(" ")
-          .toLowerCase();
-        if (!blob.includes(k)) return false;
-      }
-      return true;
-    });
-
-    const statusOrder = new Map(EQUIPMENT_MAIN_STATUSES.map((status, index) => [status, index] as const));
-    const direction = equipSortDir === "asc" ? 1 : -1;
-
-    return [...rows].sort((a, b) => {
-      let result = 0;
-      switch (equipSortKey) {
-        case "customer":
-          result = compareText(a.customer, b.customer);
-          break;
-        case "owner":
-          result = compareText(toDisplayShortName(a.owner), toDisplayShortName(b.owner));
-          break;
-        case "serialNo":
-          result = compareText((a as any).serialNo || (a as any).name, (b as any).serialNo || (b as any).name);
-          break;
-        case "statusMain":
-          result = (statusOrder.get(a.statusMain) ?? 999) - (statusOrder.get(b.statusMain) ?? 999);
-          break;
-        case "utilization":
-          result = getLiveUtilization(a.capacity) - getLiveUtilization(b.capacity);
-          break;
-        case "updatedAt":
-        default:
-          result = compareTimestamp(a.updatedAt, b.updatedAt);
-          break;
-      }
-
-      if (result === 0) {
-        result = compareTimestamp(a.updatedAt, b.updatedAt);
-      }
-      if (result === 0) {
-        result = compareText(a.equipmentId, b.equipmentId);
-      }
-      return result * direction;
+    return filterAndSortEquipments(equipments, {
+      region: eRegion,
+      status: eStatus,
+      capacity: eCap,
+      keyword: deferredEquipmentKeyword,
+      sortKey: equipSortKey,
+      sortDir: equipSortDir,
     });
   }, [equipments, eRegion, eStatus, eCap, deferredEquipmentKeyword, equipSortDir, equipSortKey]);
 
@@ -952,171 +650,204 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
 
   const equipStats = useMemo(() => calcEquipmentStats(filteredEquipments), [filteredEquipments]);
 
+  const bulkInstallTargetRows = useMemo(
+    () => filteredInstallations.filter((row) => row.phase !== "released"),
+    [filteredInstallations],
+  );
+  const bulkInstallTargetCount = bulkInstallTargetRows.length;
+  const hasBulkInstallPatch = Boolean(bulkInstallOwner.trim() || bulkInstallEta.trim() || bulkInstallAction.trim());
+  const installCsvDisabled = installLoading || Boolean(installErr) || filteredInstallations.length === 0;
+  const equipmentCsvDisabled = equipLoading || Boolean(equipErr) || filteredEquipments.length === 0;
+  const insightsReportDisabled = installLoading || Boolean(installErr) || filteredInstallations.length === 0;
+  const bulkInstallDisabled = bulkInstallBusy || installLoading || Boolean(installErr) || bulkInstallTargetCount === 0 || !hasBulkInstallPatch;
+  const installCsvTitle = installLoading
+    ? "裝機資料同步完成後可匯出"
+    : installErr
+      ? "裝機資料讀取失敗，暫無法匯出"
+      : filteredInstallations.length === 0
+        ? "目前篩選沒有可匯出的裝機案"
+        : `匯出目前篩選 ${filteredInstallations.length} 筆裝機案`;
+  const equipmentCsvTitle = equipLoading
+    ? "設備資料同步完成後可匯出"
+    : equipErr
+      ? "設備資料讀取失敗，暫無法匯出"
+      : filteredEquipments.length === 0
+        ? "目前篩選沒有可匯出的設備"
+        : `匯出目前篩選 ${filteredEquipments.length} 台設備`;
+  const insightsReportTitle = installLoading
+    ? "分析資料同步完成後可下載"
+    : installErr
+      ? "分析資料讀取失敗，暫無法下載"
+      : filteredInstallations.length === 0
+        ? "目前沒有可產生報告的裝機案"
+        : "下載目前分析報告";
+  const bulkInstallTitle = bulkInstallBusy
+    ? "批次更新中"
+    : installLoading
+      ? "裝機資料同步完成後可批次更新"
+      : installErr
+        ? "裝機資料讀取失敗，暫無法批次更新"
+        : bulkInstallTargetCount === 0
+          ? "目前篩選沒有可批次更新的進行中裝機案"
+          : !hasBulkInstallPatch
+            ? "請先填寫 Owner、ETA 或下一步"
+            : `套用至目前篩選 ${bulkInstallTargetCount} 筆進行中裝機案`;
+
+  const governanceReport = useMemo(
+    () => buildDashboardGovernanceReport(filteredInstallations, equipments),
+    [filteredInstallations, equipments],
+  );
+
   // ───────── Analytics ─────────
-  const anPhase = useMemo(() => {
-    const total = filteredInstallations.length;
-    const by: Record<string, number> = {};
-    for (const p of PHASES) by[p.key] = 0;
-    for (const r of filteredInstallations) by[r.phase] = (by[r.phase] ?? 0) + 1;
-    return { total, by };
-  }, [filteredInstallations]);
+  const analytics = useMemo(
+    () => buildDashboardAnalytics({
+      installations: filteredInstallations,
+      equipments,
+      engineers,
+    }),
+    [filteredInstallations, equipments, engineers],
+  );
+  const anPhase = analytics.phase;
+  const anRegion = analytics.region;
+  const anEngineer = analytics.engineer;
+  const anDue = analytics.due;
+  const cycleTime = analytics.cycleTime;
+  const phaseAging = analytics.phaseAging;
+  const customerHealth = analytics.customerHealth;
+  const modelHealth = analytics.modelHealth;
+  const regionProductStats = analytics.regionProductStats;
 
-  const anRegion = useMemo(() => {
-    return (Object.entries(REGIONS) as any).map(([k, v]: [RegionKey, any]) => {
-      const rows = filteredInstallations.filter((r) => r.region === k);
-      const avg = rows.length ? Math.round(rows.reduce((a, r) => a + (r.progress ?? 0), 0) / rows.length) : 0;
-      return { key: k, label: v.label, color: v.color, total: rows.length, avg, rows: rows.slice(0, 10) };
-    });
-  }, [filteredInstallations]);
+  const insightsFilterSummary = useMemo(() => {
+    const parts = [
+      fRegion ? `區域=${regionLabel(fRegion)}` : "",
+      fCustomer ? `客戶=${fCustomer}` : "",
+      fModel ? `機型=${fModel}` : "",
+      fPhase ? `階段=${PHASE_MAP[fPhase]?.label ?? fPhase}` : "",
+      fEngineer ? `工程師=${fEngineer}` : "",
+      deferredKeyword ? `關鍵字=${deferredKeyword}` : "",
+    ].filter(Boolean);
+    return parts.join(" / ");
+  }, [deferredKeyword, fCustomer, fEngineer, fModel, fPhase, fRegion]);
 
-  const anEngineer = useMemo(() => {
-    const total = filteredInstallations.length || 1;
-    return engineers.map((name) => {
-      const rows = filteredInstallations.filter((r) => toDisplayShortName(r.engineer) === name);
-      const active = rows.filter((r) => r.phase !== "released").length;
-      const pct = Math.round((rows.length / total) * 100);
-      return { name, total: rows.length, active, pct };
-    });
-  }, [filteredInstallations, engineers]);
+  const clearInstallFilters = useCallback(() => {
+    setFRegion("");
+    setFModel("");
+    setFPhase("");
+    setFCustomer("");
+    setFEngineer("");
+    setKeyword("");
+    setInstallSortKey("updatedAt");
+    setInstallSortDir("desc");
+  }, []);
 
-  const anDue = useMemo(() => {
-    return filteredInstallations
-      .filter((r) => r.phase !== "released" && r.estComplete)
-      .map((r) => ({
-        ...r,
-        dl: daysLeft(r.estComplete || "")
-      }))
-      .filter((r: any) => r.dl != null && r.dl < 14)
-      .sort((a: any, b: any) => (a.dl ?? 9999) - (b.dl ?? 9999));
-  }, [filteredInstallations]);
+  const clearEquipmentFilters = useCallback(() => {
+    setERegion("");
+    setEStatus("");
+    setECap("");
+    setEKeyword("");
+    setEquipSortKey("updatedAt");
+    setEquipSortDir("desc");
+  }, []);
 
-  // 地區產品產能摘要（全部設備，有填 products 者）
-  const regionProductStats = useMemo(() => {
-    type RegionEntry = { label: string; color: string; productMap: Record<string, number> };
-    const map: Record<string, RegionEntry> = {};
-    equipments
-      .filter((e) => (e.products ?? []).length > 0)
-      .forEach((e) => {
-        const rKey = (e.region as string) ?? "north";
-        const reg = (REGIONS as any)[rKey] ?? { label: rKey, color: "#3b82f6" };
-        if (!map[rKey]) map[rKey] = { label: reg.label, color: reg.color, productMap: {} };
-        (e.products ?? []).forEach((p) => {
-          if (p.name.trim()) {
-            map[rKey].productMap[p.name] = (map[rKey].productMap[p.name] ?? 0) + p.dailyCap;
-          }
-        });
-      });
-    return Object.entries(map).map(([key, val]) => ({
-      key,
-      label: val.label,
-      color: val.color,
-      products: Object.entries(val.productMap)
-        .map(([name, cap]) => ({ name, cap }))
-        .sort((a, b) => b.cap - a.cap),
-    }));
-  }, [equipments]);
+  const installActiveFilters = useMemo<ActiveFilterChip[]>(() => {
+    const chips: ActiveFilterChip[] = [];
+    if (fRegion) chips.push({ id: "region", label: "區域", value: regionLabel(fRegion), onClear: () => setFRegion("") });
+    if (fPhase) chips.push({ id: "phase", label: "階段", value: PHASE_MAP[fPhase]?.label ?? fPhase, onClear: () => setFPhase("") });
+    if (deferredKeyword) chips.push({ id: "keyword", label: "關鍵字", value: deferredKeyword, onClear: () => setKeyword("") });
+    if (fModel) {
+      const modelLabel = machineModels.find((model) => model.code === fModel)?.displayName ?? fModel;
+      chips.push({ id: "model", label: "機型", value: modelLabel, onClear: () => setFModel("") });
+    }
+    if (fCustomer) chips.push({ id: "customer", label: "客戶", value: fCustomer, onClear: () => setFCustomer("") });
+    if (fEngineer) chips.push({ id: "engineer", label: "工程師", value: fEngineer, onClear: () => setFEngineer("") });
+    return chips;
+  }, [deferredKeyword, fCustomer, fEngineer, fModel, fPhase, fRegion, machineModels]);
+  const saveFilterNameTrimmed = saveFilterName.trim();
+  const hasSavableInstallFilter = installActiveFilters.length > 0;
+  const saveFilterDisabled = !saveFilterNameTrimmed || !hasSavableInstallFilter;
+  const saveFilterTitle = !hasSavableInstallFilter
+    ? "請先設定至少一個裝機篩選條件"
+    : !saveFilterNameTrimmed
+      ? "請輸入書籤名稱"
+      : "儲存目前裝機篩選";
 
-  const clearInstallErrors = () => {
-    setInstallErrors({});
-    setInstallErrorSummary([]);
-  };
-
-  const updateInstallField = (field: string, value: unknown) => {
-    setInstallForm((prev: any) => ({ ...prev, [field]: value }));
-    setInstallErrors((prev) => {
-      if (!prev[field]) return prev;
-      const next = { ...prev };
-      delete next[field];
-      return next;
-    });
-    setInstallErrorSummary([]);
-  };
+  const equipmentActiveFilters = useMemo<ActiveFilterChip[]>(() => {
+    const chips: ActiveFilterChip[] = [];
+    if (eRegion) chips.push({ id: "region", label: "區域", value: regionLabel(eRegion), onClear: () => setERegion("") });
+    if (eStatus) chips.push({ id: "status", label: "主狀態", value: eStatus, onClear: () => setEStatus("") });
+    if (eCap) chips.push({ id: "capacity", label: "容量", value: eCap, onClear: () => setECap("") });
+    if (deferredEquipmentKeyword) chips.push({ id: "keyword", label: "關鍵字", value: deferredEquipmentKeyword, onClear: () => setEKeyword("") });
+    return chips;
+  }, [deferredEquipmentKeyword, eCap, eRegion, eStatus]);
 
   const updateInstallCustomer = (value: string) => {
     const inferredRegion = resolveCustomerRegion(value);
-    setInstallForm((prev: any) => ({
-      ...prev,
-      customer: value,
-      ...(inferredRegion ? { region: inferredRegion } : {}),
-    }));
-    setInstallErrors((prev) => {
-      if (!prev.customer && !prev.region) return prev;
-      const next = { ...prev };
-      delete next.customer;
-      if (inferredRegion) delete next.region;
-      return next;
-    });
-    setInstallErrorSummary([]);
+    updateInstallCustomerDraft(value, inferredRegion);
   };
 
-  const updateInstallPhase = (phase: PhaseKey) => {
-    setInstallForm((prev: any) => ({
-      ...prev,
-      phase,
-      progress: getInstallationProgressByPhase(phase),
-    }));
-    setInstallErrors((prev) => {
-      if (!prev.phase) return prev;
-      const next = { ...prev };
-      delete next.phase;
-      return next;
-    });
-    setInstallErrorSummary([]);
+  const downloadInstallationsCsvReport = () => {
+    if (installCsvDisabled) return;
+    downloadInstallationsCsv(filteredInstallations);
   };
 
-  const focusInstallErrorField = (field: string) => {
-    const container = installFieldRefs.current[field];
-    if (!container) return;
-    container.scrollIntoView({ behavior: "smooth", block: "center" });
-    const target = container.querySelector("input, select, textarea, button") as HTMLElement | null;
-    target?.focus();
+  const downloadInsightsReport = () => {
+    if (insightsReportDisabled) return;
+    const markdown = buildInsightsMarkdownReport({
+      today,
+      appVersion,
+      filterSummary: insightsFilterSummary,
+      governance: governanceReport,
+      analytics,
+    });
+    downloadMarkdownFile(`install_insights_${today}.md`, markdown);
+    trackEvent("insights_markdown_download", {
+      appVersion,
+      score: governanceReport.score,
+      issues: governanceReport.totalIssues,
+      installs: filteredInstallations.length,
+      equipments: equipments.length,
+    });
+  };
+
+  const downloadEquipmentCsvReport = () => {
+    if (equipmentCsvDisabled) return;
+    downloadEquipmentsCsv(filteredEquipments);
+    trackEvent("equipment_csv_download", {
+      appVersion,
+      rows: filteredEquipments.length,
+      total: equipments.length,
+    });
   };
 
   // ───────── Actions: Installations ─────────
   const openAddInstall = () => {
     setInstallEditId(null);
-    const draft = getInstallationDefaultDraft(machineModels);
+    setInstallSubmitBusy(false);
     const inferredRegion = fCustomer ? resolveCustomerRegion(fCustomer) : null;
-    setInstallForm({
-      ...draft,
-      customer: fCustomer || "",
-      region: inferredRegion ?? (fRegion || draft.region),
-      modelCode: fModel || draft.modelCode,
-      phase: fPhase || draft.phase,
-      engineer: fEngineer || "",
-      progress: fPhase ? getInstallationProgressByPhase(fPhase) : draft.progress,
-    });
+    setInstallForm(buildNewInstallationDraft(machineModels, {
+      customer: fCustomer,
+      region: fRegion,
+      modelCode: fModel,
+      phase: fPhase,
+      engineer: fEngineer,
+      inferredRegion,
+    }));
     clearInstallErrors();
     setInstallModalOpen(true);
   };
 
-  const openEditInstall = (r: Installation) => {
+  const openEditInstall = useCallback((r: Installation) => {
     setInstallEditId(r.id);
-    setInstallForm(normalizeInstallationDraft({
-      name: getInstallSerial(r),
-      modelCode: r.modelCode ?? "",
-      region: r.region ?? "north",
-      customer: r.customer ?? "",
-      phase: r.phase ?? "ordered",
-      engineer: toDisplayShortName(r.engineer) || "",
-      custContact: r.custContact ?? "",
-      custPhone: r.custPhone ?? "",
-      orderDate: r.orderDate ?? "",
-      estArrival: normalizeDateYmd(r.estArrival),
-      actArrival: normalizeDateYmd(r.actArrival),
-      estComplete: normalizeDateYmd(r.estComplete),
-      actComplete: normalizeDateYmd(r.actComplete),
-      notes: r.notes ?? "",
-      progress: r.progress ?? 0,
-      checklist: r.checklist ?? {},
-    }, machineModels));
+    setInstallSubmitBusy(false);
+    setInstallForm(buildEditInstallationDraft(r, machineModels));
     clearInstallErrors();
     setInstallModalOpen(true);
-  };
+  }, [clearInstallErrors, machineModels, setInstallForm]);
 
 
   const submitInstall = async () => {
     if (!user?.email) return;
+    if (installSubmitBusy) return;
     const previousInstall = installEditId ? installations.find((row) => row.id === installEditId) ?? null : null;
     const normalized = normalizeInstallationForSave({
       ...installForm,
@@ -1124,25 +855,19 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
     }, machineModels);
     const parsed = installationSchema.safeParse(normalized);
     if (!parsed.success) {
-      const { fieldErrors, summary } = collectFieldErrors(parsed.error.issues ?? []);
-      setInstallErrors(fieldErrors);
-      setInstallErrorSummary(summary);
-      const firstField = Object.keys(fieldErrors)[0];
-      if (firstField) {
-        window.setTimeout(() => focusInstallErrorField(firstField), 0);
-      }
-      setToast(summary[0] ?? "表單驗證失敗");
+      setToast(showInstallValidationErrors(parsed.error.issues ?? []));
       return;
     }
     clearInstallErrors();
+    setInstallSubmitBusy(true);
     try {
       let createdInstallId: string | null = null;
       if (installEditId) {
-        await updateInstallation(installEditId, parsed.data as any);
+        await updateInstallation(installEditId, parsed.data);
         await writeAuditLog("更新", parsed.data.name, `更新裝機案：${parsed.data.phase}`, user.email);
         trackEvent("installation_update", { name: parsed.data.name, phase: parsed.data.phase });
       } else {
-        createdInstallId = await createInstallation(parsed.data as any);
+        createdInstallId = await createInstallation(parsed.data);
         await writeAuditLog("新增", parsed.data.name, `新增至${regionLabel(parsed.data.region)} — ${parsed.data.customer}`, user.email);
         trackEvent("installation_create", { name: parsed.data.name, phase: parsed.data.phase });
       }
@@ -1152,7 +877,7 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
 
       if (shouldTransferInstallationToEquipment(parsed.data)) {
         const transferResult = await transferReleasedInstallationToEquipment({
-          installation: parsed.data as Installation,
+          installation: { id: installEditId || createdInstallId || "", ...parsed.data },
           installationId: installEditId || createdInstallId,
           userEmail: user.email,
           trigger: didInstallationEnterReleased(previousInstall?.phase, parsed.data.phase) ? "transition" : "refresh",
@@ -1164,6 +889,8 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
       setInstallModalOpen(false);
     } catch (e) {
       setToast(`儲存失敗：${safeStr(e)}`);
+    } finally {
+      setInstallSubmitBusy(false);
     }
   };
 
@@ -1202,7 +929,7 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
       if (shouldTransferInstallationToEquipment(parsed.data)) {
         const label = getInstallTaskLabel(r);
         const transferResult = await transferReleasedInstallationToEquipment({
-          installation: parsed.data as Installation,
+          installation: { id: r.id, ...parsed.data },
           installationId: r.id,
           userEmail: user.email,
           trigger: didInstallationEnterReleased(r.phase, next.key) ? "transition" : "refresh",
@@ -1214,7 +941,7 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
       }
 
       const label = getInstallTaskLabel(r);
-      await updateInstallation(r.id, { phase: next.key, progress: getInstallationProgressByPhase(next.key) } as any);
+      await updateInstallation(r.id, { phase: next.key, progress: getInstallationProgressByPhase(next.key) });
       await writeAuditLog("推進", label, `${cur?.label ?? r.phase} → ${next.label}`, user.email);
       trackEvent("installation_advance", { name: label, from: r.phase, to: next.key });
       setToast("已推進階段");
@@ -1223,180 +950,120 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
     }
   };
 
+  const applyBulkInstallGovernance = async () => {
+    if (!isAdmin) return;
+    if (!user?.email) return;
+    if (bulkInstallBusy) return;
+
+    const owner = bulkInstallOwner.trim();
+    const eta = bulkInstallEta.trim();
+    const nextAction = bulkInstallAction.trim();
+    if (!owner && !eta && !nextAction) {
+      setToast("請至少填寫 Owner、ETA 或下一步動作");
+      return;
+    }
+
+    const targetRows = bulkInstallTargetRows;
+    if (targetRows.length === 0) {
+      setToast("目前篩選下沒有可批次更新的進行中裝機案");
+      return;
+    }
+
+    const ok = confirm(`將批次更新目前篩選下 ${targetRows.length} 筆進行中裝機案。是否繼續？`);
+    if (!ok) return;
+
+    setBulkInstallBusy(true);
+    try {
+      const count = await updateInstallationsBulk(targetRows.map((row) => row.id), {
+        ...(owner ? { engineer: owner, nextOwner: owner } : {}),
+        ...(eta ? { estComplete: eta, nextDueDate: eta } : {}),
+        ...(nextAction ? { nextAction } : {}),
+      });
+      await writeAuditLog("批次治理", "installations", `更新 ${count} 筆 owner/ETA/nextAction`, user.email);
+      trackEvent("installation_bulk_governance_update", { count, owner: Boolean(owner), eta: Boolean(eta), nextAction: Boolean(nextAction) });
+      setToast(`已批次更新 ${count} 筆裝機案`);
+      setBulkInstallOwner("");
+      setBulkInstallEta("");
+      setBulkInstallAction("");
+    } catch (e) {
+      setToast(`批次更新失敗：${getErrorMessage(e, "unknown")}`);
+    } finally {
+      setBulkInstallBusy(false);
+    }
+  };
+
   // ───────── Actions: Equipments ─────────
   const openAddEquip = () => {
     setEquipEditId(null);
-    setEquipForm({
-      equipmentId: "",
-      region: "north",
-      customer: "",
-      site: "",
-      modelCode: machineModels?.[0]?.code ?? "FlexTRAK-S",
-      serialNo: "",
-      statusMain: "裝機",
-      statusSub: defaultEquipSubStatus("裝機"),
-      owner: "",
-      milestones: {
-        installStart: "",
-        installDone: "",
-        trialStart: "",
-        trialPass: "",
-        prodStart: "",
-        reachTargetDate: ""
-      },
-      hasBlocking: false,
-      blocking: { reasonCode: "", detail: "", owner: "", eta: "" },
-      capacity: { utilization: 0, uph: "0", targetUph: "0", level: "綠", trend7dCsv: "" },
-      products: []
-    });
+    setEquipSubmitBusy(false);
+    setEquipErrorSummary([]);
+    setEquipErrors({});
+    setEquipForm(getEquipmentDefaultFormDraft(machineModels?.[0]?.code ?? "FlexTRAK-S"));
     setEquipModalOpen(true);
   };
 
   const openEditEquip = (r: Equipment) => {
     setEquipEditId(r.id);
-    setEquipForm({
-      equipmentId: r.equipmentId ?? "",
-      region: normalizeRegionKey(r.region),
-      customer: r.customer ?? "",
-      site: r.site ?? "",
-      modelCode: r.modelCode ?? "",
-      // 相容舊欄位：若 serialNo 空白但 name 有值，仍可直接編輯/儲存
-      serialNo: (r as any).serialNo ?? (r as any).name ?? "",
-      statusMain: r.statusMain ?? "裝機",
-      statusSub: r.statusSub ?? "",
-      owner: toDisplayShortName(r.owner) || "",
-      milestones: {
-        installStart: r.milestones?.installStart ?? "",
-        installDone: r.milestones?.installDone ?? "",
-        trialStart: r.milestones?.trialStart ?? "",
-        trialPass: r.milestones?.trialPass ?? "",
-        prodStart: r.milestones?.prodStart ?? "",
-        reachTargetDate: r.milestones?.reachTargetDate ?? ""
-      },
-      hasBlocking: !!r.blocking?.reasonCode,
-      blocking: {
-        reasonCode: r.blocking?.reasonCode ?? "",
-        detail: r.blocking?.detail ?? "",
-        owner: r.blocking?.owner ?? "",
-        eta: r.blocking?.eta ?? ""
-      },
-      capacity: (() => {
-        const snapshot = buildCapacitySnapshot(r.capacity);
-        return {
-          utilization: snapshot.utilization,
-          uph: String(snapshot.uph),       // 以 string 儲存，避免 React controlled number input "01.8" bug
-          targetUph: String(snapshot.targetUph),
-          level: calcCapacityLevel(snapshot.uph, snapshot.targetUph),   // 開啟時就重算，不沿用舊值
-          trend7dCsv: (r.capacity?.trend7d ?? []).join(",")
-        };
-      })(),
-      products: (r.products ?? []).map(p => ({ name: p.name, dailyCap: p.dailyCap }))
-    });
+    setEquipSubmitBusy(false);
+    setEquipErrorSummary([]);
+    setEquipErrors({});
+    setEquipForm(buildEquipmentFormDraftFromEquipment(r));
     setEquipModalOpen(true);
-  };
-
-  const parseTrend7d = (csv: string, fallback: number): number[] => {
-    const parts = csv
-      .split(",")
-      .map((s) => s.trim())
-      .filter(Boolean)
-      .map((s) => Number(s));
-    const vals = parts.filter((n) => Number.isFinite(n)).map((n) => clamp(n, 0, 100));
-    if (vals.length === 7) return vals;
-    // fallback: 以 utilization 做 7 天微波動
-    const base = clamp(fallback, 0, 100);
-    const out = Array.from({ length: 7 }, (_, i) => clamp(base + (i - 3) * 1.5, 0, 100));
-    return out.map((n) => Math.round(n));
   };
 
   const submitEquip = async () => {
     if (!user?.email) return;
+    if (equipSubmitBusy) return;
 
-    const payload = {
-      equipmentId: equipForm.equipmentId,
-      region: equipForm.region,
-      customer: equipForm.customer,
-      site: equipForm.site,
-      modelCode: equipForm.modelCode,
-      serialNo: equipForm.serialNo,
-      statusMain: equipForm.statusMain,
-      statusSub: equipForm.statusSub ?? "",
-      owner: toDisplayShortName(equipForm.owner),
-      milestones: equipForm.milestones,
-      blocking: equipForm.hasBlocking
-        ? {
-            reasonCode: equipForm.blocking.reasonCode,
-            detail: equipForm.blocking.detail,
-            owner: equipForm.blocking.owner,
-            eta: equipForm.blocking.eta || undefined
-          }
-        : undefined,
-      capacity: (() => {
-        const uph = Number(equipForm.capacity.uph);
-        const targetUph = Number(equipForm.capacity.targetUph);
-        const utilization = calculateUtilization(uph, targetUph);
-        return {
-          utilization,
-          uph,
-          targetUph,
-          level: calcCapacityLevel(uph, targetUph),
-          trend7d: parseTrend7d(equipForm.capacity.trend7dCsv ?? "", utilization)
-        };
-      })(),
-      products: (equipForm.products ?? [])
-        .filter((p: { name: string; dailyCap: number | string }) => p.name.trim())
-        .map((p: { name: string; dailyCap: number | string }) => ({ name: p.name.trim(), dailyCap: Number(p.dailyCap) || 0 }))
-    };
-
+    const payload = buildEquipmentPayloadFromDraft(equipForm);
     const parsed = equipmentSchema.safeParse(payload);
     if (!parsed.success) {
-      setToast(parsed.error.issues?.[0]?.message ?? "表單驗證失敗");
+      const summary = formatEquipmentValidationIssues(parsed.error.issues ?? []);
+      setEquipErrorSummary(summary);
+      setEquipErrors(buildEquipmentFieldErrors(parsed.error.issues ?? []));
+      setToast(summary[0] ?? "表單驗證失敗");
       return;
     }
 
-    // ── Firestore 安全 payload：所有欄位明確指定，無 undefined ──────────────
-    const safeMilestones = {
-      installStart:    parsed.data.milestones?.installStart    ?? "",
-      installDone:     parsed.data.milestones?.installDone     ?? "",
-      trialStart:      parsed.data.milestones?.trialStart      ?? "",
-      trialPass:       parsed.data.milestones?.trialPass       ?? "",
-      prodStart:       parsed.data.milestones?.prodStart       ?? "",
-      reachTargetDate: parsed.data.milestones?.reachTargetDate ?? "",
-    };
-    const safeBlocking = parsed.data.blocking
-      ? {
-          reasonCode: parsed.data.blocking.reasonCode ?? "",
-          detail:     parsed.data.blocking.detail     ?? "",
-          owner:      parsed.data.blocking.owner      ?? "",
-          eta:        parsed.data.blocking.eta        ?? "",
-        }
-      : null; // null = delete from Firestore on update
+    setEquipErrorSummary([]);
+    setEquipErrors({});
+    const safeMilestones = buildSafeEquipmentMilestones(parsed.data.milestones);
+    const safeBlocking = buildSafeEquipmentBlocking(parsed.data.blocking);
+    const previousEquipment = equipEditId ? equipments.find((row) => row.id === equipEditId) : undefined;
+    const lifecycleBlocking = mergeEquipmentBlockingLifecycle(previousEquipment?.blocking, safeBlocking);
+    const equipmentData = { ...parsed.data };
+    delete equipmentData.blocking;
 
+    setEquipSubmitBusy(true);
     try {
       if (equipEditId) {
-        const patch: Record<string, any> = {
-          ...parsed.data,
+        const patch: EquipmentUpdatePatch = {
+          ...equipmentData,
           milestones: safeMilestones,
-          blocking: safeBlocking ?? deleteField(), // deleteField() removes the field when no blocking
+          blocking: lifecycleBlocking ?? deleteField(), // deleteField() removes the field when no blocking
         };
-        await updateEquipment(equipEditId, patch as any);
+        await updateEquipment(equipEditId, patch);
         await writeAuditLog("更新", parsed.data.equipmentId, `更新設備狀態：${parsed.data.statusMain}`, user.email);
         trackEvent("equipment_update", { equipmentId: parsed.data.equipmentId, statusMain: parsed.data.statusMain });
         setToast("已更新");
       } else {
-        const createData: Record<string, any> = {
-          ...parsed.data,
+        const createData: Omit<Equipment, "id"> = {
+          ...equipmentData,
           milestones: safeMilestones,
-          ...(safeBlocking ? { blocking: safeBlocking } : {}),
+          ...(lifecycleBlocking ? { blocking: lifecycleBlocking } : {}),
         };
-        await createEquipment(createData as any);
+        await createEquipment(createData);
         await writeAuditLog("新增", parsed.data.equipmentId, `新增設備：${parsed.data.customer} — ${parsed.data.modelCode}`, user.email);
         trackEvent("equipment_create", { equipmentId: parsed.data.equipmentId, statusMain: parsed.data.statusMain });
         setToast("已新增");
       }
       setEquipModalOpen(false);
+      setEquipErrorSummary([]);
+      setEquipErrors({});
     } catch (e) {
       setToast(`儲存失敗：${safeStr(e)}`);
+    } finally {
+      setEquipSubmitBusy(false);
     }
   };
 
@@ -1413,17 +1080,17 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
     }
   };
 
-  const openDrawer = (r: Equipment) => {
+  const openDrawer = useCallback((r: Equipment) => {
     setDrawerEq(r);
     setDrawerOpen(true);
-  };
+  }, []);
 
   // ───────── Saved Filter callbacks ─────────
   const saveCurrentFilter = useCallback(() => {
-    const name = saveFilterName.trim();
+    if (saveFilterDisabled) return;
+    const name = saveFilterNameTrimmed;
     if (!name) return;
-    const filter: SavedFilter = {
-      id: Date.now().toString(36),
+    addSavedFilter({
       name,
       region: fRegion,
       model: fModel,
@@ -1431,29 +1098,28 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
       customer: fCustomer,
       engineer: fEngineer,
       keyword,
-      savedAt: Date.now(),
-    };
-    const next = [...savedFilters, filter];
-    setSavedFilters(next);
-    persistSavedFilters(next);
+    });
     setSaveFilterName("");
     setShowSaveFilterInput(false);
-  }, [saveFilterName, fRegion, fModel, fPhase, fCustomer, fEngineer, keyword, savedFilters]);
+    setToast(`已儲存書籤：${name}`);
+  }, [addSavedFilter, saveFilterDisabled, saveFilterNameTrimmed, fRegion, fModel, fPhase, fCustomer, fEngineer, keyword]);
 
   const applyFilter = useCallback((f: SavedFilter) => {
-    setFRegion(f.region as any);
+    setFRegion(f.region);
     setFModel(f.model);
-    setFPhase(f.phase as any);
+    setFPhase(f.phase);
     setFCustomer(f.customer);
     setFEngineer(f.engineer);
     setKeyword(f.keyword);
+    setToast(`已套用書籤：${f.name}`);
   }, []);
 
-  const deleteSavedFilter = useCallback((id: string) => {
-    const next = savedFilters.filter((f) => f.id !== id);
-    setSavedFilters(next);
-    persistSavedFilters(next);
-  }, [savedFilters]);
+  const deleteSavedFilterWithConfirm = useCallback((f: SavedFilter) => {
+    const ok = confirm(`刪除書籤「${f.name}」？`);
+    if (!ok) return;
+    deleteSavedFilter(f.id);
+    setToast(`已刪除書籤：${f.name}`);
+  }, [deleteSavedFilter]);
 
   const switchInstallView = useCallback((view: InstallView) => {
     setInstallView(view);
@@ -1485,173 +1151,45 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
     setEquipSortDir(key === "updatedAt" ? "desc" : "asc");
   }, [equipSortKey]);
 
-  const installActionQueue = filteredInstallations
-    .map((r): (MissionQueueItem & { priority: number }) | null => {
-      if (r.phase === "released") return null;
-      const phaseLabel = PHASE_MAP[r.phase]?.label ?? r.phase;
-      const owner = toDisplayShortName(r.engineer) || "未指派";
-      const meta = `${r.customer} · ${phaseLabel} · ${owner}`;
-      const serial = getInstallSerial(r);
-
-      if (doesInstallationPhaseRequireSerial(r.phase) && !serial) {
-        return {
-          id: `install-serial-${r.id}`,
-          label: getInstallTaskLabel(r),
-          meta,
-          value: "缺序號",
-          tone: "critical",
-          priority: 0,
-          onClick: () => openEditInstall(r),
-        };
-      }
-
-      if (!toDisplayShortName(r.engineer) && doesInstallationPhaseRequireEngineer(r.phase)) {
-        return {
-          id: `install-owner-${r.id}`,
-          label: getInstallTaskLabel(r),
-          meta,
-          value: "未指派",
-          tone: "warning",
-          priority: 10,
-          onClick: () => openEditInstall(r),
-        };
-      }
-
-      if (!r.estComplete && r.phase !== "ordered") {
-        return {
-          id: `install-date-${r.id}`,
-          label: getInstallTaskLabel(r),
-          meta,
-          value: "缺預計日",
-          tone: "warning",
-          priority: 20,
-          onClick: () => openEditInstall(r),
-        };
-      }
-
-      const staleDays = daysSinceTimestamp(r.updatedAt);
-      if (staleDays >= 7) {
-        return {
-          id: `install-stale-${r.id}`,
-          label: getInstallTaskLabel(r),
-          meta,
-          value: `${staleDays} 天未更新`,
-          tone: "info",
-          priority: 30 + staleDays,
-          onClick: () => openEditInstall(r),
-        };
-      }
-
-      return null;
-    })
-    .filter((item): item is MissionQueueItem & { priority: number } => Boolean(item))
-    .sort((a, b) => a.priority - b.priority)
-    .slice(0, 5)
-    .map(({ priority: _priority, ...item }) => item);
-
-  const equipmentActionQueue = filteredEquipments
-    .map((r): (MissionQueueItem & { priority: number }) | null => {
-      const utilization = getLiveUtilization(r.capacity);
-      const liveLevel = calcCapacityLevel(r.capacity.uph, r.capacity.targetUph);
-      const serial = (r as any).serialNo || (r as any).name || r.equipmentId || r.id;
-      const meta = `${r.customer} · ${regionLabel(r.region)} · ${toDisplayShortName(r.owner) || "未指派"}`;
-
-      if (r.blocking?.reasonCode) {
-        return {
-          id: `equipment-blocked-${r.id}`,
-          label: serial,
-          meta: `${meta} · ${r.blocking.reasonCode}`,
-          value: "阻塞",
-          tone: "critical",
-          priority: 0,
-          onClick: () => openDrawer(r),
-        };
-      }
-
-      if (liveLevel === "紅") {
-        return {
-          id: `equipment-capacity-${r.id}`,
-          label: serial,
-          meta,
-          value: `紅燈 ${utilization}%`,
-          tone: "warning",
-          priority: 10 + (100 - utilization),
-          onClick: () => openDrawer(r),
-        };
-      }
-
-      if (utilization >= 80) {
-        return {
-          id: `equipment-util-${r.id}`,
-          label: serial,
-          meta,
-          value: `高稼動 ${utilization}%`,
-          tone: "info",
-          priority: 30 + (100 - utilization),
-          onClick: () => openDrawer(r),
-        };
-      }
-
-      return null;
-    })
-    .filter((item): item is MissionQueueItem & { priority: number } => Boolean(item))
-    .sort((a, b) => a.priority - b.priority)
-    .slice(0, 5)
-    .map(({ priority: _priority, ...item }) => item);
-
-  // ───────── Render helpers ─────────
-  const installCard = (r: Installation) => {
-    const phase = PHASE_MAP[r.phase];
-    const overdue = isOverdueInstall(r, today);
-    return (
-      <article key={r.id} className="card installCaseCard">
-        <div className="installCaseGlow" aria-hidden style={{ background: `${phase.color}24` }} />
-        <div className="installCaseHead">
-          <div>
-            <div className="installCaseTitle mono">{getInstallSerial(r)}</div>
-            <div className="installCaseMeta">
-              {regionLabel(r.region)} · {r.customer}
-            </div>
-          </div>
-          <div className="installCaseTags">
-            <Badge text={r.modelCode} color="#3b82f6" subtle />
-            <Badge text={`${phase.icon} ${phase.label}`} color={phase.color} subtle />
-            {overdue ? <Badge text="逾期" color="#ef4444" /> : null}
-          </div>
-        </div>
-
-        <div className="installCaseProgress">
-          <div className="installCaseProgressTop">
-            <span>工程師：{toDisplayShortName(r.engineer) || "-"}</span>
-            <span className="mono">{r.progress ?? 0}%</span>
-          </div>
-          <div className="progressOuter">
-            <div className="progressInner" style={{ width: `${clamp(r.progress ?? 0, 0, 100)}%` }} />
-          </div>
-        </div>
-
-        <div className="installCaseFoot">
-          <div className="installCaseDue">
-            {r.estComplete ? `預計 ${r.estComplete}` : "未設定安裝日"}
-          </div>
-        </div>
-
-        <div className="installCaseActions">
-          <button className="btn btnSmall" onClick={() => advanceInstall(r)}>推進</button>
-          <button className="btn btnSmall" onClick={() => openEditInstall(r)}>編輯</button>
-          <button className="btn btnSmall btnDanger" onClick={() => delInstall(r)}>刪除</button>
-        </div>
-      </article>
-    );
-  };
+  const installRowsById = useMemo(() => new Map(filteredInstallations.map((row) => [row.id, row])), [filteredInstallations]);
+  const equipmentRowsById = useMemo(() => new Map(filteredEquipments.map((row) => [row.id, row])), [filteredEquipments]);
+  const installActionQueue: MissionQueueItem[] = useMemo(
+    () => buildInstallActionQueue(filteredInstallations).map(({ targetId, priority: _priority, ...item }) => ({
+      ...item,
+      onClick: () => {
+        const row = installRowsById.get(targetId);
+        if (row) openEditInstall(row);
+      },
+    })),
+    [filteredInstallations, installRowsById, openEditInstall],
+  );
+  const equipmentActionQueue: MissionQueueItem[] = useMemo(
+    () => buildEquipmentActionQueue(filteredEquipments, regionLabel).map(({ targetId, priority: _priority, ...item }) => ({
+      ...item,
+      onClick: () => {
+        const row = equipmentRowsById.get(targetId);
+        if (row) openDrawer(row);
+      },
+    })),
+    [filteredEquipments, equipmentRowsById, openDrawer],
+  );
 
   const equipSubStatusOptions = EQUIPMENT_SUB_STATUS_OPTIONS[(equipForm.statusMain as EquipmentMainStatus) || "裝機"] ?? [];
 
   return (
       <div className="container dashboardShell auroraDashboardShell" style={{ paddingTop: 14, paddingBottom: 24 }}>
         {toast ? (
-          <div className="card toastBanner" style={{ padding: 10, marginBottom: 12 }}>
-            <div style={{ fontSize: 13 }}>{toast}</div>
+          <div className="card toastBanner" role="status" aria-live="polite">
+            <div className="toastBannerText">{toast}</div>
+            <button
+              type="button"
+              className="toastBannerClose"
+              onClick={() => setToast("")}
+              aria-label="關閉提示"
+              title="關閉提示"
+            >
+              ×
+            </button>
           </div>
         ) : null}
 
@@ -1662,7 +1200,7 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
               title="裝機資料品質"
               subtitle={`${installActionQueue.length} 筆需補資料`}
               items={installActionQueue}
-              emptyText="目前沒有缺序號、缺工程師、缺預計日或久未更新的裝機案。"
+              emptyText="目前沒有缺序號、缺工程師、缺預計日、SLA 警戒或久未更新的裝機案。"
             />
 
             <div className="card auroraControlPanel" style={{ padding: 14, marginTop: 12 }}>
@@ -1674,7 +1212,7 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
                     <button className={installView === "pipeline" ? "segTab segTabActive" : "segTab"} onClick={() => switchInstallView("pipeline")}>Pipeline</button>
                     <button className={installView === "gantt" ? "segTab segTabActive" : "segTab"} onClick={() => switchInstallView("gantt")}>甘特圖</button>
                   </div>
-                  <button className="btn btnSmall" onClick={() => exportInstallationsCSV(filteredInstallations)}>匯出 CSV</button>
+                  <button className="btn btnSmall" onClick={downloadInstallationsCsvReport} disabled={installCsvDisabled} title={installCsvTitle}>匯出 CSV</button>
                   <button className="btn btnSmall" onClick={() => setSmartImportOpen(true)}>⬆ Excel 智慧匯入</button>
                   <button className="btn btnAccent" onClick={openAddInstall}>新增裝機案</button>
                 </div>
@@ -1687,7 +1225,7 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
                 </div>
                 <div className="field">
                   <div className="label">階段</div>
-                  <select value={fPhase} onChange={(e) => setFPhase(e.target.value as any)}>
+                  <select value={fPhase} onChange={(e) => setFPhase(parsePhaseFilter(e.target.value))}>
                     <option value="">全部</option>
                     {PHASES.map((p) => <option key={p.key} value={p.key}>{p.icon} {p.label}</option>)}
                   </select>
@@ -1722,7 +1260,7 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
                 </button>
 
                 {(fRegion || fModel || fPhase || fCustomer || fEngineer || keyword) ? (
-                  <button className="btn" onClick={() => { setFRegion(""); setFModel(""); setFPhase(""); setFCustomer(""); setFEngineer(""); setKeyword(""); setInstallSortKey("updatedAt"); setInstallSortDir("desc"); }}>
+                  <button className="btn" onClick={clearInstallFilters}>
                     清除
                   </button>
                 ) : null}
@@ -1732,13 +1270,20 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
                 </div>
               </div>
 
+              <ActiveFilterSummary
+                filters={installActiveFilters}
+                visibleCount={filteredInstallations.length}
+                totalCount={installations.length}
+                onClearAll={clearInstallFilters}
+              />
+
               {showInstallAdvancedFilters ? (
                 <div className="filters" style={{ marginTop: 10 }}>
                   <div className="field">
                     <div className="label">機型</div>
                     <select value={fModel} onChange={(e) => setFModel(e.target.value)}>
                       <option value="">全部</option>
-                      {machineModels.map((m: any) => <option key={m.code} value={m.code}>{m.displayName}</option>)}
+                      {machineModels.map((m: MachineModel) => <option key={m.code} value={m.code}>{m.displayName}</option>)}
                     </select>
                   </div>
                   <div className="field">
@@ -1758,6 +1303,36 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
                 </div>
               ) : null}
 
+              {isAdmin ? (
+                <div className="filters" style={{ marginTop: 10, borderTop: "1px solid var(--border)", paddingTop: 10 }}>
+                  <div className="field" style={{ minWidth: 170 }}>
+                    <div className="label">批次 Owner</div>
+                    <select value={bulkInstallOwner} onChange={(e) => setBulkInstallOwner(e.target.value)} disabled={bulkInstallBusy}>
+                      <option value="">不變更</option>
+                      {engineers.map((name) => (
+                        <option key={name} value={name}>{name}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="field" style={{ minWidth: 170 }}>
+                    <div className="label">批次 ETA</div>
+                    <DateInput value={bulkInstallEta} onChange={setBulkInstallEta} disabled={bulkInstallBusy} />
+                  </div>
+                  <div className="field" style={{ flex: "1 1 260px" }}>
+                    <div className="label">批次下一步</div>
+                    <input
+                      value={bulkInstallAction}
+                      onChange={(e) => setBulkInstallAction(e.target.value)}
+                      disabled={bulkInstallBusy}
+                      placeholder="例如：補齊客戶驗收時程"
+                    />
+                  </div>
+                  <button className="btn btnSmall" disabled={bulkInstallDisabled} onClick={applyBulkInstallGovernance} title={bulkInstallTitle}>
+                    {bulkInstallBusy ? "更新中..." : `套用至目前篩選 ${bulkInstallTargetCount} 筆`}
+                  </button>
+                </div>
+              ) : null}
+
               {/* Saved Filters */}
               {savedFilters.length > 0 || showSaveFilterInput ? (
                 <div style={{ marginTop: 10, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
@@ -1765,7 +1340,7 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
                   {savedFilters.map((f) => (
                     <div key={f.id} style={{ display: "inline-flex", alignItems: "center", gap: 2 }}>
                       <button className="btn btnSmall" style={{ paddingLeft: 8, paddingRight: 8, fontSize: 11 }} onClick={() => applyFilter(f)} title={f.savedAt ? new Date(f.savedAt).toLocaleString("zh-TW") : ""}>{f.name}</button>
-                      <button style={{ background: "none", border: "none", cursor: "pointer", color: "#94a3b8", padding: "0 2px", lineHeight: 1, fontSize: 14 }} onClick={() => deleteSavedFilter(f.id)} title="刪除此書籤">×</button>
+                      <button style={{ background: "none", border: "none", cursor: "pointer", color: "#94a3b8", padding: "0 2px", lineHeight: 1, fontSize: 14 }} onClick={() => deleteSavedFilterWithConfirm(f)} title={`刪除書籤：${f.name}`}>×</button>
                     </div>
                   ))}
                 </div>
@@ -1773,22 +1348,29 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
 
               {showSaveFilterInput ? (
                 <div style={{ marginTop: 8, display: "flex", gap: 8, alignItems: "center" }}>
-                  <input style={{ flex: 1, maxWidth: 240 }} value={saveFilterName} onChange={(e) => setSaveFilterName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && saveCurrentFilter()} placeholder="書籤名稱..." autoFocus />
-                  <button className="btn btnSmall btnAccent" onClick={saveCurrentFilter}>儲存</button>
+                  <input style={{ flex: 1, maxWidth: 240 }} value={saveFilterName} onChange={(e) => setSaveFilterName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && !saveFilterDisabled && saveCurrentFilter()} placeholder="書籤名稱..." autoFocus />
+                  <button className="btn btnSmall btnAccent" onClick={saveCurrentFilter} disabled={saveFilterDisabled} title={saveFilterTitle}>儲存</button>
                   <button className="btn btnSmall btnGhost" onClick={() => { setShowSaveFilterInput(false); setSaveFilterName(""); }}>取消</button>
                 </div>
               ) : (
                 <div style={{ marginTop: 6 }}>
-                  <button className="btn btnSmall btnGhost" style={{ fontSize: 11 }} onClick={() => setShowSaveFilterInput(true)}>+ 儲存目前篩選</button>
+                  <button className="btn btnSmall btnGhost" style={{ fontSize: 11 }} onClick={() => setShowSaveFilterInput(true)} disabled={!hasSavableInstallFilter} title={saveFilterTitle}>+ 儲存目前篩選</button>
                 </div>
               )}
             </div>
 
             {installErr ? (
-              <div className="card auroraAlertPanel" style={{ padding: 12, marginTop: 12, borderColor: "rgba(239,68,68,0.35)" }}>
-                <div style={{ color: "#ef4444", fontWeight: 900 }}>Installations 讀取失敗</div>
-                <div style={{ color: "#94a3b8", fontSize: 12, marginTop: 4 }}>{installErr}</div>
-              </div>
+              <DashboardStatusBanner
+                tone="error"
+                title="裝機資料讀取失敗"
+                detail={installErr}
+              />
+            ) : installLoading ? (
+              <DashboardStatusBanner
+                tone="info"
+                title="正在同步裝機資料"
+                detail="讀取完成後會自動更新表格、Pipeline 與甘特圖。"
+              />
             ) : null}
 
             {installView === "pipeline" || installView === "gantt" ? null : (
@@ -1801,6 +1383,8 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
                       <col className="installListColRegion" />
                       <col className="installListColModel" />
                       <col className="installListColPhase" />
+                      <col className="installListColSla" />
+                      <col className="installListColNextAction" />
                       <col className="installListColEngineer" />
                       <col className="installListColProgress" />
                       <col className="installListColDueDate" />
@@ -1814,6 +1398,8 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
                         <th>區域</th>
                         <th>機型</th>
                         <SortableTh label="階段" active={installSortKey === "phase"} dir={installSortDir} onClick={() => toggleInstallSort("phase")} />
+                        <th>SLA</th>
+                        <th>下一步</th>
                         <SortableTh label="工程師" active={installSortKey === "engineer"} dir={installSortDir} onClick={() => toggleInstallSort("engineer")} />
                         <th>進度</th>
                         <SortableTh label="預計安裝日" active={installSortKey === "estComplete"} dir={installSortDir} onClick={() => toggleInstallSort("estComplete")} />
@@ -1826,6 +1412,7 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
                         const phase = PHASE_MAP[r.phase];
                         const overdue = isOverdueInstall(r, today);
                         const serial = getInstallSerial(r);
+                        const sla = getInstallSlaStatus(r, today);
                         return (
                           <tr key={r.id}>
                             <td className="tableStickyLeft tableSerialCell" title={serial}>{serial}</td>
@@ -1833,6 +1420,11 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
                             <td><Badge text={REGIONS[r.region].label} color={REGIONS[r.region].color} subtle /></td>
                             <td><Badge text={r.modelCode} color="#3b82f6" subtle /></td>
                             <td><Badge text={`${phase.icon} ${phase.label}`} color={phase.color} subtle /></td>
+                            <td title={sla.title}><Badge text={sla.label} color={sla.color} subtle /></td>
+                            <td className="tableTextClip" title={[r.nextAction, r.nextOwner, r.nextDueDate].filter(Boolean).join(" · ") || "-"}>
+                              <div style={{ fontWeight: 900 }}>{r.nextAction || "-"}</div>
+                              <div className="tableSecondaryText">{r.nextOwner || toDisplayShortName(r.engineer) || "未指派"} · {r.nextDueDate || r.estComplete || "未設定"}</div>
+                            </td>
                             <td className="installListEngineer">{toDisplayShortName(r.engineer) || "-"}</td>
                             <td>
                               <div className="progressOuter" style={{ maxWidth: 140 }}>
@@ -1856,7 +1448,32 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
                       })}
                       {filteredInstallations.length === 0 ? (
                         <tr>
-                          <td colSpan={10} style={{ textAlign: "center", padding: 20, color: "#94a3b8" }}>無資料</td>
+                          <td colSpan={12} className="dashboardEmptyCell">
+                            {installLoading ? (
+                              <DashboardEmptyState
+                                title="正在同步裝機資料"
+                                detail="讀取完成後會自動更新清單。"
+                              />
+                            ) : installErr ? (
+                              <DashboardEmptyState
+                                title="裝機資料讀取失敗"
+                                detail="請稍後重新整理，或確認帳號權限。"
+                              />
+                            ) : installations.length === 0 ? (
+                              <DashboardEmptyState
+                                title="尚無裝機案"
+                                detail="先建立第一筆裝機資料，或匯入現有 Excel 清單。"
+                                primaryAction={{ label: "新增裝機案", onClick: openAddInstall, variant: "accent" }}
+                                secondaryAction={{ label: "Excel 智慧匯入", onClick: () => setSmartImportOpen(true) }}
+                              />
+                            ) : (
+                              <DashboardEmptyState
+                                title="沒有符合的裝機案"
+                                detail="調整條件或清除目前篩選。"
+                                primaryAction={{ label: "清除篩選", onClick: clearInstallFilters }}
+                              />
+                            )}
+                          </td>
                         </tr>
                       ) : null}
                     </tbody>
@@ -1918,50 +1535,61 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
                       <div className="pill">{rows.length}</div>
                     </div>
                     <div className="kanbanColBody">
-                      {rows.map((r) => (
-                        <div key={r.id} className="kanbanCard" onClick={() => openEditInstall(r)} role="button">
-                          <div className="kanbanCaseTop">
-                            <div className="mono kanbanCaseName">{getInstallSerial(r)}</div>
-                            <div className="kanbanCaseProgress mono">{r.progress ?? 0}%</div>
-                          </div>
+                      {rows.map((r) => {
+                        const sla = getInstallSlaStatus(r, today);
+                        return (
+                          <div key={r.id} className="kanbanCard" onClick={() => openEditInstall(r)} role="button">
+                            <div className="kanbanCaseTop">
+                              <div className="mono kanbanCaseName">{getInstallSerial(r)}</div>
+                              <div className="kanbanCaseProgress mono">{r.progress ?? 0}%</div>
+                            </div>
 
-                          <div className="kanbanCaseMeta">
-                            <span className="kanbanCaseCustomer">{r.customer}</span>
-                            <span className="kanbanCaseEngineer">{toDisplayShortName(r.engineer) || "-"}</span>
-                          </div>
+                            <div className="kanbanCaseMeta">
+                              <span className="kanbanCaseCustomer">{r.customer}</span>
+                              <span className="kanbanCaseEngineer">{toDisplayShortName(r.engineer) || "-"}</span>
+                            </div>
 
-                          <div className="kanbanCaseMeter">
-                            <div className="kanbanCaseMeterInner" style={{ width: `${clamp(r.progress ?? 0, 0, 100)}%`, background: p.color }} />
-                          </div>
+                            <div className="kanbanCaseMeter">
+                              <div className="kanbanCaseMeterInner" style={{ width: `${clamp(r.progress ?? 0, 0, 100)}%`, background: p.color }} />
+                            </div>
 
-                          <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
-                            <Badge text={REGIONS[r.region].label} color={REGIONS[r.region].color} subtle />
-                            <Badge text={r.modelCode} color="#3b82f6" subtle />
-                            {r.estComplete ? (
-                              (() => {
-                                const dl = daysLeft(r.estComplete);
-                                const isOver = dl != null && dl < 0 && r.phase !== "released";
-                                return <Badge text={`預計 ${r.estComplete}${isOver ? " ⚠️" : ""}`} color={isOver ? "#ef4444" : "#94a3b8"} subtle />;
-                              })()
+                            <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
+                              <Badge text={REGIONS[r.region].label} color={REGIONS[r.region].color} subtle />
+                              <Badge text={r.modelCode} color="#3b82f6" subtle />
+                              <span title={sla.title}>
+                                <Badge text={sla.label} color={sla.color} subtle />
+                              </span>
+                              {r.estComplete ? (
+                                (() => {
+                                  const dl = daysLeft(r.estComplete);
+                                  const isOver = dl != null && dl < 0 && r.phase !== "released";
+                                  return <Badge text={`預計 ${r.estComplete}${isOver ? " 警戒" : ""}`} color={isOver ? "#ef4444" : "#94a3b8"} subtle />;
+                                })()
+                              ) : null}
+                            </div>
+
+                            <div style={{ marginTop: 8, color: "#64748b", fontSize: 12, lineHeight: 1.45 }}>
+                              <strong style={{ color: "var(--foreground)" }}>{r.nextAction || "未設定下一步"}</strong>
+                              <div>{r.nextOwner || toDisplayShortName(r.engineer) || "未指派"} · {r.nextDueDate || r.estComplete || "未設定期限"}</div>
+                            </div>
+
+                            {r.phase !== "released" ? (
+                              <button
+                                className="btn btnSmall"
+                                style={{ marginTop: 10, width: "100%" }}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  advanceInstall(r);
+                                }}
+                              >
+                                推進
+                              </button>
                             ) : null}
                           </div>
-
-                          {r.phase !== "released" ? (
-                            <button
-                              className="btn btnSmall"
-                              style={{ marginTop: 10, width: "100%" }}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                advanceInstall(r);
-                              }}
-                            >
-                              ⏭️ 推進
-                            </button>
-                          ) : null}
-                        </div>
-                      ))}
+                        );
+                      })}
                       {rows.length === 0 ? (
-                        <div style={{ color: "#94a3b8", fontSize: 12, padding: 10 }}>—</div>
+                        <div className="kanbanEmptyState">此階段目前無案件</div>
                       ) : null}
                     </div>
                   </div>
@@ -1990,6 +1618,7 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
               <div className="panelHeader">
                 <div style={{ fontWeight: 900 }}>篩選 / 操作</div>
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                  <button className="btn btnSmall" onClick={downloadEquipmentCsvReport} disabled={equipmentCsvDisabled} title={equipmentCsvTitle}>匯出 CSV</button>
                   <button className="btn btnSmall" onClick={() => setSmartImportOpen(true)}>⬆ Excel 智慧匯入</button>
                   <button className="btn btnAccent" onClick={openAddEquip}>➕ 新增設備</button>
                 </div>
@@ -2003,7 +1632,7 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
 
                 <div className="field">
                   <div className="label">主狀態</div>
-                  <select value={eStatus} onChange={(e) => setEStatus(e.target.value as any)}>
+                  <select value={eStatus} onChange={(e) => setEStatus(parseEquipmentStatusFilter(e.target.value))}>
                     <option value="">全部</option>
                     {EQUIPMENT_MAIN_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
                   </select>
@@ -2011,7 +1640,7 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
 
                 <div className="field">
                   <div className="label">容量</div>
-                  <select value={eCap} onChange={(e) => setECap(e.target.value as any)}>
+                  <select value={eCap} onChange={(e) => setECap(parseCapacityFilter(e.target.value))}>
                     <option value="">全部</option>
                     {CAPACITY_LEVELS.map((c) => <option key={c} value={c}>{c}</option>)}
                   </select>
@@ -2043,7 +1672,7 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
                 </div>
 
                 {(eRegion || eStatus || eCap || eKeyword) ? (
-                  <button className="btn" onClick={() => { setERegion(""); setEStatus(""); setECap(""); setEKeyword(""); setEquipSortKey("updatedAt"); setEquipSortDir("desc"); }}>
+                  <button className="btn" onClick={clearEquipmentFilters}>
                     清除
                   </button>
                 ) : null}
@@ -2052,6 +1681,13 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
                   {filteredEquipments.length}/{equipments.length}
                 </div>
               </div>
+
+              <ActiveFilterSummary
+                filters={equipmentActiveFilters}
+                visibleCount={filteredEquipments.length}
+                totalCount={equipments.length}
+                onClearAll={clearEquipmentFilters}
+              />
 
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
                 <Badge text={`裝機 ${equipStats.byStatus["裝機"]}`} color={STATUS_COLOR["裝機"]} subtle />
@@ -2065,10 +1701,17 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
             </div>
 
             {equipErr ? (
-              <div className="card" style={{ padding: 12, marginTop: 12, borderColor: "rgba(239,68,68,0.35)" }}>
-                <div style={{ color: "#ef4444", fontWeight: 900 }}>Equipments 讀取失敗</div>
-                <div style={{ color: "#94a3b8", fontSize: 12, marginTop: 4 }}>{equipErr}</div>
-              </div>
+              <DashboardStatusBanner
+                tone="error"
+                title="設備資料讀取失敗"
+                detail={equipErr}
+              />
+            ) : equipLoading ? (
+              <DashboardStatusBanner
+                tone="info"
+                title="正在同步設備資料"
+                detail="讀取完成後會自動更新設備清單與異常待辦。"
+              />
             ) : null}
 
             <div className="card" style={{ marginTop: 12 }}>
@@ -2102,9 +1745,10 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
                       // 即時重算容量等級，不依賴 Firestore 存的舊值
                       const liveLevel = calcCapacityLevel(r.capacity.uph, r.capacity.targetUph);
                       const capColor = CAPACITY_COLOR[liveLevel];
+                      const blockingStatus = r.blocking?.reasonCode ? normalizeEquipmentBlockingStatus(r.blocking.status) : null;
                       return (
                         <tr key={r.id}>
-                          <td className="tableStickyLeft tableSerialCell mono" title={(r as any).serialNo || (r as any).name || "-"}>{(r as any).serialNo || (r as any).name || "-"}</td>
+                          <td className="tableStickyLeft tableSerialCell mono" title={getEquipmentSerialLabel(r) || "-"}>{getEquipmentSerialLabel(r) || "-"}</td>
                           <td className="tableTextClip" title={`${r.customer} ${r.site || ""}`}>
                             <div style={{ fontWeight: 900 }}>{r.customer}</div>
                             <div className="tableSecondaryText">{regionLabel(r.region)} · {r.site}</div>
@@ -2119,7 +1763,7 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
                             <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                               <Badge text={r.statusMain} color={statusColor} subtle />
                               <Badge text={liveLevel} color={capColor} subtle />
-                              {r.blocking?.reasonCode ? <Badge text={`阻塞：${r.blocking.reasonCode}`} color="#ef4444" subtle /> : null}
+                              {blockingStatus ? <Badge text={`${EQUIPMENT_BLOCKING_STATUS_LABEL[blockingStatus]}：${r.blocking?.reasonCode}`} color={EQUIPMENT_BLOCKING_STATUS_COLOR[blockingStatus]} subtle /> : null}
                             </div>
                             <div className="tableSecondaryText" style={{ marginTop: 6 }}>{r.statusSub || "-"}</div>
                           </td>
@@ -2141,7 +1785,32 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
                     })}
                     {filteredEquipments.length === 0 ? (
                       <tr>
-                        <td colSpan={8} style={{ textAlign: "center", padding: 20, color: "#94a3b8" }}>無資料</td>
+                        <td colSpan={8} className="dashboardEmptyCell">
+                          {equipLoading ? (
+                            <DashboardEmptyState
+                              title="正在同步設備資料"
+                              detail="讀取完成後會自動更新清單。"
+                            />
+                          ) : equipErr ? (
+                            <DashboardEmptyState
+                              title="設備資料讀取失敗"
+                              detail="請稍後重新整理，或確認帳號權限。"
+                            />
+                          ) : equipments.length === 0 ? (
+                            <DashboardEmptyState
+                              title="尚無設備"
+                              detail="先建立第一台設備，或匯入既有設備清單。"
+                              primaryAction={{ label: "新增設備", onClick: openAddEquip, variant: "accent" }}
+                              secondaryAction={{ label: "Excel 智慧匯入", onClick: () => setSmartImportOpen(true) }}
+                            />
+                          ) : (
+                            <DashboardEmptyState
+                              title="沒有符合的設備"
+                              detail="調整條件或清除目前篩選。"
+                              primaryAction={{ label: "清除篩選", onClick: clearEquipmentFilters }}
+                            />
+                          )}
+                        </td>
                       </tr>
                     ) : null}
                   </tbody>
@@ -2170,6 +1839,11 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
                   </button>
                 ) : null}
               </div>
+              {activeInsightsTab === "analytics" ? (
+                <button className="btn btnSmall" onClick={downloadInsightsReport} disabled={insightsReportDisabled} title={insightsReportTitle}>
+                  下載分析報告
+                </button>
+              ) : null}
             </div>
           </div>
         ) : null}
@@ -2177,13 +1851,81 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
         {/* ───────── Section: Insights / Analytics ───────── */}
         {section === "insights" && activeInsightsTab === "analytics" ? (
           <>
+            <div className="card" style={{ padding: 14, marginTop: 12 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start", flexWrap: "wrap" }}>
+                <div>
+                  <div style={{ fontWeight: 900, marginBottom: 4 }}>治理健康 / Data Quality</div>
+                  <div style={{ color: "#94a3b8", fontSize: 12 }}>
+                    進行中裝機 {governanceReport.activeInstallations} 案 · 設備 {governanceReport.equipments} 台 · 問題 {governanceReport.totalIssues} 件
+                  </div>
+                </div>
+                <div style={{ textAlign: "right" }}>
+                  <div style={{ color: "#94a3b8", fontSize: 12, fontWeight: 900 }}>SCORE</div>
+                  <div style={{ fontSize: 32, lineHeight: 1, fontWeight: 900, color: pickGovernanceToneColor(governanceReport.tone) }}>
+                    {governanceReport.score}
+                  </div>
+                </div>
+              </div>
+              <div style={{ height: 10, background: "rgba(148,163,184,0.18)", borderRadius: 999, overflow: "hidden", marginTop: 12 }}>
+                <div
+                  style={{
+                    width: `${governanceReport.score}%`,
+                    height: "100%",
+                    background: pickGovernanceToneColor(governanceReport.tone),
+                  }}
+                />
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10, marginTop: 12 }}>
+                {governanceReport.issueRows.map((issue) => {
+                  const issueColor = pickGovernanceToneColor(issue.tone);
+                  return (
+                    <div
+                      key={issue.id}
+                      style={{
+                        border: "1px solid var(--border)",
+                        borderRadius: 8,
+                        padding: 10,
+                        background: issue.count > 0 ? `${issueColor}0f` : "rgba(15,23,42,0.18)",
+                      }}
+                    >
+                      <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" }}>
+                        <div style={{ fontWeight: 900, fontSize: 12 }}>{issue.label}</div>
+                        <div style={{ fontWeight: 900, color: issueColor }}>{issue.count}</div>
+                      </div>
+                      <div style={{ color: "#94a3b8", fontSize: 11, marginTop: 5, lineHeight: 1.45 }}>{issue.detail}</div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
             {filteredInstallations.length === 0 ? (
               <div className="card" style={{ padding: 14, marginTop: 12 }}>
-                <div style={{ color: "#94a3b8", fontSize: 12 }}>
-                  {installations.length === 0
-                    ? "尚無裝機案資料。請至「裝機進度」新增資料後再查看分析。"
-                    : "目前篩選條件下無符合的裝機案。請清除篩選或調整條件後再查看分析。"}
-                </div>
+                <DashboardEmptyState
+                  title={
+                    installLoading
+                      ? "正在同步分析資料"
+                      : installErr
+                        ? "分析資料讀取失敗"
+                        : installations.length === 0
+                          ? "尚無裝機案資料"
+                          : "目前篩選沒有分析資料"
+                  }
+                  detail={
+                    installLoading
+                      ? "資料讀取完成後會自動更新分析圖表。"
+                      : installErr
+                        ? "請稍後重新整理，或確認帳號權限。"
+                        : installations.length === 0
+                          ? "先新增或匯入裝機案後再查看分析。"
+                          : "清除篩選或調整條件後再查看分析。"
+                  }
+                  primaryAction={
+                    !installLoading && !installErr && installations.length > 0
+                      ? { label: "清除篩選", onClick: clearInstallFilters }
+                      : undefined
+                  }
+                />
               </div>
             ) : (
               <>
@@ -2228,7 +1970,7 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
                 <div className="card" style={{ padding: 14, marginTop: 12 }}>
                   <div style={{ fontWeight: 900, marginBottom: 8 }}>📊 區域進度</div>
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 10 }}>
-                    {anRegion.map((rg: any) => (
+                    {anRegion.map((rg) => (
                       <div key={rg.key} className="card" style={{ padding: 12, borderColor: `${rg.color}33`, background: `${rg.color}0a` }}>
                         <div style={{ fontWeight: 900, color: rg.color }}>{rg.label}</div>
                         <div style={{ color: "#94a3b8", fontSize: 12, marginTop: 4 }}>{rg.total} 案 · 平均 {rg.avg}%</div>
@@ -2275,8 +2017,8 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
                     <div style={{ padding: 10, color: "#10b981", fontWeight: 900 }}>✅ 所有案件如期進行</div>
                   ) : (
                     <div style={{ display: "grid", gap: 8 }}>
-                      {anDue.map((r: any) => {
-                        const dl = Number(r.dl ?? 9999);
+                      {anDue.map((r) => {
+                        const dl = r.dl;
                         const isOver = dl < 0;
                         return (
                           <div
@@ -2293,7 +2035,7 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
                                 {getInstallModelSerial(r)} <span style={{ color: "#94a3b8", fontWeight: 600 }}>· {r.customer}</span>
                               </div>
                               <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                                <Badge text={PHASE_MAP[r.phase as PhaseKey]?.label ?? r.phase} color={PHASE_MAP[r.phase as PhaseKey]?.color ?? "#3b82f6"} subtle />
+                                <Badge text={PHASE_MAP[r.phase]?.label ?? r.phase} color={PHASE_MAP[r.phase]?.color ?? "#3b82f6"} subtle />
                                 <span style={{ fontWeight: 900, color: isOver ? "#ef4444" : "#f59e0b" }}>
                                   {isOver ? `逾期 ${Math.abs(dl)} 天` : dl === 0 ? "今日到期" : `${dl} 天`}
                                 </span>
@@ -2305,6 +2047,106 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
                       })}
                     </div>
                   )}
+                </div>
+
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 12, marginTop: 12 }}>
+                  <div className="card" style={{ padding: 14 }}>
+                    <div style={{ fontWeight: 900, marginBottom: 8 }}>交付 Cycle Time</div>
+                    <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+                      <div>
+                        <div style={{ color: "#94a3b8", fontSize: 12, fontWeight: 900 }}>完成案</div>
+                        <div style={{ fontSize: 24, fontWeight: 900 }}>{cycleTime.completedCount}</div>
+                      </div>
+                      <div>
+                        <div style={{ color: "#94a3b8", fontSize: 12, fontWeight: 900 }}>平均天數</div>
+                        <div style={{ fontSize: 24, fontWeight: 900, color: "#3b82f6" }}>{cycleTime.avgDays}</div>
+                      </div>
+                      <div>
+                        <div style={{ color: "#94a3b8", fontSize: 12, fontWeight: 900 }}>P50</div>
+                        <div style={{ fontSize: 24, fontWeight: 900, color: "#0ea5e9" }}>{cycleTime.p50Days}</div>
+                      </div>
+                    </div>
+                    <div style={{ display: "grid", gap: 7, marginTop: 12 }}>
+                      {cycleTime.longestRows.length ? cycleTime.longestRows.map((row) => (
+                        <div key={row.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+                          <div style={{ minWidth: 0 }}>
+                            <div style={{ fontWeight: 900, fontSize: 12, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{row.title}</div>
+                            <div style={{ color: "#94a3b8", fontSize: 11 }}>{row.customer} · 完成 {row.completedAt}</div>
+                          </div>
+                          <Badge text={`${row.days} 天`} color="#3b82f6" subtle />
+                        </div>
+                      )) : (
+                        <div style={{ color: "#94a3b8", fontSize: 12 }}>尚無實際完成日可計算。</div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="card" style={{ padding: 14 }}>
+                    <div style={{ fontWeight: 900, marginBottom: 8 }}>階段 Aging / SLA</div>
+                    <div style={{ display: "grid", gap: 8 }}>
+                      {phaseAging.map((row) => (
+                        <div key={row.key}>
+                          <div style={{ display: "flex", justifyContent: "space-between", gap: 8, fontSize: 12 }}>
+                            <span style={{ fontWeight: 900, color: row.color }}>{row.label}</span>
+                            <span style={{ color: "#94a3b8" }}>
+                              {row.count} 案 · 平均 {row.avgAgeDays} 天 · 最長 {row.maxAgeDays} 天
+                            </span>
+                          </div>
+                          <div style={{ height: 8, background: "rgba(148,163,184,0.18)", borderRadius: 999, overflow: "hidden", marginTop: 5 }}>
+                            <div
+                              style={{
+                                width: `${Math.min(100, row.maxAgeDays * 8)}%`,
+                                height: "100%",
+                                background: row.breached > 0 ? "#ef4444" : row.color,
+                              }}
+                            />
+                          </div>
+                          {row.breached > 0 ? (
+                            <div style={{ color: "#ef4444", fontSize: 11, fontWeight: 900, marginTop: 3 }}>逾 SLA {row.breached} 案</div>
+                          ) : null}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="card" style={{ padding: 14, marginTop: 12 }}>
+                  <div style={{ fontWeight: 900, marginBottom: 8 }}>客戶 / 機型健康摘要</div>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 12 }}>
+                    {[
+                      { title: "客戶健康", rows: customerHealth },
+                      { title: "機型健康", rows: modelHealth },
+                    ].map((healthPanel) => (
+                      <div key={healthPanel.title} className="card" style={{ padding: 12 }}>
+                        <div style={{ fontWeight: 900, marginBottom: 10 }}>{healthPanel.title}</div>
+                        <div style={{ display: "grid", gap: 9 }}>
+                          {healthPanel.rows.length ? healthPanel.rows.map((row) => {
+                            const healthColor = pickHealthColor(row.health);
+                            return (
+                              <div key={row.name}>
+                                <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
+                                  <div style={{ fontWeight: 900, fontSize: 12, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{row.name}</div>
+                                  <div style={{ fontWeight: 900, color: healthColor }}>{row.health}</div>
+                                </div>
+                                <div style={{ height: 8, background: "rgba(148,163,184,0.18)", borderRadius: 999, overflow: "hidden", marginTop: 5 }}>
+                                  <div style={{ width: `${row.health}%`, height: "100%", background: healthColor }} />
+                                </div>
+                                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", color: "#94a3b8", fontSize: 11, marginTop: 5 }}>
+                                  <span>裝機 {row.installs}</span>
+                                  <span>進行 {row.activeInstalls}</span>
+                                  <span>設備 {row.equipments}</span>
+                                  <span style={{ color: row.overdue > 0 ? "#ef4444" : "#94a3b8" }}>逾期 {row.overdue}</span>
+                                  <span style={{ color: row.blocked > 0 ? "#ef4444" : "#94a3b8" }}>阻塞 {row.blocked}</span>
+                                </div>
+                              </div>
+                            );
+                          }) : (
+                            <div style={{ color: "#94a3b8", fontSize: 12 }}>尚無資料。</div>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               </>
             )}
@@ -2331,7 +2173,9 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
                 <div className="card" style={{ padding: 12 }}>
                   <div style={{ color: "#94a3b8", fontSize: 12, fontWeight: 900 }}>平均稼動率</div>
                   <div style={{ fontSize: 28, fontWeight: 900, marginTop: 6, color: pickColorByUtil(equipStats.avgUtil) }}>{equipStats.avgUtil}%</div>
-                  <div style={{ color: "#94a3b8", fontSize: 12, marginTop: 6 }}>阻塞中：{equipStats.blocked}</div>
+                  <div style={{ color: "#94a3b8", fontSize: 12, marginTop: 6 }}>
+                    阻塞中：{equipStats.blocked} · 已解決：{equipStats.resolvedBlocking} · 平均處理：{equipStats.avgBlockingDays} 天
+                  </div>
                 </div>
               </div>
 
@@ -2464,7 +2308,12 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
                     ))}
                     {auditLogs.length === 0 ? (
                       <tr>
-                        <td colSpan={5} style={{ textAlign: "center", padding: 20, color: "#94a3b8" }}>無資料</td>
+                        <td colSpan={5} className="dashboardEmptyCell">
+                          <DashboardEmptyState
+                            title="尚無治理紀錄"
+                            detail="新增、更新、刪除或批次治理後會出現在這裡。"
+                          />
+                        </td>
                       </tr>
                     ) : null}
                   </tbody>
@@ -2496,7 +2345,12 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
                       ))}
                       {events.length === 0 ? (
                         <tr>
-                          <td colSpan={3} style={{ textAlign: "center", padding: 20, color: "#94a3b8" }}>無資料</td>
+                          <td colSpan={3} className="dashboardEmptyCell">
+                            <DashboardEmptyState
+                              title="尚無事件"
+                              detail="使用者操作與系統事件寫入後會出現在這裡。"
+                            />
+                          </td>
                         </tr>
                       ) : null}
                     </tbody>
@@ -2520,7 +2374,7 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                   <Badge text={regionLabel(drawerEq.region)} color={REGIONS[drawerEq.region].color} subtle />
                   <Badge text={drawerEq.modelCode} color="#3b82f6" subtle />
-                  <Badge text={(drawerEq as any).serialNo || (drawerEq as any).name || "-"} color="#94a3b8" subtle />
+                  <Badge text={getEquipmentSerialLabel(drawerEq) || "-"} color="#94a3b8" subtle />
                 </div>
 
                 <div style={{ marginTop: 10, display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -2558,8 +2412,10 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
               </div>
 
               {drawerEq.blocking?.reasonCode ? (
-                <div className="card" style={{ padding: 12, borderColor: "rgba(239,68,68,0.35)" }}>
-                  <div style={{ fontWeight: 900, marginBottom: 8, color: "#ef4444" }}>阻塞</div>
+                <div className="card" style={{ padding: 12, borderColor: `${EQUIPMENT_BLOCKING_STATUS_COLOR[normalizeEquipmentBlockingStatus(drawerEq.blocking.status)]}55` }}>
+                  <div style={{ fontWeight: 900, marginBottom: 8, color: EQUIPMENT_BLOCKING_STATUS_COLOR[normalizeEquipmentBlockingStatus(drawerEq.blocking.status)] }}>
+                    阻塞 · {EQUIPMENT_BLOCKING_STATUS_LABEL[normalizeEquipmentBlockingStatus(drawerEq.blocking.status)]}
+                  </div>
                   <div style={{ color: "#94a3b8", fontSize: 12 }}>
                     原因：{drawerEq.blocking.reasonCode}
                     <br />
@@ -2568,6 +2424,16 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
                     Owner：{drawerEq.blocking.owner}
                     <br />
                     ETA：{drawerEq.blocking.eta || "-"}
+                    <br />
+                    處理天數：{getEquipmentBlockingAgeDays(drawerEq.blocking) ?? "-"} 天
+                    <br />
+                    重開次數：{drawerEq.blocking.reopenCount ?? 0}
+                    {drawerEq.blocking.resolutionNote ? (
+                      <>
+                        <br />
+                        解決備註：{drawerEq.blocking.resolutionNote}
+                      </>
+                    ) : null}
                   </div>
                 </div>
               ) : null}
@@ -2579,14 +2445,18 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
         <Modal
           open={installModalOpen}
           title={installEditId ? "編輯裝機案" : "新增裝機案"}
-          onClose={() => { clearInstallErrors(); setInstallModalOpen(false); }}
+          onClose={() => {
+            if (installSubmitBusy) return;
+            clearInstallErrors();
+            setInstallModalOpen(false);
+          }}
         >
           <div className="quickFormIntro">
             <div>
               <strong>{installEditId ? "維護必要狀態即可" : "快速新增只需要先填基本資料"}</strong>
-              <p>{getPhaseHint(installForm.phase as PhaseKey)}</p>
+              <p>{getPhaseHint(installForm.phase)}</p>
             </div>
-            <span className="quickFormBadge">{PHASE_MAP[installForm.phase as PhaseKey]?.label ?? "裝機案"} · {installForm.progress ?? 0}%</span>
+            <span className="quickFormBadge">{PHASE_MAP[installForm.phase]?.label ?? "裝機案"} · {installForm.progress ?? 0}%</span>
           </div>
 
           <div className="formGrid quickFormGrid">
@@ -2603,7 +2473,7 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
 
             <div className="field" ref={(node) => { installFieldRefs.current.region = node; }}>
               <div className="label">區域</div>
-              <select value={installForm.region} onChange={(e) => updateInstallField("region", e.target.value)} aria-invalid={!!installErrors.region}>
+              <select value={installForm.region} onChange={(e) => updateInstallField("region", parseRegionKey(e.target.value))} aria-invalid={!!installErrors.region}>
                 {Object.entries(REGIONS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
               </select>
               {installErrors.region ? <div style={{ color: "var(--destructive)", fontSize: 12 }}>{installErrors.region}</div> : null}
@@ -2612,14 +2482,14 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
             <div className="field" ref={(node) => { installFieldRefs.current.modelCode = node; }}>
               <div className="label"><span style={{color:"var(--destructive)"}}>* </span>機型</div>
               <select value={installForm.modelCode} onChange={(e) => updateInstallField("modelCode", e.target.value)} aria-invalid={!!installErrors.modelCode}>
-                {machineModels.map((m: any) => <option key={m.code} value={m.code}>{m.displayName}</option>)}
+                {machineModels.map((m: MachineModel) => <option key={m.code} value={m.code}>{m.displayName}</option>)}
               </select>
               {installErrors.modelCode ? <div style={{ color: "var(--destructive)", fontSize: 12 }}>{installErrors.modelCode}</div> : null}
             </div>
 
             <div className="field" ref={(node) => { installFieldRefs.current.phase = node; }}>
               <div className="label">階段</div>
-              <select value={installForm.phase} onChange={(e) => updateInstallPhase(e.target.value as PhaseKey)}>
+              <select value={installForm.phase} onChange={(e) => updateInstallPhase(parsePhaseKey(e.target.value))}>
                 {PHASES.map((p) => <option key={p.key} value={p.key}>{p.icon} {p.label}</option>)}
               </select>
               {installErrors.phase ? <div style={{ color: "var(--destructive)", fontSize: 12 }}>{installErrors.phase}</div> : null}
@@ -2667,6 +2537,42 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
                   {installErrors[field.key] ? <div style={{ color: "var(--destructive)", fontSize: 12 }}>{installErrors[field.key]}</div> : null}
                 </div>
               ))}
+
+              <div className="field">
+                <div className="label">下一步 Owner</div>
+                <select value={installForm.nextOwner} onChange={(e) => updateInstallField("nextOwner", e.target.value)}>
+                  <option value="">未指定</option>
+                  {engineers.map((name) => (
+                    <option key={name} value={name}>{name}</option>
+                  ))}
+                  {installForm.nextOwner && !engineers.includes(installForm.nextOwner) ? (
+                    <option value={installForm.nextOwner}>{installForm.nextOwner}（舊）</option>
+                  ) : null}
+                </select>
+              </div>
+
+              <div className="field">
+                <div className="label">下一步期限</div>
+                <DateInput value={installForm.nextDueDate} onChange={(value) => updateInstallField("nextDueDate", value)} />
+              </div>
+
+              <div className="field" style={{ gridColumn: "1 / -1" }}>
+                <div className="label">下一步動作</div>
+                <input
+                  value={installForm.nextAction}
+                  onChange={(e) => updateInstallField("nextAction", e.target.value)}
+                  placeholder="例如：確認客戶二次驗收窗口"
+                />
+              </div>
+
+              <div className="field" style={{ gridColumn: "1 / -1" }}>
+                <div className="label">逾期原因</div>
+                <input
+                  value={installForm.overdueReason}
+                  onChange={(e) => updateInstallField("overdueReason", e.target.value)}
+                  placeholder="例如：客戶停機窗口延後、料件未到、現場配管未完成"
+                />
+              </div>
 
               <div className="field" style={{ gridColumn: "1 / -1" }}>
                 <div className="label">進度（0~100）</div>
@@ -2754,8 +2660,10 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
           ) : null}
 
           <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", position: "sticky", bottom: 0, background: "var(--background)", paddingTop: 8 }}>
-            <button className="btn" onClick={() => { clearInstallErrors(); setInstallModalOpen(false); }}>取消</button>
-            <button className="btn btnAccent" onClick={submitInstall}>儲存</button>
+            <button className="btn" onClick={() => { clearInstallErrors(); setInstallModalOpen(false); }} disabled={installSubmitBusy}>取消</button>
+            <button className="btn btnAccent" onClick={submitInstall} disabled={installSubmitBusy}>
+              {installSubmitBusy ? "儲存中..." : "儲存"}
+            </button>
           </div>
         </Modal>
 
@@ -2763,36 +2671,46 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
         <Modal
           open={equipModalOpen}
           title={equipEditId ? "編輯設備" : "新增設備"}
-          onClose={() => setEquipModalOpen(false)}
+          onClose={() => {
+            if (equipSubmitBusy) return;
+            setEquipErrorSummary([]);
+            setEquipModalOpen(false);
+          }}
         >
           <div className="formGrid">
             <div className="field">
               <div className="label"><span style={{color:"var(--destructive)"}}>* </span>設備 ID</div>
-              <input value={equipForm.equipmentId} onChange={(e) => setEquipForm({ ...equipForm, equipmentId: e.target.value })} placeholder="例如：EQ-N-001" />
+              <input value={equipForm.equipmentId} onChange={(e) => setEquipForm({ ...equipForm, equipmentId: e.target.value })} aria-invalid={!!equipErrors.equipmentId} placeholder="例如：EQ-N-001" />
+              {equipErrors.equipmentId ? <div style={{ color: "var(--destructive)", fontSize: 12 }}>{equipErrors.equipmentId}</div> : null}
             </div>
             <div className="field">
               <div className="label">區域</div>
-              <select value={equipForm.region} onChange={(e) => setEquipForm({ ...equipForm, region: e.target.value })}>
+              <select value={equipForm.region} onChange={(e) => setEquipForm({ ...equipForm, region: parseRegionKey(e.target.value) })} aria-invalid={!!equipErrors.region}>
                 {Object.entries(REGIONS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
               </select>
+              {equipErrors.region ? <div style={{ color: "var(--destructive)", fontSize: 12 }}>{equipErrors.region}</div> : null}
             </div>
             <div className="field">
               <div className="label"><span style={{color:"var(--destructive)"}}>* </span>客戶</div>
-              <input list="customerOptions" value={equipForm.customer} onChange={(e) => setEquipForm({ ...equipForm, customer: e.target.value })} placeholder="例如：TSMC" />
+              <input list="customerOptions" value={equipForm.customer} onChange={(e) => setEquipForm({ ...equipForm, customer: e.target.value })} aria-invalid={!!equipErrors.customer} placeholder="例如：TSMC" />
+              {equipErrors.customer ? <div style={{ color: "var(--destructive)", fontSize: 12 }}>{equipErrors.customer}</div> : null}
             </div>
             <div className="field">
               <div className="label">站點</div>
-              <input value={equipForm.site} onChange={(e) => setEquipForm({ ...equipForm, site: e.target.value })} placeholder="例如：竹科Fab1" />
+              <input value={equipForm.site} onChange={(e) => setEquipForm({ ...equipForm, site: e.target.value })} aria-invalid={!!equipErrors.site} placeholder="例如：竹科Fab1" />
+              {equipErrors.site ? <div style={{ color: "var(--destructive)", fontSize: 12 }}>{equipErrors.site}</div> : null}
             </div>
             <div className="field">
               <div className="label"><span style={{color:"var(--destructive)"}}>* </span>機型</div>
-              <select value={equipForm.modelCode} onChange={(e) => setEquipForm({ ...equipForm, modelCode: e.target.value })}>
-                {machineModels.map((m: any) => <option key={m.code} value={m.code}>{m.displayName}</option>)}
+              <select value={equipForm.modelCode} onChange={(e) => setEquipForm({ ...equipForm, modelCode: e.target.value })} aria-invalid={!!equipErrors.modelCode}>
+                {machineModels.map((m: MachineModel) => <option key={m.code} value={m.code}>{m.displayName}</option>)}
               </select>
+              {equipErrors.modelCode ? <div style={{ color: "var(--destructive)", fontSize: 12 }}>{equipErrors.modelCode}</div> : null}
             </div>
             <div className="field">
               <div className="label"><span style={{color:"var(--destructive)"}}>* </span>機台序號</div>
-              <input value={equipForm.serialNo} onChange={(e) => setEquipForm({ ...equipForm, serialNo: e.target.value })} placeholder="例如：P160623" />
+              <input value={equipForm.serialNo} onChange={(e) => setEquipForm({ ...equipForm, serialNo: e.target.value })} aria-invalid={!!equipErrors.serialNo} placeholder="例如：P160623" />
+              {equipErrors.serialNo ? <div style={{ color: "var(--destructive)", fontSize: 12 }}>{equipErrors.serialNo}</div> : null}
             </div>
             <div className="field">
               <div className="label">主狀態</div>
@@ -2861,42 +2779,32 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
             <div className="field">
               <div className="label">UPH</div>
               <input type="number" min={0} step={0.1} value={equipForm.capacity.uph}
+                aria-invalid={!!equipErrors["capacity.uph"]}
                 onChange={(e) => {
                   // 只更新字串；不在 onChange 做 round，避免 "01.8" 顯示問題
                   const raw = e.target.value;
-                  const nextUph = parseFloat(raw) || 0;
-                  const target = Number(equipForm.capacity.targetUph);
-                  const level = calcCapacityLevel(nextUph, target);
-                  const utilization = calculateUtilization(nextUph, target);
-                  setEquipForm({ ...equipForm, capacity: { ...equipForm.capacity, uph: raw, utilization, level } });
+                  setEquipForm({ ...equipForm, capacity: updateEquipmentCapacityDraft(equipForm.capacity, { uph: raw }) });
                 }}
                 onBlur={(e) => {
                   // blur 時 round 到小數一位
                   const v = Math.round((parseFloat(e.target.value) || 0) * 10) / 10;
-                  const target = Number(equipForm.capacity.targetUph);
-                  const level = calcCapacityLevel(v, target);
-                  const utilization = calculateUtilization(v, target);
-                  setEquipForm({ ...equipForm, capacity: { ...equipForm.capacity, uph: String(v), utilization, level } });
+                  setEquipForm({ ...equipForm, capacity: updateEquipmentCapacityDraft(equipForm.capacity, { uph: String(v) }) });
                 }} />
+              {equipErrors["capacity.uph"] ? <div style={{ color: "var(--destructive)", fontSize: 12 }}>{equipErrors["capacity.uph"]}</div> : null}
             </div>
             <div className="field">
               <div className="label">Target UPH</div>
               <input type="number" min={0} step={0.1} value={equipForm.capacity.targetUph}
+                aria-invalid={!!equipErrors["capacity.targetUph"]}
                 onChange={(e) => {
                   const raw = e.target.value;
-                  const uph = Number(equipForm.capacity.uph);
-                  const nextTarget = parseFloat(raw) || 0;
-                  const level = calcCapacityLevel(uph, nextTarget);
-                  const utilization = calculateUtilization(uph, nextTarget);
-                  setEquipForm({ ...equipForm, capacity: { ...equipForm.capacity, targetUph: raw, utilization, level } });
+                  setEquipForm({ ...equipForm, capacity: updateEquipmentCapacityDraft(equipForm.capacity, { targetUph: raw }) });
                 }}
                 onBlur={(e) => {
                   const v = Math.round((parseFloat(e.target.value) || 0) * 10) / 10;
-                  const uph = Number(equipForm.capacity.uph);
-                  const level = calcCapacityLevel(uph, v);
-                  const utilization = calculateUtilization(uph, v);
-                  setEquipForm({ ...equipForm, capacity: { ...equipForm.capacity, targetUph: String(v), utilization, level } });
+                  setEquipForm({ ...equipForm, capacity: updateEquipmentCapacityDraft(equipForm.capacity, { targetUph: String(v) }) });
                 }} />
+              {equipErrors["capacity.targetUph"] ? <div style={{ color: "var(--destructive)", fontSize: 12 }}>{equipErrors["capacity.targetUph"]}</div> : null}
             </div>
             <div className="field">
               <div className="label">容量等級（自動換算）</div>
@@ -2909,12 +2817,14 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
 
             <div className="field" style={{ gridColumn: "1 / -1" }}>
               <div className="label">7 天趨勢（可選，逗號分隔 7 個 0~100；未填會自動生成）</div>
-              <input value={equipForm.capacity.trend7dCsv} onChange={(e) => setEquipForm({ ...equipForm, capacity: { ...equipForm.capacity, trend7dCsv: e.target.value } })} placeholder="例如：40,55,60,58,62,64,62" />
+              <input value={equipForm.capacity.trend7dCsv} onChange={(e) => setEquipForm({ ...equipForm, capacity: { ...equipForm.capacity, trend7dCsv: e.target.value } })} aria-invalid={!!equipErrors["capacity.trend7d"]} placeholder="例如：40,55,60,58,62,64,62" />
+              {equipErrors["capacity.trend7d"] ? <div style={{ color: "var(--destructive)", fontSize: 12 }}>{equipErrors["capacity.trend7d"]}</div> : null}
             </div>
 
             {/* ── 產品產能清單 ── */}
             <div className="field" style={{ gridColumn: "1 / -1" }}>
               <div className="label" style={{ marginBottom: 8 }}>產品產能（生產產品 + 日產能）</div>
+              {equipErrors.products ? <div style={{ color: "var(--destructive)", fontSize: 12, marginBottom: 6 }}>{equipErrors.products}</div> : null}
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                 {(equipForm.products ?? []).map((p: { name: string; dailyCap: number | string }, idx: number) => (
                   <div key={idx} style={{ display: "flex", gap: 8, alignItems: "center" }}>
@@ -2976,12 +2886,26 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
             {equipForm.hasBlocking ? (
               <>
                 <div className="field">
+                  <div className="label">Blocking 狀態</div>
+                  <select
+                    className="selectWithArrow"
+                    value={equipForm.blocking.status}
+                    onChange={(e) => setEquipForm({ ...equipForm, blocking: { ...equipForm.blocking, status: normalizeEquipmentBlockingStatus(e.target.value) } })}
+                  >
+                    <option value="open">OPEN</option>
+                    <option value="resolved">RESOLVED</option>
+                    <option value="reopened">REOPENED</option>
+                  </select>
+                </div>
+                <div className="field">
                   <div className="label">阻塞原因</div>
-                  <input value={equipForm.blocking.reasonCode} onChange={(e) => setEquipForm({ ...equipForm, blocking: { ...equipForm.blocking, reasonCode: e.target.value } })} placeholder="例如：料件未到" />
+                  <input value={equipForm.blocking.reasonCode} onChange={(e) => setEquipForm({ ...equipForm, blocking: { ...equipForm.blocking, reasonCode: e.target.value } })} aria-invalid={!!equipErrors["blocking.reasonCode"]} placeholder="例如：料件未到" />
+                  {equipErrors["blocking.reasonCode"] ? <div style={{ color: "var(--destructive)", fontSize: 12 }}>{equipErrors["blocking.reasonCode"]}</div> : null}
                 </div>
                 <div className="field">
                   <div className="label">阻塞 Owner</div>
-                  <input value={equipForm.blocking.owner} onChange={(e) => setEquipForm({ ...equipForm, blocking: { ...equipForm.blocking, owner: e.target.value } })} placeholder="例如：SCM-Judy" />
+                  <input value={equipForm.blocking.owner} onChange={(e) => setEquipForm({ ...equipForm, blocking: { ...equipForm.blocking, owner: e.target.value } })} aria-invalid={!!equipErrors["blocking.owner"]} placeholder="例如：SCM-Judy" />
+                  {equipErrors["blocking.owner"] ? <div style={{ color: "var(--destructive)", fontSize: 12 }}>{equipErrors["blocking.owner"]}</div> : null}
                 </div>
                 <div className="field" style={{ gridColumn: "1 / -1" }}>
                   <div className="label">阻塞細節</div>
@@ -2989,15 +2913,50 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
                 </div>
                 <div className="field">
                   <div className="label">ETA</div>
-                  <input value={equipForm.blocking.eta} onChange={(e) => setEquipForm({ ...equipForm, blocking: { ...equipForm.blocking, eta: e.target.value } })} placeholder="YYYY-MM-DD" />
+                  <input value={equipForm.blocking.eta} onChange={(e) => setEquipForm({ ...equipForm, blocking: { ...equipForm.blocking, eta: e.target.value } })} aria-invalid={!!equipErrors["blocking.eta"]} placeholder="YYYY-MM-DD" />
+                  {equipErrors["blocking.eta"] ? <div style={{ color: "var(--destructive)", fontSize: 12 }}>{equipErrors["blocking.eta"]}</div> : null}
+                </div>
+                <div className="field" style={{ gridColumn: "1 / -1" }}>
+                  <div className="label">解決備註</div>
+                  <input
+                    value={equipForm.blocking.resolutionNote}
+                    onChange={(e) => setEquipForm({ ...equipForm, blocking: { ...equipForm.blocking, resolutionNote: e.target.value } })}
+                    placeholder="例如：真空閥已到料並完成更換"
+                  />
+                </div>
+                <div className="field" style={{ gridColumn: "1 / -1" }}>
+                  <div className="fieldHint">
+                    已處理 {equipForm.blocking.openedAt ? `${getEquipmentBlockingAgeDays(equipForm.blocking)} 天` : "-"} · 重開 {equipForm.blocking.reopenCount ?? 0} 次
+                  </div>
                 </div>
               </>
             ) : null}
           </div>
 
+          {equipErrorSummary.length > 0 ? (
+            <div
+              role="alert"
+              style={{
+                marginTop: 12,
+                marginBottom: 12,
+                padding: 12,
+                borderRadius: 12,
+                border: "1px solid color-mix(in oklab, var(--destructive) 35%, white 0%)",
+                background: "color-mix(in oklab, var(--destructive) 8%, white 0%)",
+              }}
+            >
+              <div style={{ color: "var(--destructive)", fontWeight: 800, marginBottom: 6 }}>請先修正以下設備欄位後再儲存</div>
+              <ul style={{ margin: 0, paddingLeft: 18, color: "var(--destructive)", fontSize: 13, display: "grid", gap: 4 }}>
+                {equipErrorSummary.map((message) => <li key={message}>{message}</li>)}
+              </ul>
+            </div>
+          ) : null}
+
           <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-            <button className="btn" onClick={() => setEquipModalOpen(false)}>取消</button>
-            <button className="btn btnAccent" onClick={submitEquip}>儲存</button>
+            <button className="btn" onClick={() => { setEquipErrorSummary([]); setEquipModalOpen(false); }} disabled={equipSubmitBusy}>取消</button>
+            <button className="btn btnAccent" onClick={submitEquip} disabled={equipSubmitBusy}>
+              {equipSubmitBusy ? "儲存中..." : "儲存"}
+            </button>
           </div>
         </Modal>
 
@@ -3006,6 +2965,7 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
           onClose={() => setSmartImportOpen(false)}
           customerRegionMap={customerRegionMap}
           machineModels={machineModels}
+          importConfig={importConfig}
           onImported={(counts) => {
             setSmartImportOpen(false);
             setToast(`✅ 裝機保留新增 ${counts.createdInstallations} 筆 / 更新 ${counts.updatedInstallations} 筆；設備新增 ${counts.createdEquipments} 筆 / 更新 ${counts.updatedEquipments} 筆；自裝機移除 ${counts.removedInstallations} 筆`);

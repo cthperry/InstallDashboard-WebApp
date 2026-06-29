@@ -14,7 +14,8 @@ import {
   serverTimestamp,
   updateDoc,
   where,
-  writeBatch
+  writeBatch,
+  type FieldValue,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase/client";
 import type { Equipment } from "@/domain/types";
@@ -25,6 +26,10 @@ const COL = EQUIPMENTS_COL;
 
 type EquipmentDocLike = Partial<Omit<Equipment, "id">> & {
   name?: unknown;
+};
+
+export type EquipmentUpdatePatch = Partial<Omit<Equipment, "id" | "blocking">> & {
+  blocking?: Equipment["blocking"] | FieldValue;
 };
 
 function normalizeSerialKey(v: unknown): string {
@@ -157,7 +162,7 @@ export async function createEquipment(data: Omit<Equipment, "id">) {
   });
 }
 
-export async function updateEquipment(id: string, patch: Partial<Omit<Equipment, "id">>) {
+export async function updateEquipment(id: string, patch: EquipmentUpdatePatch) {
   const serialKey = patch.serialNo !== undefined || patch.equipmentId !== undefined
     ? normalizeSerialKey(patch.serialNo || patch.equipmentId)
     : undefined;

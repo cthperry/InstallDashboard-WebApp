@@ -18,6 +18,7 @@ export type InstallationPhaseGroup = "preShip" | "postShip" | "installStarted" |
 export type InstallationValidationIssuePath =
   | "name"
   | "engineer"
+  | "nextDueDate"
   | InstallationDateFieldKey;
 
 export type InstallationValidationIssue = {
@@ -27,7 +28,10 @@ export type InstallationValidationIssue = {
 
 const VALID_REGIONS: readonly RegionKey[] = ["north", "central", "south"] as const;
 const VALID_PHASES: readonly PhaseKey[] = ["ordered", "shipping", "arrived", "installing", "trial", "qual", "released"] as const;
-const DATE_FIELD_LABELS = Object.fromEntries(INSTALLATION_DATE_FIELDS.map((field) => [field.key, field.label])) as Record<InstallationDateFieldKey, string>;
+const DATE_FIELD_LABELS = {
+  ...Object.fromEntries(INSTALLATION_DATE_FIELDS.map((field) => [field.key, field.label])),
+  nextDueDate: "下一步期限",
+} as Record<InstallationDateFieldKey | "nextDueDate", string>;
 
 function normalizeRegion(value: unknown): RegionKey {
   return VALID_REGIONS.includes(value as RegionKey) ? (value as RegionKey) : "north";
@@ -48,7 +52,7 @@ function compareYmd(left: string, right: string): number {
   return left.localeCompare(right);
 }
 
-function pushDateFormatIssue(issues: InstallationValidationIssue[], field: InstallationDateFieldKey, value: string) {
+function pushDateFormatIssue(issues: InstallationValidationIssue[], field: InstallationDateFieldKey | "nextDueDate", value: string) {
   if (!value) return;
   if (isDateYmd(value)) return;
   issues.push({
@@ -108,6 +112,10 @@ export function getInstallationDefaultDraft(machineModels: readonly MachineModel
     estComplete: "",
     actArrival: "",
     actComplete: "",
+    nextAction: "",
+    nextOwner: "",
+    nextDueDate: "",
+    overdueReason: "",
     notes: "",
     progress: 0,
     checklist: {},
@@ -138,6 +146,10 @@ export function normalizeInstallationDraft(
     estComplete: normalizeDateYmd(input.estComplete),
     actArrival: normalizeDateYmd(input.actArrival),
     actComplete: normalizeDateYmd(input.actComplete),
+    nextAction: trimString(input.nextAction),
+    nextOwner: toDisplayShortName(input.nextOwner),
+    nextDueDate: normalizeDateYmd(input.nextDueDate),
+    overdueReason: trimString(input.overdueReason),
     notes: trimString(input.notes),
     progress,
     checklist: normalizeChecklist(input.checklist),
@@ -145,7 +157,7 @@ export function normalizeInstallationDraft(
 }
 
 export function getInstallationValidationIssues(
-  input: Pick<InstallationDraft, "phase" | "name" | "modelCode" | "engineer" | "estArrival" | "estComplete" | "actArrival" | "actComplete">,
+  input: Pick<InstallationDraft, "phase" | "name" | "modelCode" | "engineer" | "estArrival" | "estComplete" | "actArrival" | "actComplete" | "nextDueDate">,
 ): InstallationValidationIssue[] {
   const issues: InstallationValidationIssue[] = [];
 
@@ -155,6 +167,7 @@ export function getInstallationValidationIssues(
   const rawEstComplete = trimString(input.estComplete);
   const rawActArrival = trimString(input.actArrival);
   const rawActComplete = trimString(input.actComplete);
+  const rawNextDueDate = trimString(input.nextDueDate);
   const estArrival = normalizeDateYmd(rawEstArrival);
   const estComplete = normalizeDateYmd(rawEstComplete);
   const actArrival = normalizeDateYmd(rawActArrival);
@@ -178,6 +191,7 @@ export function getInstallationValidationIssues(
   pushDateFormatIssue(issues, "estComplete", rawEstComplete);
   pushDateFormatIssue(issues, "actArrival", rawActArrival);
   pushDateFormatIssue(issues, "actComplete", rawActComplete);
+  pushDateFormatIssue(issues, "nextDueDate", rawNextDueDate);
 
   if (doesInstallationPhaseRequireInstallStart(input.phase) && !actArrival) {
     issues.push({

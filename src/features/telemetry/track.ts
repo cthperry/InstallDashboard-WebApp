@@ -5,6 +5,13 @@ import { db } from "@/lib/firebase/client";
 import { EVENTS_COL } from "@/domain/constants";
 
 type Payload = Record<string, unknown>;
+type GtagFunction = (command: "event", eventName: string, payload: Payload) => void;
+
+declare global {
+  interface Window {
+    gtag?: GtagFunction;
+  }
+}
 
 function gaEnabled(): boolean {
   const id = process.env.NEXT_PUBLIC_GA_MEASUREMENT_ID;
@@ -13,9 +20,8 @@ function gaEnabled(): boolean {
 
 function sendGA(eventName: string, payload: Payload) {
   if (!gaEnabled()) return;
-  const w = window as unknown as { gtag?: (...args: any[]) => void };
-  if (!w.gtag) return;
-  w.gtag("event", eventName, payload);
+  if (!window.gtag) return;
+  window.gtag("event", eventName, payload);
 }
 
 export async function trackEvent(eventName: string, payload: Payload = {}) {

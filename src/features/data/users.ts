@@ -12,8 +12,10 @@ import {
 } from "firebase/firestore";
 
 import { db } from "@/lib/firebase/client";
+import { isPremtekEmail } from "@/domain/accessPolicy";
 import { USERS_COL } from "@/domain/constants";
 import type { UserProfile } from "@/domain/types";
+import { normalizeUserRole, type UserRole } from "@/domain/userRoles";
 
 export type ManagedUser = UserProfile & {
   id: string;
@@ -34,7 +36,7 @@ function mapRow(d: QueryDocumentSnapshot): ManagedUser {
   return {
     id: d.id,
     email: String(data.email ?? ""),
-    role: data.role === "admin" ? "admin" : "engineer",
+    role: normalizeUserRole(data.role),
     updatedAt: Number(data.updatedAt ?? 0),
     updatedBy: data.updatedBy ? String(data.updatedBy) : undefined,
   };
@@ -58,16 +60,18 @@ export function listenUsers(
 export async function upsertUserRoleByUid(params: {
   uid: string;
   email: string;
-  role: "admin" | "engineer";
+  role: UserRole;
   updatedBy: string;
 }) {
   const uid = params.uid.trim();
   if (!uid) throw new Error("UID 不可空白");
+  const email = params.email.trim();
+  if (!isPremtekEmail(email)) throw new Error("Email 必須為 @premtek.com.tw");
 
   await setDoc(
     doc(db, USERS_COL, uid),
     {
-      email: params.email.trim(),
+      email,
       role: params.role,
       updatedAt: Date.now(),
       updatedBy: params.updatedBy,

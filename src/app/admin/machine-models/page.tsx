@@ -8,6 +8,7 @@ import { useAuth } from "@/features/auth/AuthProvider";
 import { writeAuditLog } from "@/features/data/audit";
 import { trackEvent } from "@/features/telemetry/track";
 import { listenMachineModels, saveMachineModels } from "@/features/data/settings";
+import { getErrorMessage } from "@/lib/errors";
 
 import { machineModelsDocSchema } from "@/domain/schemas";
 import type { MachineModel } from "@/domain/types";
@@ -36,6 +37,18 @@ function emptyModel(): EditableModel {
   };
 }
 
+function getDuplicateCodes(rows: EditableModel[]): string[] {
+  const seen = new Set<string>();
+  const duplicates = new Set<string>();
+  for (const row of rows) {
+    const code = row.code.trim();
+    if (!code) continue;
+    if (seen.has(code)) duplicates.add(code);
+    seen.add(code);
+  }
+  return Array.from(duplicates);
+}
+
 export default function AdminMachineModelsPage() {
   const { isAdmin, user, appVersion } = useAuth();
   const canUse = useMemo(() => isAdmin, [isAdmin]);
@@ -46,6 +59,14 @@ export default function AdminMachineModelsPage() {
   const [msg, setMsg] = useState("");
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
+  const completeModelCount = useMemo(() => models.filter((row) => row.code.trim() && row.displayName.trim()).length, [models]);
+  const partialModelCount = useMemo(() => models.filter((row) => {
+    const hasCode = row.code.trim().length > 0;
+    const hasName = row.displayName.trim().length > 0;
+    return (hasCode || hasName) && !(hasCode && hasName);
+  }).length, [models]);
+  const duplicateCodes = useMemo(() => getDuplicateCodes(models), [models]);
+  const hasDuplicateCodes = duplicateCodes.length > 0;
 
   useEffect(() => {
     const unsub = listenMachineModels((doc) => {
@@ -109,8 +130,8 @@ export default function AdminMachineModelsPage() {
       });
 
       setMsg(`已套用：${parsed.data.models.length} 筆機型`);
-    } catch (e: any) {
-      setErr(e?.message || "套用失敗");
+    } catch (e: unknown) {
+      setErr(getErrorMessage(e, "套用失敗"));
     } finally {
       setBusy(false);
     }
@@ -143,7 +164,12 @@ export default function AdminMachineModelsPage() {
                 <Input value={version} onChange={(e) => setVersion(e.target.value)} placeholder="例如：ui-2026-03-01" />
               </div>
               <Button variant="secondary" onClick={addRow} disabled={!canUse || busy}>新增機型列</Button>
-              <Button onClick={apply} disabled={!canUse || busy}>儲存到 Firebase</Button>
+              <Button onClick={apply} disabled={!canUse || busy || hasDuplicateCodes}>儲存到 Firebase</Button>
+            </div>
+
+            <div className="rounded-lg border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
+              將儲存 {completeModelCount} 筆機型；{partialModelCount > 0 ? `${partialModelCount} 筆未完成會被略過` : "空白列會自動略過"}
+              {hasDuplicateCodes ? <span className="ml-2 text-destructive">重複 code：{duplicateCodes.join("、")}</span> : null}
             </div>
 
             <div className="space-y-3">

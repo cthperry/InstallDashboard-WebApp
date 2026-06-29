@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { getAppReleaseLabel } from "@/config/appVersion";
+import { getErrorCode, getErrorMessage } from "@/lib/errors";
 
 export default function LoginPage() {
   const { user, signInWithEmail, signInWithGoogle, signOutNow, loading, appVersion } = useAuth();
@@ -26,14 +27,14 @@ export default function LoginPage() {
     setWorking(true);
     try {
       await signInWithEmail(email, password);
-    } catch (e: any) {
-      const code = String(e?.code || "");
+    } catch (e: unknown) {
+      const code = getErrorCode(e);
       const msg =
         code === "auth/invalid-credential" || code === "auth/wrong-password" ? "Email 或密碼錯誤" :
         code === "auth/user-not-found" ? "找不到此帳號（請確認是否已在 Firebase 建立使用者）" :
         code === "auth/invalid-email" ? "Email 格式不正確" :
         code === "auth/too-many-requests" ? "嘗試次數過多，請稍後再試" :
-        (e?.message || "登入失敗");
+        getErrorMessage(e, "登入失敗");
       setErr(msg);
     } finally {
       setWorking(false);
@@ -45,13 +46,13 @@ export default function LoginPage() {
     setWorking(true);
     try {
       await signInWithGoogle();
-    } catch (e: any) {
-      const code = String(e?.code || "");
+    } catch (e: unknown) {
+      const code = getErrorCode(e);
       const msg =
         code === "auth/popup-closed-by-user" ? "你已關閉登入視窗" :
         code === "auth/cancelled-popup-request" ? "登入流程已取消" :
         code === "auth/account-exists-with-different-credential" ? "此 Email 已用其他方式登入過，請改用原登入方式" :
-        (e?.message || "Google 登入失敗");
+        getErrorMessage(e, "Google 登入失敗");
       setErr(msg);
     } finally {
       setWorking(false);

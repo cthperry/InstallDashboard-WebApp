@@ -6,6 +6,7 @@ export const INSTALLATIONS_COL = "installations" as const;
 export const EQUIPMENTS_COL = "equipments" as const;
 export const AUDIT_LOGS_COL = "auditLogs" as const;
 export const EVENTS_COL = "events" as const;
+export const IMPORT_SESSIONS_COL = "importSessions" as const;
 
 export const REGIONS: Record<RegionKey, { label: string; cities: string; color: string }> = {
   north:   { label: "北區", cities: "新竹/桃園/台北", color: "#3b82f6" },

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 
 import { RequireAuth } from "@/features/auth/RequireAuth";
@@ -8,24 +8,41 @@ import { useAuth } from "@/features/auth/AuthProvider";
 import { writeAuditLog } from "@/features/data/audit";
 import { trackEvent } from "@/features/telemetry/track";
 import { deleteUserByUid, listenUsers, upsertUserRoleByUid, type ManagedUser } from "@/features/data/users";
+import { isPremtekEmail } from "@/domain/accessPolicy";
+import { DEFAULT_USER_ROLE, USER_ROLES, isUserRole, type UserRole } from "@/domain/userRoles";
+import { getErrorMessage } from "@/lib/errors";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Input } from "@/components/ui/input";
 
-type Role = "admin" | "engineer";
+type RoleFilter = "all" | UserRole;
+
+const ROLE_COPY: Record<UserRole, { label: string; help: string }> = {
+  admin: {
+    label: "admin",
+    help: "可管理使用者、客戶、機型、匯入設定與資料保留",
+  },
+  engineer: {
+    label: "engineer",
+    help: "可執行裝機任務、更新設備狀態與檢視營運中樞",
+  },
+};
 
 export default function AdminUsersPage() {
   const { isAdmin, user, appVersion } = useAuth();
   const canUse = useMemo(() => isAdmin, [isAdmin]);
 
   const [users, setUsers] = useState<ManagedUser[]>([]);
-  const [roleDraft, setRoleDraft] = useState<Record<string, Role>>({});
+  const [roleDraft, setRoleDraft] = useState<Record<string, UserRole>>({});
+  const [userSearch, setUserSearch] = useState("");
+  const [roleFilter, setRoleFilter] = useState<RoleFilter>("all");
+  const deferredUserSearch = useDeferredValue(userSearch);
 
   const [uid, setUid] = useState("");
   const [email, setEmail] = useState("");
-  const [role, setRole] = useState<Role>("engineer");
+  const [role, setRole] = useState<UserRole>(DEFAULT_USER_ROLE);
 
   const [msg, setMsg] = useState("");
   const [err, setErr] = useState("");
@@ -46,13 +63,50 @@ export default function AdminUsersPage() {
         });
       },
       (e) => {
-        const raw = String((e as any)?.message || e || "");
+        const raw = getErrorMessage(e, "無法讀取 users 清單");
         setListErr(raw || "無法讀取 users 清單");
       },
     );
 
     return () => unsub?.();
   }, [canUse]);
+
+  const userListState = useMemo(() => {
+    const keyword = deferredUserSearch.trim().toLowerCase();
+    const filtered: ManagedUser[] = [];
+    const pending: Array<ManagedUser & { nextRole: UserRole }> = [];
+    let admin = 0;
+    let engineer = 0;
+
+    for (const row of users) {
+      const draftRole = roleDraft[row.id] || row.role;
+      if (draftRole === "admin") admin += 1;
+      if (draftRole === "engineer") engineer += 1;
+      if (draftRole !== row.role) pending.push({ ...row, nextRole: draftRole });
+
+      const matchesRole = roleFilter === "all" || draftRole === roleFilter;
+      const matchesKeyword = !keyword || row.email.toLowerCase().includes(keyword) || row.id.toLowerCase().includes(keyword);
+      if (matchesRole && matchesKeyword) filtered.push(row);
+    }
+
+    return {
+      filteredUsers: filtered,
+      pendingRoleChanges: pending,
+      userCounts: {
+        total: users.length,
+        filtered: filtered.length,
+        admin,
+        engineer,
+      },
+    };
+  }, [users, roleDraft, roleFilter, deferredUserSearch]);
+  const { filteredUsers, pendingRoleChanges, userCounts } = userListState;
+  const hasUserFilters = userSearch.trim().length > 0 || roleFilter !== "all";
+
+  function clearUserFilters() {
+    setUserSearch("");
+    setRoleFilter("all");
+  }
 
   const saveByUid = async () => {
     setMsg("");
@@ -65,7 +119,7 @@ export default function AdminUsersPage() {
       const cleanedEmail = email.trim();
       if (!cleanedUid) throw new Error("請輸入 UID");
       if (!cleanedEmail) throw new Error("請輸入 Email");
-      if (!/@premtek\.com\.tw$/i.test(cleanedEmail)) throw new Error("Email 必須為 @premtek.com.tw");
+      if (!isPremtekEmail(cleanedEmail)) throw new Error("Email 必須為 @premtek.com.tw");
 
       setBusy(true);
       await upsertUserRoleByUid({
@@ -90,9 +144,9 @@ export default function AdminUsersPage() {
       setMsg(`已儲存 users/${cleanedUid}（${role}）`);
       setUid("");
       setEmail("");
-      setRole("engineer");
-    } catch (e: any) {
-      setErr(e?.message || "儲存失敗");
+      setRole(DEFAULT_USER_ROLE);
+    } catch (e: unknown) {
+      setErr(getErrorMessage(e, "儲存失敗"));
     } finally {
       setBusy(false);
     }
@@ -106,6 +160,8 @@ export default function AdminUsersPage() {
       if (!user?.email) throw new Error("尚未登入");
 
       const nextRole = roleDraft[row.id] || row.role;
+      if (nextRole === row.role) throw new Error("角色沒有變更，無需儲存");
+      if (row.id === user.uid && nextRole !== "admin") throw new Error("不可將目前登入中的 admin 降為 engineer");
       setBusy(true);
       await upsertUserRoleByUid({
         uid: row.id,
@@ -127,9 +183,10 @@ export default function AdminUsersPage() {
         appVersion,
       });
 
+      setRoleDraft((prev) => ({ ...prev, [row.id]: nextRole }));
       setMsg(`已更新 ${row.email} → ${nextRole}`);
-    } catch (e: any) {
-      setErr(e?.message || "更新失敗");
+    } catch (e: unknown) {
+      setErr(getErrorMessage(e, "更新失敗"));
     } finally {
       setBusy(false);
     }
@@ -167,8 +224,8 @@ export default function AdminUsersPage() {
         return next;
       });
       setMsg(`已刪除 users/${row.id}`);
-    } catch (e: any) {
-      setErr(e?.message || "刪除失敗");
+    } catch (e: unknown) {
+      setErr(getErrorMessage(e, "刪除失敗"));
     } finally {
       setBusy(false);
     }
@@ -217,10 +274,18 @@ export default function AdminUsersPage() {
                 </div>
                 <div className="space-y-1">
                   <div className="label">角色</div>
-                  <select value={role} onChange={(e) => setRole(e.target.value as Role)}>
-                    <option value="engineer">engineer</option>
-                    <option value="admin">admin</option>
+                  <select
+                    value={role}
+                    onChange={(e) => {
+                      const nextRole = e.target.value;
+                      if (isUserRole(nextRole)) setRole(nextRole);
+                    }}
+                  >
+                    {USER_ROLES.map((option) => (
+                      <option key={option} value={option}>{ROLE_COPY[option].label}</option>
+                    ))}
                   </select>
+                  <div className="text-xs text-muted-foreground">{ROLE_COPY[role].help}</div>
                 </div>
                 <div className="md:col-span-4 flex justify-end">
                   <Button onClick={saveByUid} disabled={!canUse || busy}>儲存到 Firebase</Button>
@@ -230,9 +295,20 @@ export default function AdminUsersPage() {
 
             <Card className="py-0">
               <CardHeader className="border-b pb-3">
-                <CardTitle className="text-base">既有使用者清單（勾選後儲存）</CardTitle>
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+                  <CardTitle className="text-base">既有使用者清單（勾選後儲存）</CardTitle>
+                  <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr),140px] lg:min-w-[460px]">
+                    <Input value={userSearch} onChange={(event) => setUserSearch(event.target.value)} placeholder="搜尋 Email 或 UID…" />
+                    <select value={roleFilter} onChange={(event) => setRoleFilter(event.target.value as RoleFilter)}>
+                      <option value="all">全部角色</option>
+                      {USER_ROLES.map((option) => (
+                        <option key={option} value={option}>{option}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
               </CardHeader>
-              <CardContent className="pt-4">
+              <CardContent className="space-y-3 pt-4">
                 {listErr ? (
                   <Alert variant="destructive">
                     <AlertDescription>
@@ -243,20 +319,55 @@ export default function AdminUsersPage() {
                   </Alert>
                 ) : null}
 
-                <div className="tableWrap" style={{ marginTop: 10 }}>
+                <div className="flex flex-col gap-2 rounded-lg border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
+                  <span>
+                    顯示 {userCounts.filtered} / {userCounts.total} 位，admin {userCounts.admin}、engineer {userCounts.engineer}
+                  </span>
+                  {hasUserFilters ? (
+                    <Button type="button" variant="secondary" size="sm" onClick={clearUserFilters}>
+                      清除篩選
+                    </Button>
+                  ) : null}
+                </div>
+
+                {pendingRoleChanges.length > 0 ? (
+                  <Alert>
+                    <AlertDescription>
+                      尚有 {pendingRoleChanges.length} 位角色變更未儲存：
+                      {" "}
+                      {pendingRoleChanges.slice(0, 3).map((row) => `${row.email || row.id} 改為 ${row.nextRole}`).join("、")}
+                      {pendingRoleChanges.length > 3 ? "…" : ""}
+                    </AlertDescription>
+                  </Alert>
+                ) : null}
+
+                {users.length > 0 && filteredUsers.length === 0 ? (
+                  <div className="rounded-lg border border-dashed border-border bg-card px-4 py-6 text-center">
+                    <div className="text-sm font-bold">沒有符合條件的使用者</div>
+                    <div className="mt-1 text-xs text-muted-foreground">請調整搜尋字或角色篩選，權限資料仍保留在清單中。</div>
+                    <Button type="button" variant="secondary" size="sm" onClick={clearUserFilters} className="mt-3">
+                      顯示全部使用者
+                    </Button>
+                  </div>
+                ) : null}
+
+                <div className="tableWrap">
                   <table className="table">
                     <thead>
                       <tr>
                         <th>UID</th>
                         <th>Email</th>
-                        <th>admin</th>
+                        <th>角色</th>
                         <th>更新</th>
                         <th style={{ width: 120 }}>操作</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {users.map((r) => {
-                        const checked = (roleDraft[r.id] || r.role) === "admin";
+                      {filteredUsers.map((r) => {
+                        const nextRole = roleDraft[r.id] || r.role;
+                        const checked = nextRole === "admin";
+                        const changed = nextRole !== r.role;
+                        const isCurrentUser = r.id === user?.uid;
                         return (
                           <tr key={r.id}>
                             <td className="mono" style={{ fontSize: 12 }}>{r.id}</td>
@@ -265,23 +376,32 @@ export default function AdminUsersPage() {
                               <label style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
                                 <input
                                   type="checkbox"
+                                  aria-label={`將 ${r.email || r.id} 設為 admin`}
                                   checked={checked}
+                                  disabled={isCurrentUser || !canUse || busy}
                                   onChange={(e) => {
                                     setRoleDraft((prev) => ({
                                       ...prev,
-                                      [r.id]: e.target.checked ? "admin" : "engineer",
+                                      [r.id]: e.target.checked ? "admin" : DEFAULT_USER_ROLE,
                                     }));
                                   }}
                                 />
-                                {checked ? "admin" : "engineer"}
+                                {ROLE_COPY[nextRole].label}
                               </label>
+                              <div className="mt-1 text-xs text-muted-foreground">{ROLE_COPY[nextRole].help}</div>
+                              {changed ? (
+                                <div className="mt-1 text-xs font-semibold text-amber-600">待儲存：{r.role} 改為 {nextRole}</div>
+                              ) : null}
+                              {isCurrentUser ? (
+                                <div className="mt-1 text-xs text-muted-foreground">目前登入帳號固定保留 admin</div>
+                              ) : null}
                             </td>
                             <td style={{ fontSize: 12, color: "var(--muted-foreground)" }}>
                               {r.updatedAt ? new Date(r.updatedAt).toLocaleString() : "-"}
                             </td>
                             <td>
                               <div className="flex gap-2">
-                                <Button size="sm" onClick={() => saveRowRole(r)} disabled={!canUse || busy}>儲存</Button>
+                                <Button size="sm" onClick={() => saveRowRole(r)} disabled={!canUse || busy || !changed}>儲存</Button>
                                 <Button size="sm" variant="destructive" onClick={() => deleteRow(r)} disabled={!canUse || busy || r.id === user?.uid}>
                                   刪除
                                 </Button>

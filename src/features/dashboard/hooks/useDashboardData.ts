@@ -1,12 +1,12 @@
 import { useEffect, useState } from "react";
 
-import type { AppVariablesDoc, Equipment, Installation, MachineModel, RetentionSettingsDoc } from "@/domain/types";
+import type { AppVariablesDoc, Equipment, ImportConfigDoc, Installation, MachineModel, RetentionSettingsDoc } from "@/domain/types";
 import { DEFAULT_MACHINE_MODELS } from "@/domain/constants";
 import { mergeMachineModels } from "@/domain/machineModels";
 import { listenInstallations } from "@/features/data/installations";
 import { listenEquipments } from "@/features/data/equipments";
 import { listenUsers, type ManagedUser } from "@/features/data/users";
-import { listenAppVariables, listenMachineModels, listenRetentionSettings } from "@/features/data/settings";
+import { listenAppVariables, listenImportConfig, listenMachineModels, listenRetentionSettings } from "@/features/data/settings";
 import { listenAuditLogs, listenEventsLastDays, type AuditLogRow, type EventRow } from "@/features/data/logs";
 
 type DashboardSection = "install" | "equipment" | "insights";
@@ -30,10 +30,13 @@ export function useDashboardData({
   const [machineModels, setMachineModels] = useState<MachineModel[]>([...DEFAULT_MACHINE_MODELS]);
   const [appVars, setAppVars] = useState<AppVariablesDoc | null>(null);
   const [retention, setRetention] = useState<RetentionSettingsDoc | null>(null);
+  const [importConfig, setImportConfig] = useState<ImportConfigDoc | null>(null);
   const [managedUsers, setManagedUsers] = useState<ManagedUser[]>([]);
   const [installations, setInstallations] = useState<Installation[]>([]);
+  const [installLoading, setInstallLoading] = useState(false);
   const [installErr, setInstallErr] = useState<string>("");
   const [equipments, setEquipments] = useState<Equipment[]>([]);
+  const [equipLoading, setEquipLoading] = useState(false);
   const [equipErr, setEquipErr] = useState<string>("");
   const [auditLogs, setAuditLogs] = useState<AuditLogRow[]>([]);
   const [events, setEvents] = useState<EventRow[]>([]);
@@ -47,9 +50,14 @@ export function useDashboardData({
       setMachineModels(mergeMachineModels(doc?.models, DEFAULT_MACHINE_MODELS));
     });
 
+    const unsubImportConfig = listenImportConfig((doc) => {
+      setImportConfig(doc);
+    });
+
     return () => {
       unsubVars?.();
       unsubModels?.();
+      unsubImportConfig?.();
     };
   }, []);
 
@@ -65,12 +73,22 @@ export function useDashboardData({
   useEffect(() => {
     if (section === "equipment" || (section === "insights" && insightsTab === "logs")) {
       setInstallations([]);
+      setInstallLoading(false);
       setInstallErr("");
       return;
     }
+    setInstallLoading(true);
+    setInstallErr("");
     const unsubInst = listenInstallations(
-      (rows) => setInstallations(rows),
-      (e) => setInstallErr(safeStr(e)),
+      (rows) => {
+        setInstallations(rows);
+        setInstallLoading(false);
+        setInstallErr("");
+      },
+      (e) => {
+        setInstallErr(safeStr(e));
+        setInstallLoading(false);
+      },
     );
     return () => unsubInst?.();
   }, [section, insightsTab]);
@@ -78,12 +96,22 @@ export function useDashboardData({
   useEffect(() => {
     if (section === "install" || (section === "insights" && insightsTab === "logs")) {
       setEquipments([]);
+      setEquipLoading(false);
       setEquipErr("");
       return;
     }
+    setEquipLoading(true);
+    setEquipErr("");
     const unsubEq = listenEquipments(
-      (rows) => setEquipments(rows),
-      (e) => setEquipErr(safeStr(e)),
+      (rows) => {
+        setEquipments(rows);
+        setEquipLoading(false);
+        setEquipErr("");
+      },
+      (e) => {
+        setEquipErr(safeStr(e));
+        setEquipLoading(false);
+      },
     );
     return () => unsubEq?.();
   }, [section, insightsTab]);
@@ -119,10 +147,13 @@ export function useDashboardData({
     machineModels,
     appVars,
     retention,
+    importConfig,
     managedUsers,
     installations,
+    installLoading,
     installErr,
     equipments,
+    equipLoading,
     equipErr,
     auditLogs,
     events,

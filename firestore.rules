@@ -56,6 +56,14 @@ service cloud.firestore {
       return value == '裝機' || value == '試產' || value == '正式生產中';
     }
 
+    function isBlockingStatus(value) {
+      return value == null || value == 'open' || value == 'resolved' || value == 'reopened';
+    }
+
+    function isImportSessionStatus(value) {
+      return value == 'dryRun' || value == 'committed' || value == 'failed';
+    }
+
     function isOptionalShortString(value, maxLen) {
       return value == null || (value is string && value.size() <= maxLen);
     }
@@ -72,7 +80,8 @@ service cloud.firestore {
       return data.keys().hasOnly([
           'name', 'serialKey', 'importKey', 'modelCode', 'region', 'customer',
           'phase', 'engineer', 'custContact', 'custPhone', 'orderDate',
-          'estArrival', 'estComplete', 'actArrival', 'actComplete', 'notes',
+          'estArrival', 'estComplete', 'actArrival', 'actComplete',
+          'nextAction', 'nextOwner', 'nextDueDate', 'overdueReason', 'notes',
           'progress', 'checklist', 'createdAt', 'updatedAt',
           'createdAtServer', 'updatedAtServer'
         ])
@@ -97,6 +106,10 @@ service cloud.firestore {
         && isOptionalShortString(data.estComplete, 20)
         && isOptionalShortString(data.actArrival, 20)
         && isOptionalShortString(data.actComplete, 20)
+        && isOptionalShortString(data.nextAction, 120)
+        && isOptionalShortString(data.nextOwner, 60)
+        && isOptionalShortString(data.nextDueDate, 20)
+        && isOptionalShortString(data.overdueReason, 120)
         && isOptionalShortString(data.notes, 400)
         && isNumberLike(data.progress)
         && data.progress >= 0
@@ -120,11 +133,17 @@ service cloud.firestore {
     function isValidBlocking(data) {
       return data == null || (
         data is map
-        && data.keys().hasOnly(['reasonCode', 'detail', 'owner', 'eta'])
+        && data.keys().hasOnly(['reasonCode', 'detail', 'owner', 'eta', 'status', 'openedAt', 'resolvedAt', 'reopenedAt', 'reopenCount', 'resolutionNote'])
         && isOptionalShortString(data.reasonCode, 40)
         && isOptionalShortString(data.detail, 200)
         && isOptionalShortString(data.owner, 60)
         && isOptionalShortString(data.eta, 20)
+        && isBlockingStatus(data.status)
+        && isOptionalNumber(data.openedAt)
+        && isOptionalNumber(data.resolvedAt)
+        && isOptionalNumber(data.reopenedAt)
+        && isOptionalNumber(data.reopenCount)
+        && isOptionalShortString(data.resolutionNote, 200)
       );
     }
 
@@ -201,6 +220,33 @@ service cloud.firestore {
         && (data.payload == null || data.payload is map);
     }
 
+    function isValidImportSession(data) {
+      return data.keys().hasOnly([
+          'fileName', 'status', 'totalRows', 'selectedRows', 'acceptedRows',
+          'rejectedRows', 'createdInstallations', 'updatedInstallations',
+          'createdEquipments', 'updatedEquipments', 'removedInstallations',
+          'skippedDuplicateEquipments', 'errorSample', 'actorEmail',
+          'createdAt', 'updatedAt', 'createdAtServer', 'updatedAtServer'
+        ])
+        && isOptionalShortString(data.fileName, 180)
+        && isImportSessionStatus(data.status)
+        && isNumberLike(data.totalRows)
+        && isNumberLike(data.selectedRows)
+        && isNumberLike(data.acceptedRows)
+        && isNumberLike(data.rejectedRows)
+        && isNumberLike(data.createdInstallations)
+        && isNumberLike(data.updatedInstallations)
+        && isNumberLike(data.createdEquipments)
+        && isNumberLike(data.updatedEquipments)
+        && isNumberLike(data.removedInstallations)
+        && isNumberLike(data.skippedDuplicateEquipments)
+        && data.errorSample is list
+        && data.errorSample.size() <= 20
+        && isPremtekEmail(data.actorEmail)
+        && isOptionalNumber(data.createdAt)
+        && isOptionalNumber(data.updatedAt);
+    }
+
     match /installations/{docId} {
       allow read: if isSignedIn();
       allow create, update: if isSignedIn() && isValidInstallation(request.resource.data);
@@ -237,6 +283,12 @@ service cloud.firestore {
       allow create: if isSignedIn() && isValidEvent(request.resource.data);
       allow delete: if isAdmin();
       allow update: if false;
+    }
+
+    match /importSessions/{sessionId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && isValidImportSession(request.resource.data);
+      allow update, delete: if isAdmin();
     }
 
     match /{document=**} {

@@ -3,7 +3,7 @@
 import { doc, getDoc, onSnapshot, setDoc, serverTimestamp } from "firebase/firestore";
 import { db } from "@/lib/firebase/client";
 import { SETTINGS_COL } from "@/domain/constants";
-import type { AppVariablesDoc, MachineModelsDoc, RetentionSettingsDoc } from "@/domain/types";
+import type { AppVariablesDoc, ImportConfigDoc, MachineModelsDoc, RetentionSettingsDoc } from "@/domain/types";
 
 export async function getMachineModelsOnce(): Promise<MachineModelsDoc | null> {
   const snap = await getDoc(doc(db, SETTINGS_COL, "machineModels"));
@@ -54,6 +54,19 @@ export function listenRetentionSettings(onData: (doc: RetentionSettingsDoc | nul
 
 export async function saveRetentionSettings(docData: RetentionSettingsDoc) {
   await setDoc(doc(db, SETTINGS_COL, "retention"), {
+    ...docData,
+    updatedAtServer: serverTimestamp()
+  }, { merge: true });
+}
+
+export function listenImportConfig(onData: (doc: ImportConfigDoc | null) => void, onError?: (e: unknown) => void) {
+  return onSnapshot(doc(db, SETTINGS_COL, "importConfig"), (snap) => {
+    onData(snap.exists() ? (snap.data() as ImportConfigDoc) : null);
+  }, (e) => onError?.(e));
+}
+
+export async function saveImportConfig(docData: ImportConfigDoc) {
+  await setDoc(doc(db, SETTINGS_COL, "importConfig"), {
     ...docData,
     updatedAtServer: serverTimestamp()
   }, { merge: true });
