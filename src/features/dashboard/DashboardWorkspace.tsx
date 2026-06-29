@@ -1075,6 +1075,7 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
     });
     setSaveFilterName("");
     setShowSaveFilterInput(false);
+    setToast(`已儲存書籤：${name}`);
   }, [addSavedFilter, saveFilterDisabled, saveFilterNameTrimmed, fRegion, fModel, fPhase, fCustomer, fEngineer, keyword]);
 
   const applyFilter = useCallback((f: SavedFilter) => {
@@ -1084,7 +1085,15 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
     setFCustomer(f.customer);
     setFEngineer(f.engineer);
     setKeyword(f.keyword);
+    setToast(`已套用書籤：${f.name}`);
   }, []);
+
+  const deleteSavedFilterWithConfirm = useCallback((f: SavedFilter) => {
+    const ok = confirm(`刪除書籤「${f.name}」？`);
+    if (!ok) return;
+    deleteSavedFilter(f.id);
+    setToast(`已刪除書籤：${f.name}`);
+  }, [deleteSavedFilter]);
 
   const switchInstallView = useCallback((view: InstallView) => {
     setInstallView(view);
@@ -1296,7 +1305,7 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
                   {savedFilters.map((f) => (
                     <div key={f.id} style={{ display: "inline-flex", alignItems: "center", gap: 2 }}>
                       <button className="btn btnSmall" style={{ paddingLeft: 8, paddingRight: 8, fontSize: 11 }} onClick={() => applyFilter(f)} title={f.savedAt ? new Date(f.savedAt).toLocaleString("zh-TW") : ""}>{f.name}</button>
-                      <button style={{ background: "none", border: "none", cursor: "pointer", color: "#94a3b8", padding: "0 2px", lineHeight: 1, fontSize: 14 }} onClick={() => deleteSavedFilter(f.id)} title="刪除此書籤">×</button>
+                      <button style={{ background: "none", border: "none", cursor: "pointer", color: "#94a3b8", padding: "0 2px", lineHeight: 1, fontSize: 14 }} onClick={() => deleteSavedFilterWithConfirm(f)} title={`刪除書籤：${f.name}`}>×</button>
                     </div>
                   ))}
                 </div>
