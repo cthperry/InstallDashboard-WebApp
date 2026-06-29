@@ -17,6 +17,7 @@ function buildReleaseNotes(releaseLabel: string): string[] {
     "GitHub Actions 新增版本、品質與 build 守門，PR 與 main/codex 分支推送都會留下可追蹤的 CI 紀錄。",
     "效能優化：智慧匯入 modal 改為開啟時載入，降低 dashboard 首屏 bundle 壓力。",
     "效能優化：甘特圖改為切換到甘特模式時載入，並快取時間軸計算以提升拖曳流暢度。",
+    "效能優化：Pipeline Kanban 依階段分組改為單次快取，減少每次 render 的重複篩選。",
   ];
 }
 
