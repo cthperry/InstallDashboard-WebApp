@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useDeferredValue, useEffect, useMemo, useState, type CSSProperties } from "react";
+import dynamic from "next/dynamic";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/features/auth/AuthProvider";
 
@@ -67,7 +68,6 @@ import { Badge } from "@/features/ui/Badge";
 import { Drawer } from "@/features/ui/Drawer";
 import { MiniTrend } from "@/features/ui/MiniTrend";
 import { RegionTabs } from "@/features/ui/RegionTabs";
-import { SmartImportModal } from "@/features/dashboard/SmartImportModal";
 import { GanttView } from "@/features/dashboard/GanttView";
 import {
   filterAndSortEquipments,
@@ -127,6 +127,11 @@ import {
   type InsightsTab,
   type InstallView,
 } from "@/features/dashboard/dashboardViewUtils";
+
+const SmartImportModal = dynamic(
+  () => import("@/features/dashboard/SmartImportModal").then((mod) => mod.SmartImportModal),
+  { ssr: false },
+);
 
 type DashboardSection = "install" | "equipment" | "insights";
 const TABLE_PAGE_SIZE = 120;
