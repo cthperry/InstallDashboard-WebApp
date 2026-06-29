@@ -777,7 +777,44 @@ body {
   .heroSummaryValue { @apply mt-1.5 text-2xl font-bold; font-family: var(--font-mono, "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace); }
   .heroSummaryHint  { @apply mt-2 text-xs text-muted-foreground; line-height: 1.5; }
   @media (max-width: 920px) { .heroGrid { grid-template-columns: 1fr; } }
-  .toastBanner { border-color: rgba(124,58,237,0.35); background: linear-gradient(90deg, rgba(124,58,237,0.12), transparent 58%), var(--secondary); }
+  .toastBanner {
+    border-color: rgba(124,58,237,0.35);
+    background: linear-gradient(90deg, rgba(124,58,237,0.12), transparent 58%), var(--secondary);
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 12px;
+    padding: 10px 10px 10px 12px;
+  }
+  .toastBannerText {
+    min-width: 0;
+    color: var(--foreground);
+    font-size: 13px;
+    font-weight: 700;
+    line-height: 1.5;
+    overflow-wrap: break-word;
+  }
+  .toastBannerClose {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    width: 28px;
+    height: 28px;
+    border-radius: 999px;
+    border: 1px solid rgba(148, 163, 184, 0.35);
+    color: #64748b;
+    font-size: 18px;
+    font-weight: 900;
+    line-height: 1;
+    background: rgba(255, 255, 255, 0.58);
+  }
+  .toastBannerClose:hover {
+    border-color: rgba(59, 130, 246, 0.55);
+    color: #0f172a;
+    background: rgba(224, 242, 254, 0.86);
+  }
 
   /* ═══════════════════════════════════════════════════════
      WAR ROOM EXCLUSIVE COMPONENTS

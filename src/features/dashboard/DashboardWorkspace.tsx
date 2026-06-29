@@ -1179,8 +1179,17 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
   return (
       <div className="container dashboardShell auroraDashboardShell" style={{ paddingTop: 14, paddingBottom: 24 }}>
         {toast ? (
-          <div className="card toastBanner" style={{ padding: 10, marginBottom: 12 }}>
-            <div style={{ fontSize: 13 }}>{toast}</div>
+          <div className="card toastBanner" role="status" aria-live="polite">
+            <div className="toastBannerText">{toast}</div>
+            <button
+              type="button"
+              className="toastBannerClose"
+              onClick={() => setToast("")}
+              aria-label="關閉提示"
+              title="關閉提示"
+            >
+              ×
+            </button>
           </div>
         ) : null}
 
