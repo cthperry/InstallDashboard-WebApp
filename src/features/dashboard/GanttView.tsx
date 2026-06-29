@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import type { Installation, PhaseKey } from "@/domain/types";
 import { PHASES } from "@/domain/constants";
 import { toDisplayShortName } from "@/domain/personDisplay";
@@ -16,30 +16,40 @@ function parseYmd(s?: string): Date | null {
 type GanttRow = { id: string; install: Installation; phase: PhaseKey; start: Date; end: Date; progress: number; };
 
 export function GanttView({ rows, onClickRow }: { rows: Installation[]; onClickRow: (r: Installation) => void }) {
-  const today = new Date(); today.setHours(0, 0, 0, 0);
-  const phaseColors: Record<string, string> = {};
-  for (const p of PHASES) phaseColors[p.key] = p.color;
+  const today = useMemo(() => {
+    const value = new Date();
+    value.setHours(0, 0, 0, 0);
+    return value;
+  }, []);
+  const phaseColors = useMemo(() => {
+    const colors: Record<string, string> = {};
+    for (const p of PHASES) colors[p.key] = p.color;
+    return colors;
+  }, []);
 
-  const gRows: GanttRow[] = rows.map((r) => {
+  const gRows: GanttRow[] = useMemo(() => rows.map((r) => {
     const s = parseYmd(r.orderDate) ?? (r.createdAt ? new Date(r.createdAt) : new Date(today.getTime() - 14 * 86400000));
     const e = parseYmd(r.estComplete) ?? new Date(today.getTime() + 30 * 86400000);
     const start = s < e ? s : e; const end = s < e ? e : new Date(s.getTime() + 86400000);
     return { id: r.id, install: r, phase: r.phase, start, end, progress: r.progress ?? 0 };
-  }).sort((a, b) => a.start.getTime() - b.start.getTime());
+  }).sort((a, b) => a.start.getTime() - b.start.getTime()), [rows, today]);
 
-  const minDate = gRows.length ? new Date(Math.min(...gRows.map((r) => r.start.getTime()))) : new Date(today.getTime() - 30 * 86400000);
-  const maxDate = gRows.length ? new Date(Math.max(...gRows.map((r) => r.end.getTime()))) : new Date(today.getTime() + 60 * 86400000);
-  minDate.setDate(minDate.getDate() - 3); maxDate.setDate(maxDate.getDate() + 7);
-  const totalMs = maxDate.getTime() - minDate.getTime();
-  function pct(d: Date) { return ((d.getTime() - minDate.getTime()) / totalMs) * 100; }
-  const todayPct = pct(today);
-
-  const months: { label: string; left: number }[] = [];
-  const cur = new Date(minDate.getFullYear(), minDate.getMonth(), 1);
-  while (cur <= maxDate) {
-    months.push({ label: cur.getFullYear() + "/" + String(cur.getMonth() + 1).padStart(2, "0"), left: pct(cur) });
-    cur.setMonth(cur.getMonth() + 1);
-  }
+  const timeline = useMemo(() => {
+    const minDate = gRows.length ? new Date(Math.min(...gRows.map((r) => r.start.getTime()))) : new Date(today.getTime() - 30 * 86400000);
+    const maxDate = gRows.length ? new Date(Math.max(...gRows.map((r) => r.end.getTime()))) : new Date(today.getTime() + 60 * 86400000);
+    minDate.setDate(minDate.getDate() - 3); maxDate.setDate(maxDate.getDate() + 7);
+    const totalMs = maxDate.getTime() - minDate.getTime();
+    const pct = (d: Date) => ((d.getTime() - minDate.getTime()) / totalMs) * 100;
+    const months: { label: string; left: number }[] = [];
+    const cur = new Date(minDate.getFullYear(), minDate.getMonth(), 1);
+    while (cur <= maxDate) {
+      months.push({ label: cur.getFullYear() + "/" + String(cur.getMonth() + 1).padStart(2, "0"), left: pct(cur) });
+      cur.setMonth(cur.getMonth() + 1);
+    }
+    return { minDate, totalMs, todayPct: pct(today), months };
+  }, [gRows, today]);
+  const { totalMs, todayPct, months } = timeline;
+  function pct(d: Date) { return ((d.getTime() - timeline.minDate.getTime()) / totalMs) * 100; }
 
   const [dragging, setDragging] = useState<{ id: string; type: "move" | "resize-end"; startX: number; containerW: number } | null>(null);
   const [offsets, setOffsets] = useState<Record<string, { dStart: number; dEnd: number }>>({});

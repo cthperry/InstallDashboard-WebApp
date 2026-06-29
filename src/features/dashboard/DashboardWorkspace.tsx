@@ -68,7 +68,6 @@ import { Badge } from "@/features/ui/Badge";
 import { Drawer } from "@/features/ui/Drawer";
 import { MiniTrend } from "@/features/ui/MiniTrend";
 import { RegionTabs } from "@/features/ui/RegionTabs";
-import { GanttView } from "@/features/dashboard/GanttView";
 import {
   filterAndSortEquipments,
   filterAndSortInstallations,
@@ -131,6 +130,19 @@ import {
 const SmartImportModal = dynamic(
   () => import("@/features/dashboard/SmartImportModal").then((mod) => mod.SmartImportModal),
   { ssr: false },
+);
+
+function GanttViewLoading() {
+  return (
+    <div className="card" style={{ marginTop: 12, padding: 24, color: "var(--muted-foreground)" }}>
+      載入甘特圖...
+    </div>
+  );
+}
+
+const GanttView = dynamic(
+  () => import("@/features/dashboard/GanttView").then((mod) => mod.GanttView),
+  { ssr: false, loading: GanttViewLoading },
 );
 
 type DashboardSection = "install" | "equipment" | "insights";
