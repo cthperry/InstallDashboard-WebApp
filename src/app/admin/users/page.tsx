@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 
 import { RequireAuth } from "@/features/auth/RequireAuth";
@@ -19,6 +19,17 @@ import { Input } from "@/components/ui/input";
 
 type RoleFilter = "all" | UserRole;
 
+const ROLE_COPY: Record<UserRole, { label: string; help: string }> = {
+  admin: {
+    label: "admin",
+    help: "可管理使用者、客戶、機型、匯入設定與資料保留",
+  },
+  engineer: {
+    label: "engineer",
+    help: "可執行裝機任務、更新設備狀態與檢視營運中樞",
+  },
+};
+
 export default function AdminUsersPage() {
   const { isAdmin, user, appVersion } = useAuth();
   const canUse = useMemo(() => isAdmin, [isAdmin]);
@@ -27,6 +38,7 @@ export default function AdminUsersPage() {
   const [roleDraft, setRoleDraft] = useState<Record<string, UserRole>>({});
   const [userSearch, setUserSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState<RoleFilter>("all");
+  const deferredUserSearch = useDeferredValue(userSearch);
 
   const [uid, setUid] = useState("");
   const [email, setEmail] = useState("");
@@ -59,22 +71,36 @@ export default function AdminUsersPage() {
     return () => unsub?.();
   }, [canUse]);
 
-  const filteredUsers = useMemo(() => {
-    const keyword = userSearch.trim().toLowerCase();
-    return users.filter((row) => {
-      const draftRole = roleDraft[row.id] || row.role;
-      if (roleFilter !== "all" && draftRole !== roleFilter) return false;
-      if (!keyword) return true;
-      return row.email.toLowerCase().includes(keyword) || row.id.toLowerCase().includes(keyword);
-    });
-  }, [users, roleDraft, roleFilter, userSearch]);
+  const userListState = useMemo(() => {
+    const keyword = deferredUserSearch.trim().toLowerCase();
+    const filtered: ManagedUser[] = [];
+    const pending: Array<ManagedUser & { nextRole: UserRole }> = [];
+    let admin = 0;
+    let engineer = 0;
 
-  const userCounts = useMemo(() => ({
-    total: users.length,
-    filtered: filteredUsers.length,
-    admin: users.filter((row) => (roleDraft[row.id] || row.role) === "admin").length,
-    engineer: users.filter((row) => (roleDraft[row.id] || row.role) === "engineer").length,
-  }), [users, filteredUsers, roleDraft]);
+    for (const row of users) {
+      const draftRole = roleDraft[row.id] || row.role;
+      if (draftRole === "admin") admin += 1;
+      if (draftRole === "engineer") engineer += 1;
+      if (draftRole !== row.role) pending.push({ ...row, nextRole: draftRole });
+
+      const matchesRole = roleFilter === "all" || draftRole === roleFilter;
+      const matchesKeyword = !keyword || row.email.toLowerCase().includes(keyword) || row.id.toLowerCase().includes(keyword);
+      if (matchesRole && matchesKeyword) filtered.push(row);
+    }
+
+    return {
+      filteredUsers: filtered,
+      pendingRoleChanges: pending,
+      userCounts: {
+        total: users.length,
+        filtered: filtered.length,
+        admin,
+        engineer,
+      },
+    };
+  }, [users, roleDraft, roleFilter, deferredUserSearch]);
+  const { filteredUsers, pendingRoleChanges, userCounts } = userListState;
   const hasUserFilters = userSearch.trim().length > 0 || roleFilter !== "all";
 
   function clearUserFilters() {
@@ -134,6 +160,8 @@ export default function AdminUsersPage() {
       if (!user?.email) throw new Error("尚未登入");
 
       const nextRole = roleDraft[row.id] || row.role;
+      if (nextRole === row.role) throw new Error("角色沒有變更，無需儲存");
+      if (row.id === user.uid && nextRole !== "admin") throw new Error("不可將目前登入中的 admin 降為 engineer");
       setBusy(true);
       await upsertUserRoleByUid({
         uid: row.id,
@@ -155,6 +183,7 @@ export default function AdminUsersPage() {
         appVersion,
       });
 
+      setRoleDraft((prev) => ({ ...prev, [row.id]: nextRole }));
       setMsg(`已更新 ${row.email} → ${nextRole}`);
     } catch (e: unknown) {
       setErr(getErrorMessage(e, "更新失敗"));
@@ -253,9 +282,10 @@ export default function AdminUsersPage() {
                     }}
                   >
                     {USER_ROLES.map((option) => (
-                      <option key={option} value={option}>{option}</option>
+                      <option key={option} value={option}>{ROLE_COPY[option].label}</option>
                     ))}
                   </select>
+                  <div className="text-xs text-muted-foreground">{ROLE_COPY[role].help}</div>
                 </div>
                 <div className="md:col-span-4 flex justify-end">
                   <Button onClick={saveByUid} disabled={!canUse || busy}>儲存到 Firebase</Button>
@@ -300,6 +330,17 @@ export default function AdminUsersPage() {
                   ) : null}
                 </div>
 
+                {pendingRoleChanges.length > 0 ? (
+                  <Alert>
+                    <AlertDescription>
+                      尚有 {pendingRoleChanges.length} 位角色變更未儲存：
+                      {" "}
+                      {pendingRoleChanges.slice(0, 3).map((row) => `${row.email || row.id} 改為 ${row.nextRole}`).join("、")}
+                      {pendingRoleChanges.length > 3 ? "…" : ""}
+                    </AlertDescription>
+                  </Alert>
+                ) : null}
+
                 {users.length > 0 && filteredUsers.length === 0 ? (
                   <div className="rounded-lg border border-dashed border-border bg-card px-4 py-6 text-center">
                     <div className="text-sm font-bold">沒有符合條件的使用者</div>
@@ -316,14 +357,17 @@ export default function AdminUsersPage() {
                       <tr>
                         <th>UID</th>
                         <th>Email</th>
-                        <th>admin</th>
+                        <th>角色</th>
                         <th>更新</th>
                         <th style={{ width: 120 }}>操作</th>
                       </tr>
                     </thead>
                     <tbody>
                       {filteredUsers.map((r) => {
-                        const checked = (roleDraft[r.id] || r.role) === "admin";
+                        const nextRole = roleDraft[r.id] || r.role;
+                        const checked = nextRole === "admin";
+                        const changed = nextRole !== r.role;
+                        const isCurrentUser = r.id === user?.uid;
                         return (
                           <tr key={r.id}>
                             <td className="mono" style={{ fontSize: 12 }}>{r.id}</td>
@@ -332,7 +376,9 @@ export default function AdminUsersPage() {
                               <label style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
                                 <input
                                   type="checkbox"
+                                  aria-label={`將 ${r.email || r.id} 設為 admin`}
                                   checked={checked}
+                                  disabled={isCurrentUser || !canUse || busy}
                                   onChange={(e) => {
                                     setRoleDraft((prev) => ({
                                       ...prev,
@@ -340,15 +386,22 @@ export default function AdminUsersPage() {
                                     }));
                                   }}
                                 />
-                                {checked ? "admin" : "engineer"}
+                                {ROLE_COPY[nextRole].label}
                               </label>
+                              <div className="mt-1 text-xs text-muted-foreground">{ROLE_COPY[nextRole].help}</div>
+                              {changed ? (
+                                <div className="mt-1 text-xs font-semibold text-amber-600">待儲存：{r.role} 改為 {nextRole}</div>
+                              ) : null}
+                              {isCurrentUser ? (
+                                <div className="mt-1 text-xs text-muted-foreground">目前登入帳號固定保留 admin</div>
+                              ) : null}
                             </td>
                             <td style={{ fontSize: 12, color: "var(--muted-foreground)" }}>
                               {r.updatedAt ? new Date(r.updatedAt).toLocaleString() : "-"}
                             </td>
                             <td>
                               <div className="flex gap-2">
-                                <Button size="sm" onClick={() => saveRowRole(r)} disabled={!canUse || busy}>儲存</Button>
+                                <Button size="sm" onClick={() => saveRowRole(r)} disabled={!canUse || busy || !changed}>儲存</Button>
                                 <Button size="sm" variant="destructive" onClick={() => deleteRow(r)} disabled={!canUse || busy || r.id === user?.uid}>
                                   刪除
                                 </Button>
