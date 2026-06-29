@@ -590,6 +590,49 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
 
   const equipStats = useMemo(() => calcEquipmentStats(filteredEquipments), [filteredEquipments]);
 
+  const bulkInstallTargetRows = useMemo(
+    () => filteredInstallations.filter((row) => row.phase !== "released"),
+    [filteredInstallations],
+  );
+  const bulkInstallTargetCount = bulkInstallTargetRows.length;
+  const hasBulkInstallPatch = Boolean(bulkInstallOwner.trim() || bulkInstallEta.trim() || bulkInstallAction.trim());
+  const installCsvDisabled = installLoading || Boolean(installErr) || filteredInstallations.length === 0;
+  const equipmentCsvDisabled = equipLoading || Boolean(equipErr) || filteredEquipments.length === 0;
+  const insightsReportDisabled = installLoading || Boolean(installErr) || filteredInstallations.length === 0;
+  const bulkInstallDisabled = bulkInstallBusy || installLoading || Boolean(installErr) || bulkInstallTargetCount === 0 || !hasBulkInstallPatch;
+  const installCsvTitle = installLoading
+    ? "裝機資料同步完成後可匯出"
+    : installErr
+      ? "裝機資料讀取失敗，暫無法匯出"
+      : filteredInstallations.length === 0
+        ? "目前篩選沒有可匯出的裝機案"
+        : `匯出目前篩選 ${filteredInstallations.length} 筆裝機案`;
+  const equipmentCsvTitle = equipLoading
+    ? "設備資料同步完成後可匯出"
+    : equipErr
+      ? "設備資料讀取失敗，暫無法匯出"
+      : filteredEquipments.length === 0
+        ? "目前篩選沒有可匯出的設備"
+        : `匯出目前篩選 ${filteredEquipments.length} 台設備`;
+  const insightsReportTitle = installLoading
+    ? "分析資料同步完成後可下載"
+    : installErr
+      ? "分析資料讀取失敗，暫無法下載"
+      : filteredInstallations.length === 0
+        ? "目前沒有可產生報告的裝機案"
+        : "下載目前分析報告";
+  const bulkInstallTitle = bulkInstallBusy
+    ? "批次更新中"
+    : installLoading
+      ? "裝機資料同步完成後可批次更新"
+      : installErr
+        ? "裝機資料讀取失敗，暫無法批次更新"
+        : bulkInstallTargetCount === 0
+          ? "目前篩選沒有可批次更新的進行中裝機案"
+          : !hasBulkInstallPatch
+            ? "請先填寫 Owner、ETA 或下一步"
+            : `套用至目前篩選 ${bulkInstallTargetCount} 筆進行中裝機案`;
+
   const governanceReport = useMemo(
     () => buildDashboardGovernanceReport(filteredInstallations, equipments),
     [filteredInstallations, equipments],
@@ -674,7 +717,13 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
     updateInstallCustomerDraft(value, inferredRegion);
   };
 
+  const downloadInstallationsCsvReport = () => {
+    if (installCsvDisabled) return;
+    downloadInstallationsCsv(filteredInstallations);
+  };
+
   const downloadInsightsReport = () => {
+    if (insightsReportDisabled) return;
     const markdown = buildInsightsMarkdownReport({
       today,
       appVersion,
@@ -693,6 +742,7 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
   };
 
   const downloadEquipmentCsvReport = () => {
+    if (equipmentCsvDisabled) return;
     downloadEquipmentsCsv(filteredEquipments);
     trackEvent("equipment_csv_download", {
       appVersion,
@@ -839,7 +889,7 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
       return;
     }
 
-    const targetRows = filteredInstallations.filter((row) => row.phase !== "released");
+    const targetRows = bulkInstallTargetRows;
     if (targetRows.length === 0) {
       setToast("目前篩選下沒有可批次更新的進行中裝機案");
       return;
@@ -1052,7 +1102,7 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
                     <button className={installView === "pipeline" ? "segTab segTabActive" : "segTab"} onClick={() => switchInstallView("pipeline")}>Pipeline</button>
                     <button className={installView === "gantt" ? "segTab segTabActive" : "segTab"} onClick={() => switchInstallView("gantt")}>甘特圖</button>
                   </div>
-                  <button className="btn btnSmall" onClick={() => downloadInstallationsCsv(filteredInstallations)}>匯出 CSV</button>
+                  <button className="btn btnSmall" onClick={downloadInstallationsCsvReport} disabled={installCsvDisabled} title={installCsvTitle}>匯出 CSV</button>
                   <button className="btn btnSmall" onClick={() => setSmartImportOpen(true)}>⬆ Excel 智慧匯入</button>
                   <button className="btn btnAccent" onClick={openAddInstall}>新增裝機案</button>
                 </div>
@@ -1156,7 +1206,7 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
                   </div>
                   <div className="field" style={{ minWidth: 170 }}>
                     <div className="label">批次 ETA</div>
-                    <DateInput value={bulkInstallEta} onChange={setBulkInstallEta} />
+                    <DateInput value={bulkInstallEta} onChange={setBulkInstallEta} disabled={bulkInstallBusy} />
                   </div>
                   <div className="field" style={{ flex: "1 1 260px" }}>
                     <div className="label">批次下一步</div>
@@ -1167,8 +1217,8 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
                       placeholder="例如：補齊客戶驗收時程"
                     />
                   </div>
-                  <button className="btn btnSmall" disabled={bulkInstallBusy} onClick={applyBulkInstallGovernance}>
-                    {bulkInstallBusy ? "更新中..." : `套用至目前篩選 ${filteredInstallations.filter((row) => row.phase !== "released").length} 筆`}
+                  <button className="btn btnSmall" disabled={bulkInstallDisabled} onClick={applyBulkInstallGovernance} title={bulkInstallTitle}>
+                    {bulkInstallBusy ? "更新中..." : `套用至目前篩選 ${bulkInstallTargetCount} 筆`}
                   </button>
                 </div>
               ) : null}
@@ -1458,7 +1508,7 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
               <div className="panelHeader">
                 <div style={{ fontWeight: 900 }}>篩選 / 操作</div>
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
-                  <button className="btn btnSmall" onClick={downloadEquipmentCsvReport}>匯出 CSV</button>
+                  <button className="btn btnSmall" onClick={downloadEquipmentCsvReport} disabled={equipmentCsvDisabled} title={equipmentCsvTitle}>匯出 CSV</button>
                   <button className="btn btnSmall" onClick={() => setSmartImportOpen(true)}>⬆ Excel 智慧匯入</button>
                   <button className="btn btnAccent" onClick={openAddEquip}>➕ 新增設備</button>
                 </div>
@@ -1680,7 +1730,7 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
                 ) : null}
               </div>
               {activeInsightsTab === "analytics" ? (
-                <button className="btn btnSmall" onClick={downloadInsightsReport}>
+                <button className="btn btnSmall" onClick={downloadInsightsReport} disabled={insightsReportDisabled} title={insightsReportTitle}>
                   下載分析報告
                 </button>
               ) : null}
