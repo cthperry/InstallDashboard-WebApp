@@ -31,6 +31,26 @@ type QueueItem = {
   priority: number;
 };
 
+type RegionCommandRow = {
+  key: RegionKey;
+  label: string;
+  color: string;
+  installs: number;
+  equipments: number;
+  overdue: number;
+  blocked: number;
+  hot: number;
+  score: number;
+};
+
+type RegionAccumulator = {
+  installs: number;
+  equipments: number;
+  overdue: number;
+  blocked: number;
+  hot: number;
+};
+
 function todayYYYYMMDD() {
   return todayInTaipeiYmd();
 }
@@ -165,7 +185,7 @@ function PhaseRail({ phaseRows }: { phaseRows: Array<{ key: PhaseKey; label: str
 function RegionCommand({
   rows,
 }: {
-  rows: Array<{ key: RegionKey; label: string; color: string; installs: number; equipments: number; overdue: number; blocked: number; hot: number; score: number }>;
+  rows: RegionCommandRow[];
 }) {
   return (
     <section className="f66Panel">
@@ -230,19 +250,14 @@ export function WarRoomPage() {
 
   const computed = useMemo(() => {
     const total = installs.length;
-    const wip = installs.filter((row) => !isReleased(row)).length;
-    const released = installs.filter(isReleased).length;
-    const overdue = installs.filter((row) => isOverdue(row, today));
-    const dueSoon = installs.filter((row) => {
-      if (isReleased(row)) return false;
-      const days = daysBetween(today, safeStr(row.estComplete));
-      return days != null && days >= 0 && days <= 7;
-    });
-    const stale = installs.filter((row) => !isReleased(row) && daysSinceUpdated(row.updatedAt) >= 7);
-    const blocked = equips.filter((row) => isActiveEquipmentBlocking(row.blocking));
-    const hot = equips.filter((row) => getLiveUtilization(row.capacity) >= 80);
-    const avgUtilization = equips.length ? Math.round(equips.reduce((sum, row) => sum + getLiveUtilization(row.capacity), 0) / equips.length) : 0;
-    const healthScore = clamp(100 - overdue.length * 8 - blocked.length * 6 - dueSoon.length * 3 - stale.length * 2, 0, 100);
+    let wip = 0;
+    let released = 0;
+    let utilizationSum = 0;
+    const overdue: Installation[] = [];
+    const dueSoon: Installation[] = [];
+    const stale: Installation[] = [];
+    const blocked: Equipment[] = [];
+    const hot: Equipment[] = [];
 
     const phaseCount: Record<PhaseKey, number> = {
       ordered: 0,
@@ -253,24 +268,70 @@ export function WarRoomPage() {
       qual: 0,
       released: 0,
     };
-    for (const row of installs) phaseCount[row.phase] = (phaseCount[row.phase] ?? 0) + 1;
 
-    const regionRows = (Object.keys(REGIONS) as RegionKey[]).map((key) => {
-      const regionInstalls = installs.filter((row) => row.region === key);
-      const regionEquips = equips.filter((row) => row.region === key);
-      const regionOverdue = regionInstalls.filter((row) => isOverdue(row, today)).length;
-      const regionBlocked = regionEquips.filter((row) => isActiveEquipmentBlocking(row.blocking)).length;
-      const regionHot = regionEquips.filter((row) => getLiveUtilization(row.capacity) >= 80).length;
-      const score = clamp(100 - regionOverdue * 14 - regionBlocked * 12 - regionHot * 4, 0, 100);
+    const regionAccumulator = (Object.keys(REGIONS) as RegionKey[]).reduce(
+      (acc, key) => {
+        acc[key] = { installs: 0, equipments: 0, overdue: 0, blocked: 0, hot: 0 };
+        return acc;
+      },
+      {} as Record<RegionKey, RegionAccumulator>,
+    );
+
+    for (const row of installs) {
+      const releasedRow = isReleased(row);
+      if (releasedRow) released += 1;
+      else wip += 1;
+
+      phaseCount[row.phase] = (phaseCount[row.phase] ?? 0) + 1;
+
+      const regionStats = regionAccumulator[row.region];
+      if (regionStats) regionStats.installs += 1;
+
+      const overdueRow = isOverdue(row, today);
+      if (overdueRow) {
+        overdue.push(row);
+        if (regionStats) regionStats.overdue += 1;
+      }
+
+      if (!releasedRow) {
+        const daysUntilDue = daysBetween(today, safeStr(row.estComplete));
+        if (daysUntilDue != null && daysUntilDue >= 0 && daysUntilDue <= 7) dueSoon.push(row);
+        if (daysSinceUpdated(row.updatedAt) >= 7) stale.push(row);
+      }
+    }
+
+    for (const row of equips) {
+      const utilization = getLiveUtilization(row.capacity);
+      utilizationSum += utilization;
+      const regionStats = regionAccumulator[row.region];
+      if (regionStats) regionStats.equipments += 1;
+
+      if (isActiveEquipmentBlocking(row.blocking)) {
+        blocked.push(row);
+        if (regionStats) regionStats.blocked += 1;
+      }
+
+      if (utilization >= 80) {
+        hot.push(row);
+        if (regionStats) regionStats.hot += 1;
+      }
+    }
+
+    const avgUtilization = equips.length ? Math.round(utilizationSum / equips.length) : 0;
+    const healthScore = clamp(100 - overdue.length * 8 - blocked.length * 6 - dueSoon.length * 3 - stale.length * 2, 0, 100);
+
+    const regionRows: RegionCommandRow[] = (Object.keys(REGIONS) as RegionKey[]).map((key) => {
+      const regionStats = regionAccumulator[key];
+      const score = clamp(100 - regionStats.overdue * 14 - regionStats.blocked * 12 - regionStats.hot * 4, 0, 100);
       return {
         key,
         label: REGIONS[key].label,
         color: REGIONS[key].color,
-        installs: regionInstalls.length,
-        equipments: regionEquips.length,
-        overdue: regionOverdue,
-        blocked: regionBlocked,
-        hot: regionHot,
+        installs: regionStats.installs,
+        equipments: regionStats.equipments,
+        overdue: regionStats.overdue,
+        blocked: regionStats.blocked,
+        hot: regionStats.hot,
         score,
       };
     });

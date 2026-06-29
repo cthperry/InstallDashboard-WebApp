@@ -20,6 +20,7 @@ function buildReleaseNotes(releaseLabel: string): string[] {
     "效能優化：Pipeline Kanban 依階段分組改為單次快取，減少每次 render 的重複篩選。",
     "效能優化：Insights 分析與治理報表改為進入分析頁或下載報告時才建構，降低一般 dashboard 操作重算成本。",
     "效能優化：任務佇列改為只在對應的裝機或設備頁建構，減少 Insights 與跨頁切換時的不必要計算。",
+    "效能優化：War Room 指標、區域健康與決策佇列改為單次聚合，降低晨會頁資料更新時的重複掃描。",
   ];
 }
 
