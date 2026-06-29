@@ -49,6 +49,10 @@ export const installationBaseSchema = z.object({
   actArrival: emptyableString(20),
   estComplete: emptyableString(20),
   actComplete: emptyableString(20),
+  nextAction: emptyableString(120),
+  nextOwner: emptyableString(60),
+  nextDueDate: emptyableString(20),
+  overdueReason: emptyableString(120),
   notes: emptyableString(400),
   progress: z.number().min(0).max(100),
   checklist: z.record(z.string(), z.boolean()).optional().default({})
@@ -87,7 +91,13 @@ export const equipmentSchema = z.object({
     reasonCode: z.string().max(40),
     detail: z.string().max(200),
     owner: z.string().max(60),
-    eta: emptyableString(20)
+    eta: emptyableString(20),
+    status: z.enum(["open", "resolved", "reopened"]).optional(),
+    openedAt: z.number().optional(),
+    resolvedAt: z.number().optional(),
+    reopenedAt: z.number().optional(),
+    reopenCount: z.number().int().min(0).optional(),
+    resolutionNote: z.string().max(200).optional(),
   }).optional(),
   capacity: z.object({
     utilization: z.number().min(0).max(100),

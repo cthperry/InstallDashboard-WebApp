@@ -79,6 +79,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 <div className="adminMenuPanel">
                   <Link className="adminMenuItem" href="/admin/machine-models">機型設定</Link>
                   <Link className="adminMenuItem" href="/admin/customer-sites">客戶清單設定</Link>
+                  <Link className="adminMenuItem" href="/admin/import-config">匯入設定</Link>
                   <Link className="adminMenuItem" href="/admin/users">使用者權限</Link>
                   <Link className="adminMenuItem" href="/dashboard/system">版本與部署</Link>
                 </div>

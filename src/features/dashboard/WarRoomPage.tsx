@@ -8,10 +8,16 @@ import { listenEquipments } from "@/features/data/equipments";
 import type { Equipment, Installation, PhaseKey, RegionKey } from "@/domain/types";
 import { PHASES, PHASE_MAP, REGIONS } from "@/domain/constants";
 import { getLiveUtilization } from "@/domain/capacity";
+import { isActiveEquipmentBlocking } from "@/domain/equipmentBlocking";
 import { getInstallationSerial } from "@/domain/installationDisplay";
 import { toDisplayShortName } from "@/domain/personDisplay";
 import { getAppReleaseLabel } from "@/config/appVersion";
 import { todayInTaipeiYmd } from "@/lib/utils";
+import {
+  buildWarRoomMeetingMarkdown,
+  downloadMarkdownFile,
+  type WarRoomMeetingMode,
+} from "@/features/dashboard/warRoomBrief";
 
 type Tone = "critical" | "warning" | "info" | "good";
 
@@ -198,6 +204,8 @@ export function WarRoomPage() {
   const [equips, setEquips] = useState<Equipment[]>([]);
   const [loadingI, setLoadingI] = useState(true);
   const [loadingE, setLoadingE] = useState(true);
+  const [meetingMode, setMeetingMode] = useState<WarRoomMeetingMode>("morning");
+  const [briefNotice, setBriefNotice] = useState("");
 
   useEffect(() => {
     if (!user) return;
@@ -231,7 +239,7 @@ export function WarRoomPage() {
       return days != null && days >= 0 && days <= 7;
     });
     const stale = installs.filter((row) => !isReleased(row) && daysSinceUpdated(row.updatedAt) >= 7);
-    const blocked = equips.filter((row) => safeStr(row.blocking?.reasonCode));
+    const blocked = equips.filter((row) => isActiveEquipmentBlocking(row.blocking));
     const hot = equips.filter((row) => getLiveUtilization(row.capacity) >= 80);
     const avgUtilization = equips.length ? Math.round(equips.reduce((sum, row) => sum + getLiveUtilization(row.capacity), 0) / equips.length) : 0;
     const healthScore = clamp(100 - overdue.length * 8 - blocked.length * 6 - dueSoon.length * 3 - stale.length * 2, 0, 100);
@@ -251,7 +259,7 @@ export function WarRoomPage() {
       const regionInstalls = installs.filter((row) => row.region === key);
       const regionEquips = equips.filter((row) => row.region === key);
       const regionOverdue = regionInstalls.filter((row) => isOverdue(row, today)).length;
-      const regionBlocked = regionEquips.filter((row) => safeStr(row.blocking?.reasonCode)).length;
+      const regionBlocked = regionEquips.filter((row) => isActiveEquipmentBlocking(row.blocking)).length;
       const regionHot = regionEquips.filter((row) => getLiveUtilization(row.capacity) >= 80).length;
       const score = clamp(100 - regionOverdue * 14 - regionBlocked * 12 - regionHot * 4, 0, 100);
       return {
@@ -271,7 +279,7 @@ export function WarRoomPage() {
       ...overdue.map((row) => ({
         id: `overdue-${row.id}`,
         title: getInstallTitle(row),
-        meta: `${row.customer || "未填客戶"} · ${PHASE_MAP[row.phase]?.label ?? row.phase} · ${toDisplayShortName(row.engineer) || "未指派"}`,
+        meta: `${row.customer || "未填客戶"} · ${PHASE_MAP[row.phase]?.label ?? row.phase} · ${toDisplayShortName(row.nextOwner || row.engineer) || "未指派"} · ${row.nextDueDate || "未設定 ETA"}`,
         value: `逾期 ${Math.abs(daysBetween(today, safeStr(row.estComplete)) ?? 0)} 天`,
         tone: "critical" as Tone,
         href: "/dashboard/install?view=pipeline",
@@ -289,7 +297,7 @@ export function WarRoomPage() {
       ...dueSoon.map((row) => ({
         id: `due-${row.id}`,
         title: getInstallTitle(row),
-        meta: `${row.customer || "未填客戶"} · 預計 ${row.estComplete} · ${toDisplayShortName(row.engineer) || "未指派"}`,
+        meta: `${row.customer || "未填客戶"} · 預計 ${row.estComplete} · ${toDisplayShortName(row.nextOwner || row.engineer) || "未指派"} · ${row.nextAction || "未設定下一步"}`,
         value: `${daysBetween(today, safeStr(row.estComplete)) ?? 0} 天內`,
         tone: "info" as Tone,
         href: "/dashboard/install?view=table",
@@ -342,6 +350,38 @@ export function WarRoomPage() {
     return lines;
   }, [computed.blocked.length, computed.dueSoon.length, computed.hot.length, computed.overdue.length]);
 
+  const meetingMarkdown = useMemo(() => buildWarRoomMeetingMarkdown({
+    mode: meetingMode,
+    today,
+    healthScore: computed.healthScore,
+    total: computed.total,
+    wip: computed.wip,
+    released: computed.released,
+    avgUtilization: computed.avgUtilization,
+    overdue: computed.overdue,
+    dueSoon: computed.dueSoon,
+    stale: computed.stale,
+    blocked: computed.blocked,
+    hot: computed.hot,
+    queue: computed.queue,
+    phaseRows: computed.phaseRows,
+    regionRows: computed.regionRows,
+  }), [computed, meetingMode, today]);
+
+  async function copyMeetingMarkdown() {
+    try {
+      await navigator.clipboard.writeText(meetingMarkdown);
+      setBriefNotice("已複製 Markdown 摘要");
+    } catch {
+      setBriefNotice("複製失敗，請改用下載 Markdown");
+    }
+  }
+
+  function downloadMeetingMarkdown() {
+    downloadMarkdownFile(`war-room-${meetingMode}-${today}.md`, meetingMarkdown);
+    setBriefNotice("已下載 Markdown 摘要");
+  }
+
   if (loading) {
     return (
       <div className="f66Loading">
@@ -382,6 +422,27 @@ export function WarRoomPage() {
           <div className="f66BriefList">
             {briefLines.map((line) => <p key={line}>{line}</p>)}
           </div>
+        </section>
+      </div>
+
+      <div className="f66MainGrid f66MainGridWide">
+        <section className="f66Panel">
+          <div className="f66PanelHead">
+            <div>
+              <span className="f66Eyebrow">MEETING MODE</span>
+              <h2>會議摘要 Markdown</h2>
+            </div>
+            <div className="f66BriefActions">
+              <select value={meetingMode} onChange={(event) => setMeetingMode(event.target.value as WarRoomMeetingMode)}>
+                <option value="morning">Morning standup</option>
+                <option value="weekly">Weekly review</option>
+              </select>
+              <button className="f66MiniLink" type="button" onClick={copyMeetingMarkdown}>複製</button>
+              <button className="f66MiniLink" type="button" onClick={downloadMeetingMarkdown}>下載 MD</button>
+            </div>
+          </div>
+          {briefNotice ? <div className="f66BriefNotice">{briefNotice}</div> : null}
+          <pre className="f66MeetingPreview">{meetingMarkdown}</pre>
         </section>
       </div>
     </main>

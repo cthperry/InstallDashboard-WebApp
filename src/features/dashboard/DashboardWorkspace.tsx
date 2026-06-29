@@ -4,7 +4,7 @@ import { useCallback, useDeferredValue, useEffect, useMemo, useState, type CSSPr
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/features/auth/AuthProvider";
 
-import { createInstallation, updateInstallation, removeInstallation } from "@/features/data/installations";
+import { createInstallation, updateInstallation, updateInstallationsBulk, removeInstallation } from "@/features/data/installations";
 import { createEquipment, updateEquipment, removeEquipment, type EquipmentUpdatePatch } from "@/features/data/equipments";
 import { deleteField } from "firebase/firestore";
 import { saveRetentionSettings } from "@/features/data/settings";
@@ -34,6 +34,14 @@ import {
 } from "@/domain/constants";
 import { equipmentSchema, installationSchema } from "@/domain/schemas";
 import { getInstallationDefaultDraft, INSTALLATION_DATE_FIELDS, doesInstallationPhaseRequireEngineer, doesInstallationPhaseRequireSerial, type InstallationDraft } from "@/domain/installationContract";
+import {
+  EQUIPMENT_BLOCKING_STATUS_COLOR,
+  EQUIPMENT_BLOCKING_STATUS_LABEL,
+  getEquipmentBlockingAgeDays,
+  isActiveEquipmentBlocking,
+  mergeEquipmentBlockingLifecycle,
+  normalizeEquipmentBlockingStatus,
+} from "@/domain/equipmentBlocking";
 import { buildOwnerListFromUserEmails, dedupeDisplayNames, toDisplayShortName } from "@/domain/personDisplay";
 
 import { useDashboardData } from "@/features/dashboard/hooks/useDashboardData";
@@ -73,7 +81,11 @@ import {
   buildEquipmentActionQueue,
   buildInstallActionQueue,
 } from "@/features/dashboard/dashboardActionQueue";
-import { downloadInstallationsCsv } from "@/features/dashboard/dashboardExports";
+import { getInstallSlaStatus } from "@/features/dashboard/installSla";
+import { buildDashboardGovernanceReport, type GovernanceIssueTone } from "@/features/dashboard/dashboardGovernance";
+import { buildInsightsMarkdownReport } from "@/features/dashboard/insightsReport";
+import { downloadMarkdownFile } from "@/features/dashboard/warRoomBrief";
+import { downloadEquipmentsCsv, downloadInstallationsCsv } from "@/features/dashboard/dashboardExports";
 import { buildEditInstallationDraft, buildNewInstallationDraft } from "@/features/dashboard/installationForm";
 import { calcCapacityLevel, calcEquipmentStats, calcInstallStats, isOverdueInstall } from "@/features/dashboard/dashboardStats";
 import {
@@ -119,6 +131,19 @@ import {
 type DashboardSection = "install" | "equipment" | "insights";
 const TABLE_PAGE_SIZE = 120;
 
+function pickHealthColor(score: number): string {
+  if (score >= 80) return "#10b981";
+  if (score >= 60) return "#f59e0b";
+  return "#ef4444";
+}
+
+function pickGovernanceToneColor(tone: GovernanceIssueTone): string {
+  if (tone === "good") return "#10b981";
+  if (tone === "info") return "#3b82f6";
+  if (tone === "warning") return "#f59e0b";
+  return "#ef4444";
+}
+
 export function DashboardWorkspace({ section }: { section: DashboardSection }) {
   const { user, isAdmin, appVersion } = useAuth();
   const router = useRouter();
@@ -135,6 +160,7 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
     machineModels,
     appVars,
     retention,
+    importConfig,
     managedUsers,
     installations,
     installErr,
@@ -163,6 +189,10 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
   const [installSortKey, setInstallSortKey] = useState<InstallSortKey>("updatedAt");
   const [installSortDir, setInstallSortDir] = useState<"asc" | "desc">("desc");
   const [installVisibleCount, setInstallVisibleCount] = useState(TABLE_PAGE_SIZE);
+  const [bulkInstallOwner, setBulkInstallOwner] = useState("");
+  const [bulkInstallEta, setBulkInstallEta] = useState("");
+  const [bulkInstallAction, setBulkInstallAction] = useState("");
+  const [bulkInstallBusy, setBulkInstallBusy] = useState(false);
   // ───────── Saved Filters ─────────
   const { savedFilters, addSavedFilter, deleteSavedFilter } = useSavedFilters();
   const [saveFilterName, setSaveFilterName] = useState<string>("");
@@ -447,6 +477,11 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
 
   const equipStats = useMemo(() => calcEquipmentStats(filteredEquipments), [filteredEquipments]);
 
+  const governanceReport = useMemo(
+    () => buildDashboardGovernanceReport(filteredInstallations, equipments),
+    [filteredInstallations, equipments],
+  );
+
   // ───────── Analytics ─────────
   const analytics = useMemo(
     () => buildDashboardAnalytics({
@@ -460,11 +495,54 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
   const anRegion = analytics.region;
   const anEngineer = analytics.engineer;
   const anDue = analytics.due;
+  const cycleTime = analytics.cycleTime;
+  const phaseAging = analytics.phaseAging;
+  const customerHealth = analytics.customerHealth;
+  const modelHealth = analytics.modelHealth;
   const regionProductStats = analytics.regionProductStats;
+
+  const insightsFilterSummary = useMemo(() => {
+    const parts = [
+      fRegion ? `區域=${regionLabel(fRegion)}` : "",
+      fCustomer ? `客戶=${fCustomer}` : "",
+      fModel ? `機型=${fModel}` : "",
+      fPhase ? `階段=${PHASE_MAP[fPhase]?.label ?? fPhase}` : "",
+      fEngineer ? `工程師=${fEngineer}` : "",
+      deferredKeyword ? `關鍵字=${deferredKeyword}` : "",
+    ].filter(Boolean);
+    return parts.join(" / ");
+  }, [deferredKeyword, fCustomer, fEngineer, fModel, fPhase, fRegion]);
 
   const updateInstallCustomer = (value: string) => {
     const inferredRegion = resolveCustomerRegion(value);
     updateInstallCustomerDraft(value, inferredRegion);
+  };
+
+  const downloadInsightsReport = () => {
+    const markdown = buildInsightsMarkdownReport({
+      today,
+      appVersion,
+      filterSummary: insightsFilterSummary,
+      governance: governanceReport,
+      analytics,
+    });
+    downloadMarkdownFile(`install_insights_${today}.md`, markdown);
+    trackEvent("insights_markdown_download", {
+      appVersion,
+      score: governanceReport.score,
+      issues: governanceReport.totalIssues,
+      installs: filteredInstallations.length,
+      equipments: equipments.length,
+    });
+  };
+
+  const downloadEquipmentCsvReport = () => {
+    downloadEquipmentsCsv(filteredEquipments);
+    trackEvent("equipment_csv_download", {
+      appVersion,
+      rows: filteredEquipments.length,
+      total: equipments.length,
+    });
   };
 
   // ───────── Actions: Installations ─────────
@@ -592,6 +670,48 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
     }
   };
 
+  const applyBulkInstallGovernance = async () => {
+    if (!isAdmin) return;
+    if (!user?.email) return;
+    if (bulkInstallBusy) return;
+
+    const owner = bulkInstallOwner.trim();
+    const eta = bulkInstallEta.trim();
+    const nextAction = bulkInstallAction.trim();
+    if (!owner && !eta && !nextAction) {
+      setToast("請至少填寫 Owner、ETA 或下一步動作");
+      return;
+    }
+
+    const targetRows = filteredInstallations.filter((row) => row.phase !== "released");
+    if (targetRows.length === 0) {
+      setToast("目前篩選下沒有可批次更新的進行中裝機案");
+      return;
+    }
+
+    const ok = confirm(`將批次更新目前篩選下 ${targetRows.length} 筆進行中裝機案。是否繼續？`);
+    if (!ok) return;
+
+    setBulkInstallBusy(true);
+    try {
+      const count = await updateInstallationsBulk(targetRows.map((row) => row.id), {
+        ...(owner ? { engineer: owner, nextOwner: owner } : {}),
+        ...(eta ? { estComplete: eta, nextDueDate: eta } : {}),
+        ...(nextAction ? { nextAction } : {}),
+      });
+      await writeAuditLog("批次治理", "installations", `更新 ${count} 筆 owner/ETA/nextAction`, user.email);
+      trackEvent("installation_bulk_governance_update", { count, owner: Boolean(owner), eta: Boolean(eta), nextAction: Boolean(nextAction) });
+      setToast(`已批次更新 ${count} 筆裝機案`);
+      setBulkInstallOwner("");
+      setBulkInstallEta("");
+      setBulkInstallAction("");
+    } catch (e) {
+      setToast(`批次更新失敗：${getErrorMessage(e, "unknown")}`);
+    } finally {
+      setBulkInstallBusy(false);
+    }
+  };
+
   // ───────── Actions: Equipments ─────────
   const openAddEquip = () => {
     setEquipEditId(null);
@@ -617,13 +737,17 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
 
     const safeMilestones = buildSafeEquipmentMilestones(parsed.data.milestones);
     const safeBlocking = buildSafeEquipmentBlocking(parsed.data.blocking);
+    const previousEquipment = equipEditId ? equipments.find((row) => row.id === equipEditId) : undefined;
+    const lifecycleBlocking = mergeEquipmentBlockingLifecycle(previousEquipment?.blocking, safeBlocking);
+    const equipmentData = { ...parsed.data };
+    delete equipmentData.blocking;
 
     try {
       if (equipEditId) {
         const patch: EquipmentUpdatePatch = {
-          ...parsed.data,
+          ...equipmentData,
           milestones: safeMilestones,
-          blocking: safeBlocking ?? deleteField(), // deleteField() removes the field when no blocking
+          blocking: lifecycleBlocking ?? deleteField(), // deleteField() removes the field when no blocking
         };
         await updateEquipment(equipEditId, patch);
         await writeAuditLog("更新", parsed.data.equipmentId, `更新設備狀態：${parsed.data.statusMain}`, user.email);
@@ -631,9 +755,9 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
         setToast("已更新");
       } else {
         const createData: Omit<Equipment, "id"> = {
-          ...parsed.data,
+          ...equipmentData,
           milestones: safeMilestones,
-          ...(safeBlocking ? { blocking: safeBlocking } : {}),
+          ...(lifecycleBlocking ? { blocking: lifecycleBlocking } : {}),
         };
         await createEquipment(createData);
         await writeAuditLog("新增", parsed.data.equipmentId, `新增設備：${parsed.data.customer} — ${parsed.data.modelCode}`, user.email);
@@ -760,7 +884,7 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
               title="裝機資料品質"
               subtitle={`${installActionQueue.length} 筆需補資料`}
               items={installActionQueue}
-              emptyText="目前沒有缺序號、缺工程師、缺預計日或久未更新的裝機案。"
+              emptyText="目前沒有缺序號、缺工程師、缺預計日、SLA 警戒或久未更新的裝機案。"
             />
 
             <div className="card auroraControlPanel" style={{ padding: 14, marginTop: 12 }}>
@@ -856,6 +980,36 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
                 </div>
               ) : null}
 
+              {isAdmin ? (
+                <div className="filters" style={{ marginTop: 10, borderTop: "1px solid var(--border)", paddingTop: 10 }}>
+                  <div className="field" style={{ minWidth: 170 }}>
+                    <div className="label">批次 Owner</div>
+                    <select value={bulkInstallOwner} onChange={(e) => setBulkInstallOwner(e.target.value)} disabled={bulkInstallBusy}>
+                      <option value="">不變更</option>
+                      {engineers.map((name) => (
+                        <option key={name} value={name}>{name}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="field" style={{ minWidth: 170 }}>
+                    <div className="label">批次 ETA</div>
+                    <DateInput value={bulkInstallEta} onChange={setBulkInstallEta} />
+                  </div>
+                  <div className="field" style={{ flex: "1 1 260px" }}>
+                    <div className="label">批次下一步</div>
+                    <input
+                      value={bulkInstallAction}
+                      onChange={(e) => setBulkInstallAction(e.target.value)}
+                      disabled={bulkInstallBusy}
+                      placeholder="例如：補齊客戶驗收時程"
+                    />
+                  </div>
+                  <button className="btn btnSmall" disabled={bulkInstallBusy} onClick={applyBulkInstallGovernance}>
+                    {bulkInstallBusy ? "更新中..." : `套用至目前篩選 ${filteredInstallations.filter((row) => row.phase !== "released").length} 筆`}
+                  </button>
+                </div>
+              ) : null}
+
               {/* Saved Filters */}
               {savedFilters.length > 0 || showSaveFilterInput ? (
                 <div style={{ marginTop: 10, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
@@ -899,6 +1053,8 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
                       <col className="installListColRegion" />
                       <col className="installListColModel" />
                       <col className="installListColPhase" />
+                      <col className="installListColSla" />
+                      <col className="installListColNextAction" />
                       <col className="installListColEngineer" />
                       <col className="installListColProgress" />
                       <col className="installListColDueDate" />
@@ -912,6 +1068,8 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
                         <th>區域</th>
                         <th>機型</th>
                         <SortableTh label="階段" active={installSortKey === "phase"} dir={installSortDir} onClick={() => toggleInstallSort("phase")} />
+                        <th>SLA</th>
+                        <th>下一步</th>
                         <SortableTh label="工程師" active={installSortKey === "engineer"} dir={installSortDir} onClick={() => toggleInstallSort("engineer")} />
                         <th>進度</th>
                         <SortableTh label="預計安裝日" active={installSortKey === "estComplete"} dir={installSortDir} onClick={() => toggleInstallSort("estComplete")} />
@@ -924,6 +1082,7 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
                         const phase = PHASE_MAP[r.phase];
                         const overdue = isOverdueInstall(r, today);
                         const serial = getInstallSerial(r);
+                        const sla = getInstallSlaStatus(r, today);
                         return (
                           <tr key={r.id}>
                             <td className="tableStickyLeft tableSerialCell" title={serial}>{serial}</td>
@@ -931,6 +1090,11 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
                             <td><Badge text={REGIONS[r.region].label} color={REGIONS[r.region].color} subtle /></td>
                             <td><Badge text={r.modelCode} color="#3b82f6" subtle /></td>
                             <td><Badge text={`${phase.icon} ${phase.label}`} color={phase.color} subtle /></td>
+                            <td title={sla.title}><Badge text={sla.label} color={sla.color} subtle /></td>
+                            <td className="tableTextClip" title={[r.nextAction, r.nextOwner, r.nextDueDate].filter(Boolean).join(" · ") || "-"}>
+                              <div style={{ fontWeight: 900 }}>{r.nextAction || "-"}</div>
+                              <div className="tableSecondaryText">{r.nextOwner || toDisplayShortName(r.engineer) || "未指派"} · {r.nextDueDate || r.estComplete || "未設定"}</div>
+                            </td>
                             <td className="installListEngineer">{toDisplayShortName(r.engineer) || "-"}</td>
                             <td>
                               <div className="progressOuter" style={{ maxWidth: 140 }}>
@@ -954,7 +1118,7 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
                       })}
                       {filteredInstallations.length === 0 ? (
                         <tr>
-                          <td colSpan={10} style={{ textAlign: "center", padding: 20, color: "#94a3b8" }}>無資料</td>
+                          <td colSpan={12} style={{ textAlign: "center", padding: 20, color: "#94a3b8" }}>無資料</td>
                         </tr>
                       ) : null}
                     </tbody>
@@ -1016,48 +1180,59 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
                       <div className="pill">{rows.length}</div>
                     </div>
                     <div className="kanbanColBody">
-                      {rows.map((r) => (
-                        <div key={r.id} className="kanbanCard" onClick={() => openEditInstall(r)} role="button">
-                          <div className="kanbanCaseTop">
-                            <div className="mono kanbanCaseName">{getInstallSerial(r)}</div>
-                            <div className="kanbanCaseProgress mono">{r.progress ?? 0}%</div>
-                          </div>
+                      {rows.map((r) => {
+                        const sla = getInstallSlaStatus(r, today);
+                        return (
+                          <div key={r.id} className="kanbanCard" onClick={() => openEditInstall(r)} role="button">
+                            <div className="kanbanCaseTop">
+                              <div className="mono kanbanCaseName">{getInstallSerial(r)}</div>
+                              <div className="kanbanCaseProgress mono">{r.progress ?? 0}%</div>
+                            </div>
 
-                          <div className="kanbanCaseMeta">
-                            <span className="kanbanCaseCustomer">{r.customer}</span>
-                            <span className="kanbanCaseEngineer">{toDisplayShortName(r.engineer) || "-"}</span>
-                          </div>
+                            <div className="kanbanCaseMeta">
+                              <span className="kanbanCaseCustomer">{r.customer}</span>
+                              <span className="kanbanCaseEngineer">{toDisplayShortName(r.engineer) || "-"}</span>
+                            </div>
 
-                          <div className="kanbanCaseMeter">
-                            <div className="kanbanCaseMeterInner" style={{ width: `${clamp(r.progress ?? 0, 0, 100)}%`, background: p.color }} />
-                          </div>
+                            <div className="kanbanCaseMeter">
+                              <div className="kanbanCaseMeterInner" style={{ width: `${clamp(r.progress ?? 0, 0, 100)}%`, background: p.color }} />
+                            </div>
 
-                          <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
-                            <Badge text={REGIONS[r.region].label} color={REGIONS[r.region].color} subtle />
-                            <Badge text={r.modelCode} color="#3b82f6" subtle />
-                            {r.estComplete ? (
-                              (() => {
-                                const dl = daysLeft(r.estComplete);
-                                const isOver = dl != null && dl < 0 && r.phase !== "released";
-                                return <Badge text={`預計 ${r.estComplete}${isOver ? " ⚠️" : ""}`} color={isOver ? "#ef4444" : "#94a3b8"} subtle />;
-                              })()
+                            <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
+                              <Badge text={REGIONS[r.region].label} color={REGIONS[r.region].color} subtle />
+                              <Badge text={r.modelCode} color="#3b82f6" subtle />
+                              <span title={sla.title}>
+                                <Badge text={sla.label} color={sla.color} subtle />
+                              </span>
+                              {r.estComplete ? (
+                                (() => {
+                                  const dl = daysLeft(r.estComplete);
+                                  const isOver = dl != null && dl < 0 && r.phase !== "released";
+                                  return <Badge text={`預計 ${r.estComplete}${isOver ? " 警戒" : ""}`} color={isOver ? "#ef4444" : "#94a3b8"} subtle />;
+                                })()
+                              ) : null}
+                            </div>
+
+                            <div style={{ marginTop: 8, color: "#64748b", fontSize: 12, lineHeight: 1.45 }}>
+                              <strong style={{ color: "var(--foreground)" }}>{r.nextAction || "未設定下一步"}</strong>
+                              <div>{r.nextOwner || toDisplayShortName(r.engineer) || "未指派"} · {r.nextDueDate || r.estComplete || "未設定期限"}</div>
+                            </div>
+
+                            {r.phase !== "released" ? (
+                              <button
+                                className="btn btnSmall"
+                                style={{ marginTop: 10, width: "100%" }}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  advanceInstall(r);
+                                }}
+                              >
+                                推進
+                              </button>
                             ) : null}
                           </div>
-
-                          {r.phase !== "released" ? (
-                            <button
-                              className="btn btnSmall"
-                              style={{ marginTop: 10, width: "100%" }}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                advanceInstall(r);
-                              }}
-                            >
-                              ⏭️ 推進
-                            </button>
-                          ) : null}
-                        </div>
-                      ))}
+                        );
+                      })}
                       {rows.length === 0 ? (
                         <div style={{ color: "#94a3b8", fontSize: 12, padding: 10 }}>—</div>
                       ) : null}
@@ -1088,6 +1263,7 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
               <div className="panelHeader">
                 <div style={{ fontWeight: 900 }}>篩選 / 操作</div>
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                  <button className="btn btnSmall" onClick={downloadEquipmentCsvReport}>匯出 CSV</button>
                   <button className="btn btnSmall" onClick={() => setSmartImportOpen(true)}>⬆ Excel 智慧匯入</button>
                   <button className="btn btnAccent" onClick={openAddEquip}>➕ 新增設備</button>
                 </div>
@@ -1200,6 +1376,7 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
                       // 即時重算容量等級，不依賴 Firestore 存的舊值
                       const liveLevel = calcCapacityLevel(r.capacity.uph, r.capacity.targetUph);
                       const capColor = CAPACITY_COLOR[liveLevel];
+                      const blockingStatus = r.blocking?.reasonCode ? normalizeEquipmentBlockingStatus(r.blocking.status) : null;
                       return (
                         <tr key={r.id}>
                           <td className="tableStickyLeft tableSerialCell mono" title={getEquipmentSerialLabel(r) || "-"}>{getEquipmentSerialLabel(r) || "-"}</td>
@@ -1217,7 +1394,7 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
                             <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                               <Badge text={r.statusMain} color={statusColor} subtle />
                               <Badge text={liveLevel} color={capColor} subtle />
-                              {r.blocking?.reasonCode ? <Badge text={`阻塞：${r.blocking.reasonCode}`} color="#ef4444" subtle /> : null}
+                              {blockingStatus ? <Badge text={`${EQUIPMENT_BLOCKING_STATUS_LABEL[blockingStatus]}：${r.blocking?.reasonCode}`} color={EQUIPMENT_BLOCKING_STATUS_COLOR[blockingStatus]} subtle /> : null}
                             </div>
                             <div className="tableSecondaryText" style={{ marginTop: 6 }}>{r.statusSub || "-"}</div>
                           </td>
@@ -1268,6 +1445,11 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
                   </button>
                 ) : null}
               </div>
+              {activeInsightsTab === "analytics" ? (
+                <button className="btn btnSmall" onClick={downloadInsightsReport}>
+                  下載分析報告
+                </button>
+              ) : null}
             </div>
           </div>
         ) : null}
@@ -1275,6 +1457,54 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
         {/* ───────── Section: Insights / Analytics ───────── */}
         {section === "insights" && activeInsightsTab === "analytics" ? (
           <>
+            <div className="card" style={{ padding: 14, marginTop: 12 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start", flexWrap: "wrap" }}>
+                <div>
+                  <div style={{ fontWeight: 900, marginBottom: 4 }}>治理健康 / Data Quality</div>
+                  <div style={{ color: "#94a3b8", fontSize: 12 }}>
+                    進行中裝機 {governanceReport.activeInstallations} 案 · 設備 {governanceReport.equipments} 台 · 問題 {governanceReport.totalIssues} 件
+                  </div>
+                </div>
+                <div style={{ textAlign: "right" }}>
+                  <div style={{ color: "#94a3b8", fontSize: 12, fontWeight: 900 }}>SCORE</div>
+                  <div style={{ fontSize: 32, lineHeight: 1, fontWeight: 900, color: pickGovernanceToneColor(governanceReport.tone) }}>
+                    {governanceReport.score}
+                  </div>
+                </div>
+              </div>
+              <div style={{ height: 10, background: "rgba(148,163,184,0.18)", borderRadius: 999, overflow: "hidden", marginTop: 12 }}>
+                <div
+                  style={{
+                    width: `${governanceReport.score}%`,
+                    height: "100%",
+                    background: pickGovernanceToneColor(governanceReport.tone),
+                  }}
+                />
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10, marginTop: 12 }}>
+                {governanceReport.issueRows.map((issue) => {
+                  const issueColor = pickGovernanceToneColor(issue.tone);
+                  return (
+                    <div
+                      key={issue.id}
+                      style={{
+                        border: "1px solid var(--border)",
+                        borderRadius: 8,
+                        padding: 10,
+                        background: issue.count > 0 ? `${issueColor}0f` : "rgba(15,23,42,0.18)",
+                      }}
+                    >
+                      <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" }}>
+                        <div style={{ fontWeight: 900, fontSize: 12 }}>{issue.label}</div>
+                        <div style={{ fontWeight: 900, color: issueColor }}>{issue.count}</div>
+                      </div>
+                      <div style={{ color: "#94a3b8", fontSize: 11, marginTop: 5, lineHeight: 1.45 }}>{issue.detail}</div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
             {filteredInstallations.length === 0 ? (
               <div className="card" style={{ padding: 14, marginTop: 12 }}>
                 <div style={{ color: "#94a3b8", fontSize: 12 }}>
@@ -1326,7 +1556,7 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
                 <div className="card" style={{ padding: 14, marginTop: 12 }}>
                   <div style={{ fontWeight: 900, marginBottom: 8 }}>📊 區域進度</div>
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 10 }}>
-                    {anRegion.map((rg: any) => (
+                    {anRegion.map((rg) => (
                       <div key={rg.key} className="card" style={{ padding: 12, borderColor: `${rg.color}33`, background: `${rg.color}0a` }}>
                         <div style={{ fontWeight: 900, color: rg.color }}>{rg.label}</div>
                         <div style={{ color: "#94a3b8", fontSize: 12, marginTop: 4 }}>{rg.total} 案 · 平均 {rg.avg}%</div>
@@ -1404,6 +1634,106 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
                     </div>
                   )}
                 </div>
+
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 12, marginTop: 12 }}>
+                  <div className="card" style={{ padding: 14 }}>
+                    <div style={{ fontWeight: 900, marginBottom: 8 }}>交付 Cycle Time</div>
+                    <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+                      <div>
+                        <div style={{ color: "#94a3b8", fontSize: 12, fontWeight: 900 }}>完成案</div>
+                        <div style={{ fontSize: 24, fontWeight: 900 }}>{cycleTime.completedCount}</div>
+                      </div>
+                      <div>
+                        <div style={{ color: "#94a3b8", fontSize: 12, fontWeight: 900 }}>平均天數</div>
+                        <div style={{ fontSize: 24, fontWeight: 900, color: "#3b82f6" }}>{cycleTime.avgDays}</div>
+                      </div>
+                      <div>
+                        <div style={{ color: "#94a3b8", fontSize: 12, fontWeight: 900 }}>P50</div>
+                        <div style={{ fontSize: 24, fontWeight: 900, color: "#0ea5e9" }}>{cycleTime.p50Days}</div>
+                      </div>
+                    </div>
+                    <div style={{ display: "grid", gap: 7, marginTop: 12 }}>
+                      {cycleTime.longestRows.length ? cycleTime.longestRows.map((row) => (
+                        <div key={row.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+                          <div style={{ minWidth: 0 }}>
+                            <div style={{ fontWeight: 900, fontSize: 12, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{row.title}</div>
+                            <div style={{ color: "#94a3b8", fontSize: 11 }}>{row.customer} · 完成 {row.completedAt}</div>
+                          </div>
+                          <Badge text={`${row.days} 天`} color="#3b82f6" subtle />
+                        </div>
+                      )) : (
+                        <div style={{ color: "#94a3b8", fontSize: 12 }}>尚無實際完成日可計算。</div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="card" style={{ padding: 14 }}>
+                    <div style={{ fontWeight: 900, marginBottom: 8 }}>階段 Aging / SLA</div>
+                    <div style={{ display: "grid", gap: 8 }}>
+                      {phaseAging.map((row) => (
+                        <div key={row.key}>
+                          <div style={{ display: "flex", justifyContent: "space-between", gap: 8, fontSize: 12 }}>
+                            <span style={{ fontWeight: 900, color: row.color }}>{row.label}</span>
+                            <span style={{ color: "#94a3b8" }}>
+                              {row.count} 案 · 平均 {row.avgAgeDays} 天 · 最長 {row.maxAgeDays} 天
+                            </span>
+                          </div>
+                          <div style={{ height: 8, background: "rgba(148,163,184,0.18)", borderRadius: 999, overflow: "hidden", marginTop: 5 }}>
+                            <div
+                              style={{
+                                width: `${Math.min(100, row.maxAgeDays * 8)}%`,
+                                height: "100%",
+                                background: row.breached > 0 ? "#ef4444" : row.color,
+                              }}
+                            />
+                          </div>
+                          {row.breached > 0 ? (
+                            <div style={{ color: "#ef4444", fontSize: 11, fontWeight: 900, marginTop: 3 }}>逾 SLA {row.breached} 案</div>
+                          ) : null}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="card" style={{ padding: 14, marginTop: 12 }}>
+                  <div style={{ fontWeight: 900, marginBottom: 8 }}>客戶 / 機型健康摘要</div>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 12 }}>
+                    {[
+                      { title: "客戶健康", rows: customerHealth },
+                      { title: "機型健康", rows: modelHealth },
+                    ].map((healthPanel) => (
+                      <div key={healthPanel.title} className="card" style={{ padding: 12 }}>
+                        <div style={{ fontWeight: 900, marginBottom: 10 }}>{healthPanel.title}</div>
+                        <div style={{ display: "grid", gap: 9 }}>
+                          {healthPanel.rows.length ? healthPanel.rows.map((row) => {
+                            const healthColor = pickHealthColor(row.health);
+                            return (
+                              <div key={row.name}>
+                                <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
+                                  <div style={{ fontWeight: 900, fontSize: 12, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{row.name}</div>
+                                  <div style={{ fontWeight: 900, color: healthColor }}>{row.health}</div>
+                                </div>
+                                <div style={{ height: 8, background: "rgba(148,163,184,0.18)", borderRadius: 999, overflow: "hidden", marginTop: 5 }}>
+                                  <div style={{ width: `${row.health}%`, height: "100%", background: healthColor }} />
+                                </div>
+                                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", color: "#94a3b8", fontSize: 11, marginTop: 5 }}>
+                                  <span>裝機 {row.installs}</span>
+                                  <span>進行 {row.activeInstalls}</span>
+                                  <span>設備 {row.equipments}</span>
+                                  <span style={{ color: row.overdue > 0 ? "#ef4444" : "#94a3b8" }}>逾期 {row.overdue}</span>
+                                  <span style={{ color: row.blocked > 0 ? "#ef4444" : "#94a3b8" }}>阻塞 {row.blocked}</span>
+                                </div>
+                              </div>
+                            );
+                          }) : (
+                            <div style={{ color: "#94a3b8", fontSize: 12 }}>尚無資料。</div>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
               </>
             )}
 
@@ -1429,7 +1759,9 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
                 <div className="card" style={{ padding: 12 }}>
                   <div style={{ color: "#94a3b8", fontSize: 12, fontWeight: 900 }}>平均稼動率</div>
                   <div style={{ fontSize: 28, fontWeight: 900, marginTop: 6, color: pickColorByUtil(equipStats.avgUtil) }}>{equipStats.avgUtil}%</div>
-                  <div style={{ color: "#94a3b8", fontSize: 12, marginTop: 6 }}>阻塞中：{equipStats.blocked}</div>
+                  <div style={{ color: "#94a3b8", fontSize: 12, marginTop: 6 }}>
+                    阻塞中：{equipStats.blocked} · 已解決：{equipStats.resolvedBlocking} · 平均處理：{equipStats.avgBlockingDays} 天
+                  </div>
                 </div>
               </div>
 
@@ -1656,8 +1988,10 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
               </div>
 
               {drawerEq.blocking?.reasonCode ? (
-                <div className="card" style={{ padding: 12, borderColor: "rgba(239,68,68,0.35)" }}>
-                  <div style={{ fontWeight: 900, marginBottom: 8, color: "#ef4444" }}>阻塞</div>
+                <div className="card" style={{ padding: 12, borderColor: `${EQUIPMENT_BLOCKING_STATUS_COLOR[normalizeEquipmentBlockingStatus(drawerEq.blocking.status)]}55` }}>
+                  <div style={{ fontWeight: 900, marginBottom: 8, color: EQUIPMENT_BLOCKING_STATUS_COLOR[normalizeEquipmentBlockingStatus(drawerEq.blocking.status)] }}>
+                    阻塞 · {EQUIPMENT_BLOCKING_STATUS_LABEL[normalizeEquipmentBlockingStatus(drawerEq.blocking.status)]}
+                  </div>
                   <div style={{ color: "#94a3b8", fontSize: 12 }}>
                     原因：{drawerEq.blocking.reasonCode}
                     <br />
@@ -1666,6 +2000,16 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
                     Owner：{drawerEq.blocking.owner}
                     <br />
                     ETA：{drawerEq.blocking.eta || "-"}
+                    <br />
+                    處理天數：{getEquipmentBlockingAgeDays(drawerEq.blocking) ?? "-"} 天
+                    <br />
+                    重開次數：{drawerEq.blocking.reopenCount ?? 0}
+                    {drawerEq.blocking.resolutionNote ? (
+                      <>
+                        <br />
+                        解決備註：{drawerEq.blocking.resolutionNote}
+                      </>
+                    ) : null}
                   </div>
                 </div>
               ) : null}
@@ -1765,6 +2109,42 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
                   {installErrors[field.key] ? <div style={{ color: "var(--destructive)", fontSize: 12 }}>{installErrors[field.key]}</div> : null}
                 </div>
               ))}
+
+              <div className="field">
+                <div className="label">下一步 Owner</div>
+                <select value={installForm.nextOwner} onChange={(e) => updateInstallField("nextOwner", e.target.value)}>
+                  <option value="">未指定</option>
+                  {engineers.map((name) => (
+                    <option key={name} value={name}>{name}</option>
+                  ))}
+                  {installForm.nextOwner && !engineers.includes(installForm.nextOwner) ? (
+                    <option value={installForm.nextOwner}>{installForm.nextOwner}（舊）</option>
+                  ) : null}
+                </select>
+              </div>
+
+              <div className="field">
+                <div className="label">下一步期限</div>
+                <DateInput value={installForm.nextDueDate} onChange={(value) => updateInstallField("nextDueDate", value)} />
+              </div>
+
+              <div className="field" style={{ gridColumn: "1 / -1" }}>
+                <div className="label">下一步動作</div>
+                <input
+                  value={installForm.nextAction}
+                  onChange={(e) => updateInstallField("nextAction", e.target.value)}
+                  placeholder="例如：確認客戶二次驗收窗口"
+                />
+              </div>
+
+              <div className="field" style={{ gridColumn: "1 / -1" }}>
+                <div className="label">逾期原因</div>
+                <input
+                  value={installForm.overdueReason}
+                  onChange={(e) => updateInstallField("overdueReason", e.target.value)}
+                  placeholder="例如：客戶停機窗口延後、料件未到、現場配管未完成"
+                />
+              </div>
 
               <div className="field" style={{ gridColumn: "1 / -1" }}>
                 <div className="label">進度（0~100）</div>
@@ -2060,6 +2440,18 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
             {equipForm.hasBlocking ? (
               <>
                 <div className="field">
+                  <div className="label">Blocking 狀態</div>
+                  <select
+                    className="selectWithArrow"
+                    value={equipForm.blocking.status}
+                    onChange={(e) => setEquipForm({ ...equipForm, blocking: { ...equipForm.blocking, status: normalizeEquipmentBlockingStatus(e.target.value) } })}
+                  >
+                    <option value="open">OPEN</option>
+                    <option value="resolved">RESOLVED</option>
+                    <option value="reopened">REOPENED</option>
+                  </select>
+                </div>
+                <div className="field">
                   <div className="label">阻塞原因</div>
                   <input value={equipForm.blocking.reasonCode} onChange={(e) => setEquipForm({ ...equipForm, blocking: { ...equipForm.blocking, reasonCode: e.target.value } })} placeholder="例如：料件未到" />
                 </div>
@@ -2074,6 +2466,19 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
                 <div className="field">
                   <div className="label">ETA</div>
                   <input value={equipForm.blocking.eta} onChange={(e) => setEquipForm({ ...equipForm, blocking: { ...equipForm.blocking, eta: e.target.value } })} placeholder="YYYY-MM-DD" />
+                </div>
+                <div className="field" style={{ gridColumn: "1 / -1" }}>
+                  <div className="label">解決備註</div>
+                  <input
+                    value={equipForm.blocking.resolutionNote}
+                    onChange={(e) => setEquipForm({ ...equipForm, blocking: { ...equipForm.blocking, resolutionNote: e.target.value } })}
+                    placeholder="例如：真空閥已到料並完成更換"
+                  />
+                </div>
+                <div className="field" style={{ gridColumn: "1 / -1" }}>
+                  <div className="fieldHint">
+                    已處理 {equipForm.blocking.openedAt ? `${getEquipmentBlockingAgeDays(equipForm.blocking)} 天` : "-"} · 重開 {equipForm.blocking.reopenCount ?? 0} 次
+                  </div>
                 </div>
               </>
             ) : null}
@@ -2090,6 +2495,7 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
           onClose={() => setSmartImportOpen(false)}
           customerRegionMap={customerRegionMap}
           machineModels={machineModels}
+          importConfig={importConfig}
           onImported={(counts) => {
             setSmartImportOpen(false);
             setToast(`✅ 裝機保留新增 ${counts.createdInstallations} 筆 / 更新 ${counts.updatedInstallations} 筆；設備新增 ${counts.createdEquipments} 筆 / 更新 ${counts.updatedEquipments} 筆；自裝機移除 ${counts.removedInstallations} 筆`);

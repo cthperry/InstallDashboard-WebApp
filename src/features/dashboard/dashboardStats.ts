@@ -1,5 +1,6 @@
 import type { CapacityLevel, Equipment, EquipmentMainStatus, Installation, PhaseKey } from "@/domain/types";
 import { getLiveUtilization } from "@/domain/capacity";
+import { getEquipmentBlockingAgeDays, isActiveEquipmentBlocking, normalizeEquipmentBlockingStatus } from "@/domain/equipmentBlocking";
 
 function safeStr(v: unknown): string {
   if (typeof v === "string") return v;
@@ -48,11 +49,21 @@ export function calcEquipmentStats(rows: Equipment[]) {
   const byStatus: Record<EquipmentMainStatus, number> = { "裝機": 0, "試產": 0, "正式生產中": 0 };
   const byCap: Record<CapacityLevel, number> = { "綠": 0, "黃": 0, "紅": 0 };
   let blocked = 0;
+  let resolvedBlocking = 0;
+  let blockingDaysTotal = 0;
+  let blockingDaysCount = 0;
   for (const row of rows) {
     byStatus[row.statusMain] = (byStatus[row.statusMain] ?? 0) + 1;
     const liveLevel = calcCapacityLevel(Number(row.capacity.uph), Number(row.capacity.targetUph));
     byCap[liveLevel] = (byCap[liveLevel] ?? 0) + 1;
-    if (row.blocking?.reasonCode) blocked++;
+    if (isActiveEquipmentBlocking(row.blocking)) blocked++;
+    if (row.blocking?.reasonCode && normalizeEquipmentBlockingStatus(row.blocking.status) === "resolved") resolvedBlocking++;
+    const blockingDays = getEquipmentBlockingAgeDays(row.blocking);
+    if (blockingDays != null) {
+      blockingDaysTotal += blockingDays;
+      blockingDaysCount++;
+    }
   }
-  return { total, avgUtil, byStatus, byCap, blocked };
+  const avgBlockingDays = blockingDaysCount ? Math.round(blockingDaysTotal / blockingDaysCount) : 0;
+  return { total, avgUtil, byStatus, byCap, blocked, resolvedBlocking, avgBlockingDays };
 }

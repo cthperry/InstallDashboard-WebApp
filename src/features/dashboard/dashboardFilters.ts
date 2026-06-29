@@ -137,6 +137,8 @@ export function filterAndSortEquipments(rows: Equipment[], filters: EquipmentFil
         row.owner,
         row.blocking?.reasonCode,
         row.blocking?.detail,
+        row.blocking?.status,
+        row.blocking?.resolutionNote,
       ]
         .filter(Boolean)
         .join(" ")

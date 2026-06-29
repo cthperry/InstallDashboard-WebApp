@@ -1,12 +1,12 @@
 import { useEffect, useState } from "react";
 
-import type { AppVariablesDoc, Equipment, Installation, MachineModel, RetentionSettingsDoc } from "@/domain/types";
+import type { AppVariablesDoc, Equipment, ImportConfigDoc, Installation, MachineModel, RetentionSettingsDoc } from "@/domain/types";
 import { DEFAULT_MACHINE_MODELS } from "@/domain/constants";
 import { mergeMachineModels } from "@/domain/machineModels";
 import { listenInstallations } from "@/features/data/installations";
 import { listenEquipments } from "@/features/data/equipments";
 import { listenUsers, type ManagedUser } from "@/features/data/users";
-import { listenAppVariables, listenMachineModels, listenRetentionSettings } from "@/features/data/settings";
+import { listenAppVariables, listenImportConfig, listenMachineModels, listenRetentionSettings } from "@/features/data/settings";
 import { listenAuditLogs, listenEventsLastDays, type AuditLogRow, type EventRow } from "@/features/data/logs";
 
 type DashboardSection = "install" | "equipment" | "insights";
@@ -30,6 +30,7 @@ export function useDashboardData({
   const [machineModels, setMachineModels] = useState<MachineModel[]>([...DEFAULT_MACHINE_MODELS]);
   const [appVars, setAppVars] = useState<AppVariablesDoc | null>(null);
   const [retention, setRetention] = useState<RetentionSettingsDoc | null>(null);
+  const [importConfig, setImportConfig] = useState<ImportConfigDoc | null>(null);
   const [managedUsers, setManagedUsers] = useState<ManagedUser[]>([]);
   const [installations, setInstallations] = useState<Installation[]>([]);
   const [installErr, setInstallErr] = useState<string>("");
@@ -47,9 +48,14 @@ export function useDashboardData({
       setMachineModels(mergeMachineModels(doc?.models, DEFAULT_MACHINE_MODELS));
     });
 
+    const unsubImportConfig = listenImportConfig((doc) => {
+      setImportConfig(doc);
+    });
+
     return () => {
       unsubVars?.();
       unsubModels?.();
+      unsubImportConfig?.();
     };
   }, []);
 
@@ -119,6 +125,7 @@ export function useDashboardData({
     machineModels,
     appVars,
     retention,
+    importConfig,
     managedUsers,
     installations,
     installErr,

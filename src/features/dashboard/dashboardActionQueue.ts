@@ -7,7 +7,10 @@ import {
 import { getInstallationSerial, getInstallationTaskTitle } from "@/domain/installationDisplay";
 import { toDisplayShortName } from "@/domain/personDisplay";
 import { getLiveUtilization } from "@/domain/capacity";
+import { isActiveEquipmentBlocking } from "@/domain/equipmentBlocking";
 import { getEquipmentSerialLabel } from "@/features/dashboard/dashboardFilters";
+import { getInstallSlaStatus } from "@/features/dashboard/installSla";
+import { todayInTaipeiYmd } from "@/lib/utils";
 
 export type MissionQueueTone = "critical" | "warning" | "info" | "good";
 
@@ -26,6 +29,10 @@ function daysSinceTimestamp(ts?: number): number {
   return Math.max(0, Math.floor((Date.now() - ts) / (24 * 60 * 60 * 1000)));
 }
 
+function hasGovernanceFields(row: Installation): boolean {
+  return Boolean(toDisplayShortName(row.nextOwner || row.engineer) && (row.nextDueDate || row.estComplete));
+}
+
 function calcCapacityLevel(uph: number, targetUph: number): "綠" | "黃" | "紅" {
   if (targetUph <= 0) return "綠";
   const ratio = uph / targetUph;
@@ -35,11 +42,12 @@ function calcCapacityLevel(uph: number, targetUph: number): "綠" | "黃" | "紅
 }
 
 export function buildInstallActionQueue(rows: Installation[]): DashboardQueueEntry[] {
+  const today = todayInTaipeiYmd();
   return rows
     .map((row): DashboardQueueEntry | null => {
       if (row.phase === "released") return null;
       const phaseLabel = PHASE_MAP[row.phase]?.label ?? row.phase;
-      const owner = toDisplayShortName(row.engineer) || "未指派";
+      const owner = toDisplayShortName(row.nextOwner || row.engineer) || "未指派";
       const meta = `${row.customer} · ${phaseLabel} · ${owner}`;
       const serial = getInstallationSerial(row);
       const label = getInstallationTaskTitle(row);
@@ -68,6 +76,21 @@ export function buildInstallActionQueue(rows: Installation[]): DashboardQueueEnt
         };
       }
 
+      const sla = getInstallSlaStatus(row);
+      if (sla.status === "breached") {
+        const missingGovernance = !hasGovernanceFields(row);
+        const missingReason = !row.overdueReason;
+        return {
+          id: `install-sla-${row.id}`,
+          targetId: row.id,
+          label,
+          meta: `${meta} · ${sla.basisLabel}${sla.basisDate ? ` ${sla.basisDate}` : ""}`,
+          value: missingGovernance || missingReason ? `${sla.label} · 缺治理` : sla.label,
+          tone: "critical",
+          priority: (missingGovernance || missingReason ? 5 : 15) - Math.abs(sla.remainingDays),
+        };
+      }
+
       if (!row.estComplete && row.phase !== "ordered") {
         return {
           id: `install-date-${row.id}`,
@@ -77,6 +100,30 @@ export function buildInstallActionQueue(rows: Installation[]): DashboardQueueEnt
           value: "缺預計日",
           tone: "warning",
           priority: 20,
+        };
+      }
+
+      if (row.nextDueDate && row.nextDueDate < today) {
+        return {
+          id: `install-next-due-${row.id}`,
+          targetId: row.id,
+          label,
+          meta: `${meta} · ${row.nextAction || "下一步未描述"}`,
+          value: "下一步逾期",
+          tone: "critical",
+          priority: 18,
+        };
+      }
+
+      if (sla.status === "warning") {
+        return {
+          id: `install-sla-warning-${row.id}`,
+          targetId: row.id,
+          label,
+          meta,
+          value: sla.label,
+          tone: "warning",
+          priority: 25 + sla.remainingDays,
         };
       }
 
@@ -110,13 +157,14 @@ export function buildEquipmentActionQueue(
       const liveLevel = calcCapacityLevel(row.capacity.uph, row.capacity.targetUph);
       const serial = getEquipmentSerialLabel(row) || row.equipmentId || row.id;
       const meta = `${row.customer} · ${regionLabel(row.region)} · ${toDisplayShortName(row.owner) || "未指派"}`;
+      const blocking = row.blocking;
 
-      if (row.blocking?.reasonCode) {
+      if (isActiveEquipmentBlocking(blocking)) {
         return {
           id: `equipment-blocked-${row.id}`,
           targetId: row.id,
           label: serial,
-          meta: `${meta} · ${row.blocking.reasonCode}`,
+          meta: `${meta} · ${blocking.reasonCode}`,
           value: "阻塞",
           tone: "critical",
           priority: 0,

@@ -1,4 +1,4 @@
-import type { Equipment, EquipmentMainStatus, Installation, MachineModel, PhaseKey, RegionKey } from "@/domain/types";
+import type { Equipment, EquipmentMainStatus, ImportConfigDoc, ImportFieldKey, Installation, MachineModel, PhaseKey, RegionKey } from "@/domain/types";
 import { DEFAULT_MACHINE_MODELS } from "@/domain/constants";
 import { resolveInstallationPhase, resolveInstallationProgress, shouldTransferInstallationToEquipment } from "@/domain/installPhase";
 import { buildEquipmentMilestonesFromInstallationDates } from "@/domain/equipmentMilestones";
@@ -35,15 +35,15 @@ export type EquipmentPayloadOverrides = {
   statusMain?: EquipmentMainStatus;
 };
 
-const COLUMN_MAP: Record<string, keyof WorkbookRow> = {
-  "產品序號": "serialNo",
-  "產品名稱": "modelCode",
-  "訂單來源公司名稱": "customer",
-  "預計出貨日": "estArrival",
-  "預計安裝日": "estComplete",
-  "實際安裝日期": "actArrival",
-  "驗收完成日期": "actComplete",
-  "服務人員名稱": "engineer",
+export const DEFAULT_IMPORT_COLUMN_ALIASES: Record<ImportFieldKey, string[]> = {
+  serialNo: ["產品序號", "機台序號", "Serial No", "SerialNo", "SN"],
+  modelCode: ["產品名稱", "機型", "Model", "Model Code"],
+  customer: ["訂單來源公司名稱", "客戶", "Customer", "Customer Name"],
+  estArrival: ["預計出貨日", "預計到廠日", "ETA Ship", "Est Arrival"],
+  estComplete: ["預計安裝日", "預計完成日", "Est Complete", "Install ETA"],
+  actArrival: ["實際安裝日期", "實際到廠日", "Actual Arrival", "Install Start"],
+  actComplete: ["驗收完成日期", "實際完成日", "Actual Complete", "Acceptance Date"],
+  engineer: ["服務人員名稱", "工程師", "Engineer", "Owner"],
 };
 
 const DATE_FIELDS = new Set<keyof WorkbookRow>(["estArrival", "estComplete", "actArrival", "actComplete"]);
@@ -153,6 +153,41 @@ function cleanSerialNo(raw: unknown, modelCode: unknown): string {
   return normalizeInstallationSerialCandidate(raw, modelCode);
 }
 
+function normalizeHeaderKey(value: unknown): string {
+  return normalizeCompactKey(value);
+}
+
+function buildHeaderFieldMap(config?: ImportConfigDoc | null): Map<string, keyof WorkbookRow> {
+  const map = new Map<string, keyof WorkbookRow>();
+  for (const [field, headers] of Object.entries(DEFAULT_IMPORT_COLUMN_ALIASES) as Array<[keyof WorkbookRow, string[]]>) {
+    for (const header of headers) {
+      const key = normalizeHeaderKey(header);
+      if (key) map.set(key, field);
+    }
+  }
+  for (const entry of config?.columnAliases ?? []) {
+    for (const header of entry.headers ?? []) {
+      const key = normalizeHeaderKey(header);
+      if (key) map.set(key, entry.field);
+    }
+  }
+  return map;
+}
+
+function resolveConfiguredCustomerName(raw: string, config?: ImportConfigDoc | null): string {
+  const key = normalizeCompactKey(raw);
+  if (!key) return "";
+  const match = (config?.customerAliases ?? []).find((entry) => normalizeCompactKey(entry.alias) === key);
+  return match?.customer?.trim() || raw.trim();
+}
+
+function resolveConfiguredMachineModel(raw: string, config?: ImportConfigDoc | null): string {
+  const key = normalizeCompactKey(raw);
+  if (!key) return "";
+  const match = (config?.machineModelAliases ?? []).find((entry) => normalizeCompactKey(entry.alias) === key);
+  return match?.modelCode?.trim() || raw.trim();
+}
+
 export function resolveWorkbookImportDisposition(row: WorkbookRow, phaseOverride?: PhaseKey, now: Date = new Date()) {
   const phase = phaseOverride ?? resolveInstallationPhase(row, now);
   const progress = resolveInstallationProgress(phase);
@@ -222,6 +257,7 @@ export function validateWorkbookRow(row: WorkbookRow, target: ImportTarget, phas
     estComplete: row.estComplete,
     actArrival: row.actArrival,
     actComplete: row.actComplete,
+    nextDueDate: "",
   })) {
     errors.add(issue.message);
   }
@@ -235,7 +271,9 @@ export function validateWorkbookRow(row: WorkbookRow, target: ImportTarget, phas
 export function parseWorkbookJsonRows(
   jsonRows: Array<Record<string, unknown>>,
   models: readonly MachineModel[] = DEFAULT_MACHINE_MODELS,
+  importConfig?: ImportConfigDoc | null,
 ): ParsedWorkbookRow[] {
+  const headerFieldMap = buildHeaderFieldMap(importConfig);
   return jsonRows
     .map((rowObj, rowIndex) => {
       const row: Record<keyof WorkbookRow, string> = {
@@ -249,8 +287,9 @@ export function parseWorkbookJsonRows(
         engineer: "",
       };
 
-      for (const [columnName, targetField] of Object.entries(COLUMN_MAP)) {
-        const rawValue = rowObj[columnName];
+      for (const [columnName, rawValue] of Object.entries(rowObj)) {
+        const targetField = headerFieldMap.get(normalizeHeaderKey(columnName));
+        if (!targetField) continue;
         row[targetField] = DATE_FIELDS.has(targetField)
           ? excelDateToString(rawValue)
           : typeof rawValue === "string"
@@ -258,11 +297,13 @@ export function parseWorkbookJsonRows(
             : String(rawValue ?? "").trim();
       }
 
-      const modelCode = cleanModelName(row.modelCode, models);
+      const configuredModel = resolveConfiguredMachineModel(row.modelCode, importConfig);
+      const modelCode = cleanModelName(configuredModel, models);
+      const customer = resolveConfiguredCustomerName(row.customer, importConfig);
       const normalized: WorkbookRow = {
         serialNo: cleanSerialNo(row.serialNo, modelCode),
         modelCode,
-        customer: row.customer,
+        customer,
         estArrival: row.estArrival,
         estComplete: row.estComplete,
         actArrival: row.actArrival,

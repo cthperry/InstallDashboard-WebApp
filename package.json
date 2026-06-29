@@ -11,10 +11,11 @@
     "build": "next build && node scripts/write-build-version.cjs && npm run verify:build",
     "prestart": "npm run sync:version && npm run verify:version && npm run verify:build",
     "start": "next start",
+    "test:unit": "node scripts/run-unit-tests.cjs",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "audit:high": "npm audit --audit-level=high",
-    "verify:quality": "npm run lint && npm run typecheck && npm run audit:high",
+    "verify:quality": "npm run test:unit && npm run lint && npm run typecheck && npm run audit:high",
     "verify:build": "node scripts/verify-build-version.cjs",
     "verify:production": "node scripts/verify-production.cjs"
   },

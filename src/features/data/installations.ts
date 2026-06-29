@@ -12,6 +12,7 @@ import {
   serverTimestamp,
   updateDoc,
   where,
+  writeBatch,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase/client";
 import { INSTALLATIONS_COL } from "@/domain/constants";
@@ -165,6 +166,37 @@ export async function updateInstallation(id: string, patch: Partial<Omit<Install
   out.updatedAt = Date.now();
   out.updatedAtServer = serverTimestamp();
   await updateDoc(doc(db, COL, id), out);
+}
+
+export async function updateInstallationsBulk(
+  ids: string[],
+  patch: Partial<Pick<Installation, "engineer" | "estComplete" | "nextAction" | "nextOwner" | "nextDueDate" | "overdueReason">>,
+) {
+  const uniqueIds = Array.from(new Set(ids.map((id) => normalizeString(id)).filter(Boolean)));
+  if (uniqueIds.length === 0) return 0;
+  if (uniqueIds.length > 450) {
+    throw new Error("批次更新最多支援 450 筆，請縮小篩選範圍後再執行");
+  }
+
+  const batch = writeBatch(db);
+  const updatedAt = Date.now();
+  const normalizedPatch: Partial<Omit<Installation, "id">> & { updatedAt: number; updatedAtServer: unknown } = {
+    ...patch,
+    ...(patch.engineer !== undefined ? { engineer: normalizeString(patch.engineer) } : {}),
+    ...(patch.nextOwner !== undefined ? { nextOwner: normalizeString(patch.nextOwner) } : {}),
+    ...(patch.nextAction !== undefined ? { nextAction: normalizeString(patch.nextAction) } : {}),
+    ...(patch.estComplete !== undefined ? { estComplete: normalizeDateYmd(patch.estComplete) } : {}),
+    ...(patch.nextDueDate !== undefined ? { nextDueDate: normalizeDateYmd(patch.nextDueDate) } : {}),
+    ...(patch.overdueReason !== undefined ? { overdueReason: normalizeString(patch.overdueReason) } : {}),
+    updatedAt,
+    updatedAtServer: serverTimestamp(),
+  };
+
+  for (const id of uniqueIds) {
+    batch.update(doc(db, COL, id), normalizedPatch);
+  }
+  await batch.commit();
+  return uniqueIds.length;
 }
 
 export async function removeInstallation(id: string) {

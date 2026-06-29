@@ -1,5 +1,6 @@
 import { EQUIPMENT_SUB_STATUS_OPTIONS } from "@/domain/constants";
-import type { CapacityLevel, Equipment, EquipmentMainStatus, RegionKey } from "@/domain/types";
+import { normalizeEquipmentBlockingStatus } from "@/domain/equipmentBlocking";
+import type { CapacityLevel, Equipment, EquipmentBlockingStatus, EquipmentMainStatus, RegionKey } from "@/domain/types";
 import { buildCapacitySnapshot, calculateUtilization } from "@/domain/capacity";
 import { toDisplayShortName } from "@/domain/personDisplay";
 import { getEquipmentSerialLabel } from "@/features/dashboard/dashboardFilters";
@@ -28,6 +29,12 @@ export type EquipmentFormDraft = {
     detail: string;
     owner: string;
     eta: string;
+    status: EquipmentBlockingStatus;
+    openedAt?: number;
+    resolvedAt?: number;
+    reopenedAt?: number;
+    reopenCount: number;
+    resolutionNote: string;
   };
   capacity: {
     utilization: number;
@@ -64,6 +71,9 @@ export function getEquipmentDefaultFormDraft(defaultModelCode = "FlexTRAK-S"): E
       detail: "",
       owner: "",
       eta: "",
+      status: "open",
+      reopenCount: 0,
+      resolutionNote: "",
     },
     capacity: {
       utilization: 0,
@@ -113,6 +123,12 @@ export function buildEquipmentFormDraftFromEquipment(row: Equipment): EquipmentF
       detail: row.blocking?.detail ?? "",
       owner: row.blocking?.owner ?? "",
       eta: row.blocking?.eta ?? "",
+      status: normalizeEquipmentBlockingStatus(row.blocking?.status),
+      openedAt: row.blocking?.openedAt,
+      resolvedAt: row.blocking?.resolvedAt,
+      reopenedAt: row.blocking?.reopenedAt,
+      reopenCount: row.blocking?.reopenCount ?? 0,
+      resolutionNote: row.blocking?.resolutionNote ?? "",
     },
     capacity: {
       utilization: snapshot.utilization,
@@ -170,12 +186,18 @@ export function buildEquipmentPayloadFromDraft(draft: EquipmentFormDraft): Omit<
     statusSub: draft.statusSub ?? "",
     owner: toDisplayShortName(draft.owner),
     milestones: draft.milestones,
-    blocking: draft.hasBlocking
+    blocking: draft.hasBlocking && draft.blocking.reasonCode.trim()
       ? {
-          reasonCode: draft.blocking.reasonCode,
-          detail: draft.blocking.detail,
-          owner: draft.blocking.owner,
-          eta: draft.blocking.eta || undefined,
+          reasonCode: draft.blocking.reasonCode.trim(),
+          detail: draft.blocking.detail.trim(),
+          owner: toDisplayShortName(draft.blocking.owner),
+          ...(draft.blocking.eta ? { eta: draft.blocking.eta } : {}),
+          status: draft.blocking.status,
+          ...(draft.blocking.openedAt ? { openedAt: draft.blocking.openedAt } : {}),
+          ...(draft.blocking.resolvedAt ? { resolvedAt: draft.blocking.resolvedAt } : {}),
+          ...(draft.blocking.reopenedAt ? { reopenedAt: draft.blocking.reopenedAt } : {}),
+          ...(draft.blocking.reopenCount > 0 ? { reopenCount: draft.blocking.reopenCount } : {}),
+          ...(draft.blocking.resolutionNote ? { resolutionNote: draft.blocking.resolutionNote.trim() } : {}),
         }
       : undefined,
     capacity: {
@@ -206,12 +228,17 @@ export function buildSafeEquipmentMilestones(milestones: Equipment["milestones"]
 }
 
 export function buildSafeEquipmentBlocking(blocking: Equipment["blocking"]): Equipment["blocking"] | null {
-  return blocking
-    ? {
-        reasonCode: blocking.reasonCode ?? "",
-        detail: blocking.detail ?? "",
-        owner: blocking.owner ?? "",
-        eta: blocking.eta ?? "",
-      }
-    : null;
+  if (!blocking?.reasonCode) return null;
+  return {
+    reasonCode: blocking.reasonCode ?? "",
+    detail: blocking.detail ?? "",
+    owner: blocking.owner ?? "",
+    ...(blocking.eta ? { eta: blocking.eta } : {}),
+    status: normalizeEquipmentBlockingStatus(blocking.status),
+    ...(blocking.openedAt ? { openedAt: blocking.openedAt } : {}),
+    ...(blocking.resolvedAt ? { resolvedAt: blocking.resolvedAt } : {}),
+    ...(blocking.reopenedAt ? { reopenedAt: blocking.reopenedAt } : {}),
+    ...(blocking.reopenCount ? { reopenCount: blocking.reopenCount } : {}),
+    ...(blocking.resolutionNote ? { resolutionNote: blocking.resolutionNote } : {}),
+  };
 }
