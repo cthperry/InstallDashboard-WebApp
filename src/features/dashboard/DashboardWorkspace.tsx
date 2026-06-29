@@ -146,6 +146,42 @@ type DashboardEmptyStateAction = {
 
 type DashboardStatusTone = "info" | "error";
 
+const EQUIPMENT_VALIDATION_LABELS: Record<string, string> = {
+  equipmentId: "設備 ID",
+  region: "區域",
+  customer: "客戶",
+  site: "站點",
+  modelCode: "機型",
+  serialNo: "機台序號",
+  statusMain: "主狀態",
+  statusSub: "子狀態",
+  owner: "Owner",
+  capacity: "容量",
+  "capacity.uph": "UPH",
+  "capacity.targetUph": "Target UPH",
+  "capacity.trend7d": "7 天趨勢",
+  products: "產品產能",
+  blocking: "阻塞資料",
+  "blocking.reasonCode": "阻塞原因",
+  "blocking.owner": "阻塞 Owner",
+  "blocking.eta": "阻塞 ETA",
+};
+
+function formatEquipmentValidationIssues(issues: { path: readonly PropertyKey[]; message: string }[]): string[] {
+  const messages = issues.map((issue) => {
+    const path = issue.path.map(String);
+    const key = path.join(".");
+    const root = path[0] ?? "";
+    const label = EQUIPMENT_VALIDATION_LABELS[key] ?? EQUIPMENT_VALIDATION_LABELS[root] ?? "設備資料";
+    const rowIndex = root === "products" && path.length > 1 && Number.isFinite(Number(path[1]))
+      ? `第 ${Number(path[1]) + 1} 筆`
+      : "";
+    return `${label}${rowIndex ? `（${rowIndex}）` : ""}：${issue.message}`;
+  });
+
+  return Array.from(new Set(messages));
+}
+
 function pickHealthColor(score: number): string {
   if (score >= 80) return "#10b981";
   if (score >= 60) return "#f59e0b";
@@ -350,6 +386,7 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
   const [equipModalOpen, setEquipModalOpen] = useState(false);
   const [equipEditId, setEquipEditId] = useState<string | null>(null);
   const [equipSubmitBusy, setEquipSubmitBusy] = useState(false);
+  const [equipErrorSummary, setEquipErrorSummary] = useState<string[]>([]);
   const [equipForm, setEquipForm] = useState<EquipmentFormDraft>(() => getEquipmentDefaultFormDraft());
 
   useEffect(() => {
@@ -930,6 +967,7 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
   const openAddEquip = () => {
     setEquipEditId(null);
     setEquipSubmitBusy(false);
+    setEquipErrorSummary([]);
     setEquipForm(getEquipmentDefaultFormDraft(machineModels?.[0]?.code ?? "FlexTRAK-S"));
     setEquipModalOpen(true);
   };
@@ -937,6 +975,7 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
   const openEditEquip = (r: Equipment) => {
     setEquipEditId(r.id);
     setEquipSubmitBusy(false);
+    setEquipErrorSummary([]);
     setEquipForm(buildEquipmentFormDraftFromEquipment(r));
     setEquipModalOpen(true);
   };
@@ -948,10 +987,13 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
     const payload = buildEquipmentPayloadFromDraft(equipForm);
     const parsed = equipmentSchema.safeParse(payload);
     if (!parsed.success) {
-      setToast(parsed.error.issues?.[0]?.message ?? "表單驗證失敗");
+      const summary = formatEquipmentValidationIssues(parsed.error.issues ?? []);
+      setEquipErrorSummary(summary);
+      setToast(summary[0] ?? "表單驗證失敗");
       return;
     }
 
+    setEquipErrorSummary([]);
     const safeMilestones = buildSafeEquipmentMilestones(parsed.data.milestones);
     const safeBlocking = buildSafeEquipmentBlocking(parsed.data.blocking);
     const previousEquipment = equipEditId ? equipments.find((row) => row.id === equipEditId) : undefined;
@@ -983,6 +1025,7 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
         setToast("已新增");
       }
       setEquipModalOpen(false);
+      setEquipErrorSummary([]);
     } catch (e) {
       setToast(`儲存失敗：${safeStr(e)}`);
     } finally {
@@ -2577,6 +2620,7 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
           title={equipEditId ? "編輯設備" : "新增設備"}
           onClose={() => {
             if (equipSubmitBusy) return;
+            setEquipErrorSummary([]);
             setEquipModalOpen(false);
           }}
         >
@@ -2821,8 +2865,27 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
             ) : null}
           </div>
 
+          {equipErrorSummary.length > 0 ? (
+            <div
+              role="alert"
+              style={{
+                marginTop: 12,
+                marginBottom: 12,
+                padding: 12,
+                borderRadius: 12,
+                border: "1px solid color-mix(in oklab, var(--destructive) 35%, white 0%)",
+                background: "color-mix(in oklab, var(--destructive) 8%, white 0%)",
+              }}
+            >
+              <div style={{ color: "var(--destructive)", fontWeight: 800, marginBottom: 6 }}>請先修正以下設備欄位後再儲存</div>
+              <ul style={{ margin: 0, paddingLeft: 18, color: "var(--destructive)", fontSize: 13, display: "grid", gap: 4 }}>
+                {equipErrorSummary.map((message) => <li key={message}>{message}</li>)}
+              </ul>
+            </div>
+          ) : null}
+
           <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-            <button className="btn" onClick={() => setEquipModalOpen(false)} disabled={equipSubmitBusy}>取消</button>
+            <button className="btn" onClick={() => { setEquipErrorSummary([]); setEquipModalOpen(false); }} disabled={equipSubmitBusy}>取消</button>
             <button className="btn btnAccent" onClick={submitEquip} disabled={equipSubmitBusy}>
               {equipSubmitBusy ? "儲存中..." : "儲存"}
             </button>
