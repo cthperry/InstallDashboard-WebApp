@@ -92,9 +92,26 @@ export function SystemStatusPage() {
           </div>
           <div className="f66GuardList">
             <div><b>Build</b><span>npm run build</span></div>
+            <div><b>Version gate</b><span>npm run verify:version</span></div>
             <div><b>Author</b><span>Perry &lt;cthperry@gmail.com&gt;</span></div>
             <div><b>Target</b><span>GitHub main → Vercel production</span></div>
           </div>
+        </div>
+      </section>
+
+      <section className="f66Panel">
+        <div className="f66PanelHead">
+          <div>
+            <span className="f66Eyebrow">VERSION SOURCE</span>
+            <h2>唯一版本來源</h2>
+          </div>
+          <StatusPill label="LOCKED" tone="good" />
+        </div>
+        <div className="f66GuardList">
+          <div><b>Source</b><span>package.json version = {appVersion}</span></div>
+          <div><b>Generated UI</b><span>src/generated/appBuild.ts 由 sync:version 產生</span></div>
+          <div><b>Public assets</b><span>public/version.json 與 public/sw.js 必須同版</span></div>
+          <div><b>Lockfile</b><span>package-lock.json root version 必須同版</span></div>
         </div>
       </section>
 
