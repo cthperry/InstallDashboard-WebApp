@@ -300,6 +300,23 @@ body {
   .dashboardEmptyActions {
     @apply flex flex-wrap items-center justify-center gap-2;
   }
+  .dashboardStatusBanner {
+    @apply mt-3 px-3 py-2.5;
+  }
+  .dashboardStatusBannerInfo {
+    border-color: rgba(59, 130, 246, 0.34);
+    background: linear-gradient(90deg, rgba(59, 130, 246, 0.12), transparent 62%), var(--card);
+  }
+  .dashboardStatusBannerError {
+    border-color: rgba(239, 68, 68, 0.38);
+    background: linear-gradient(90deg, rgba(239, 68, 68, 0.11), transparent 62%), var(--card);
+  }
+  .dashboardStatusTitle {
+    @apply text-sm font-black text-foreground;
+  }
+  .dashboardStatusDetail {
+    @apply mt-1 text-xs font-semibold text-muted-foreground;
+  }
 
   input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]),
   select, textarea {

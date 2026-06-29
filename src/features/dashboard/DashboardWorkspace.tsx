@@ -144,6 +144,8 @@ type DashboardEmptyStateAction = {
   variant?: "accent" | "ghost";
 };
 
+type DashboardStatusTone = "info" | "error";
+
 function pickHealthColor(score: number): string {
   if (score >= 80) return "#10b981";
   if (score >= 60) return "#f59e0b";
@@ -187,6 +189,27 @@ function ActiveFilterSummary({
       <button type="button" className="btn btnSmall btnGhost" onClick={onClearAll}>
         清除全部
       </button>
+    </div>
+  );
+}
+
+function DashboardStatusBanner({
+  tone,
+  title,
+  detail,
+}: {
+  tone: DashboardStatusTone;
+  title: string;
+  detail: string;
+}) {
+  return (
+    <div
+      className={`card dashboardStatusBanner ${tone === "error" ? "dashboardStatusBannerError" : "dashboardStatusBannerInfo"}`}
+      role={tone === "error" ? "alert" : "status"}
+      aria-live={tone === "error" ? "assertive" : "polite"}
+    >
+      <div className="dashboardStatusTitle">{title}</div>
+      <div className="dashboardStatusDetail">{detail}</div>
     </div>
   );
 }
@@ -251,8 +274,10 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
     importConfig,
     managedUsers,
     installations,
+    installLoading,
     installErr,
     equipments,
+    equipLoading,
     equipErr,
     auditLogs,
     events,
@@ -1175,10 +1200,17 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
             </div>
 
             {installErr ? (
-              <div className="card auroraAlertPanel" style={{ padding: 12, marginTop: 12, borderColor: "rgba(239,68,68,0.35)" }}>
-                <div style={{ color: "#ef4444", fontWeight: 900 }}>Installations 讀取失敗</div>
-                <div style={{ color: "#94a3b8", fontSize: 12, marginTop: 4 }}>{installErr}</div>
-              </div>
+              <DashboardStatusBanner
+                tone="error"
+                title="裝機資料讀取失敗"
+                detail={installErr}
+              />
+            ) : installLoading ? (
+              <DashboardStatusBanner
+                tone="info"
+                title="正在同步裝機資料"
+                detail="讀取完成後會自動更新表格、Pipeline 與甘特圖。"
+              />
             ) : null}
 
             {installView === "pipeline" || installView === "gantt" ? null : (
@@ -1257,7 +1289,17 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
                       {filteredInstallations.length === 0 ? (
                         <tr>
                           <td colSpan={12} className="dashboardEmptyCell">
-                            {installations.length === 0 ? (
+                            {installLoading ? (
+                              <DashboardEmptyState
+                                title="正在同步裝機資料"
+                                detail="讀取完成後會自動更新清單。"
+                              />
+                            ) : installErr ? (
+                              <DashboardEmptyState
+                                title="裝機資料讀取失敗"
+                                detail="請稍後重新整理，或確認帳號權限。"
+                              />
+                            ) : installations.length === 0 ? (
                               <DashboardEmptyState
                                 title="尚無裝機案"
                                 detail="先建立第一筆裝機資料，或匯入現有 Excel 清單。"
@@ -1499,10 +1541,17 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
             </div>
 
             {equipErr ? (
-              <div className="card" style={{ padding: 12, marginTop: 12, borderColor: "rgba(239,68,68,0.35)" }}>
-                <div style={{ color: "#ef4444", fontWeight: 900 }}>Equipments 讀取失敗</div>
-                <div style={{ color: "#94a3b8", fontSize: 12, marginTop: 4 }}>{equipErr}</div>
-              </div>
+              <DashboardStatusBanner
+                tone="error"
+                title="設備資料讀取失敗"
+                detail={equipErr}
+              />
+            ) : equipLoading ? (
+              <DashboardStatusBanner
+                tone="info"
+                title="正在同步設備資料"
+                detail="讀取完成後會自動更新設備清單與異常待辦。"
+              />
             ) : null}
 
             <div className="card" style={{ marginTop: 12 }}>
@@ -1577,7 +1626,17 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
                     {filteredEquipments.length === 0 ? (
                       <tr>
                         <td colSpan={8} className="dashboardEmptyCell">
-                          {equipments.length === 0 ? (
+                          {equipLoading ? (
+                            <DashboardEmptyState
+                              title="正在同步設備資料"
+                              detail="讀取完成後會自動更新清單。"
+                            />
+                          ) : equipErr ? (
+                            <DashboardEmptyState
+                              title="設備資料讀取失敗"
+                              detail="請稍後重新整理，或確認帳號權限。"
+                            />
+                          ) : equipments.length === 0 ? (
                             <DashboardEmptyState
                               title="尚無設備"
                               detail="先建立第一台設備，或匯入既有設備清單。"
@@ -1682,11 +1741,31 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
 
             {filteredInstallations.length === 0 ? (
               <div className="card" style={{ padding: 14, marginTop: 12 }}>
-                <div style={{ color: "#94a3b8", fontSize: 12 }}>
-                  {installations.length === 0
-                    ? "尚無裝機案資料。請至「裝機進度」新增資料後再查看分析。"
-                    : "目前篩選條件下無符合的裝機案。請清除篩選或調整條件後再查看分析。"}
-                </div>
+                <DashboardEmptyState
+                  title={
+                    installLoading
+                      ? "正在同步分析資料"
+                      : installErr
+                        ? "分析資料讀取失敗"
+                        : installations.length === 0
+                          ? "尚無裝機案資料"
+                          : "目前篩選沒有分析資料"
+                  }
+                  detail={
+                    installLoading
+                      ? "資料讀取完成後會自動更新分析圖表。"
+                      : installErr
+                        ? "請稍後重新整理，或確認帳號權限。"
+                        : installations.length === 0
+                          ? "先新增或匯入裝機案後再查看分析。"
+                          : "清除篩選或調整條件後再查看分析。"
+                  }
+                  primaryAction={
+                    !installLoading && !installErr && installations.length > 0
+                      ? { label: "清除篩選", onClick: clearInstallFilters }
+                      : undefined
+                  }
+                />
               </div>
             ) : (
               <>
