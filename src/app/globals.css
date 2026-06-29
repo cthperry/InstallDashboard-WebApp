@@ -267,6 +267,24 @@ body {
   .filters { @apply flex flex-wrap items-end gap-3; }
   .field { @apply grid gap-1.5 min-w-[160px]; }
   .label { @apply text-xs font-semibold text-muted-foreground; letter-spacing: 0.02em; }
+  .activeFilterSummary {
+    @apply mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-border/70 bg-secondary/35 px-3 py-2;
+  }
+  .activeFilterCount {
+    @apply rounded-md border border-border/70 bg-card/70 px-2 py-1 font-mono text-xs font-bold text-foreground;
+  }
+  .activeFilterChips {
+    @apply flex min-w-0 flex-1 flex-wrap items-center gap-2;
+  }
+  .activeFilterChip {
+    @apply inline-flex h-8 max-w-full items-center gap-1.5 rounded-full border border-border/70 bg-card/70 px-2.5 text-xs font-semibold text-muted-foreground transition-colors;
+  }
+  .activeFilterChip:hover {
+    @apply border-primary/50 bg-primary/10 text-foreground;
+  }
+  .activeFilterChip strong {
+    @apply max-w-[180px] truncate font-bold text-foreground;
+  }
 
   input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]),
   select, textarea {

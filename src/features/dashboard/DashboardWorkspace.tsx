@@ -17,7 +17,7 @@ import {
 import { writeAuditLog } from "@/features/data/audit";
 import { trackEvent } from "@/features/telemetry/track";
 
-import type { CapacityLevel, CustomerEntry, Equipment, EquipmentMainStatus, Installation, PhaseKey, RegionKey, RetentionSettingsDoc } from "@/domain/types";
+import type { CapacityLevel, CustomerEntry, Equipment, EquipmentMainStatus, Installation, MachineModel, PhaseKey, RegionKey, RetentionSettingsDoc } from "@/domain/types";
 import {
   CAPACITY_COLOR,
   CAPACITY_LEVELS,
@@ -131,6 +131,13 @@ import {
 type DashboardSection = "install" | "equipment" | "insights";
 const TABLE_PAGE_SIZE = 120;
 
+type ActiveFilterChip = {
+  id: string;
+  label: string;
+  value: string;
+  onClear: () => void;
+};
+
 function pickHealthColor(score: number): string {
   if (score >= 80) return "#10b981";
   if (score >= 60) return "#f59e0b";
@@ -142,6 +149,40 @@ function pickGovernanceToneColor(tone: GovernanceIssueTone): string {
   if (tone === "info") return "#3b82f6";
   if (tone === "warning") return "#f59e0b";
   return "#ef4444";
+}
+
+function ActiveFilterSummary({
+  filters,
+  visibleCount,
+  totalCount,
+  onClearAll,
+}: {
+  filters: ActiveFilterChip[];
+  visibleCount: number;
+  totalCount: number;
+  onClearAll: () => void;
+}) {
+  if (filters.length === 0) return null;
+
+  return (
+    <div className="activeFilterSummary" aria-label="目前篩選條件">
+      <div className="activeFilterCount">
+        {visibleCount}/{totalCount}
+      </div>
+      <div className="activeFilterChips">
+        {filters.map((filter) => (
+          <button key={filter.id} type="button" className="activeFilterChip" onClick={filter.onClear} title={`移除 ${filter.label}`}>
+            <span>{filter.label}</span>
+            <strong>{filter.value}</strong>
+            <span aria-hidden="true">×</span>
+          </button>
+        ))}
+      </div>
+      <button type="button" className="btn btnSmall btnGhost" onClick={onClearAll}>
+        清除全部
+      </button>
+    </div>
+  );
 }
 
 export function DashboardWorkspace({ section }: { section: DashboardSection }) {
@@ -512,6 +553,49 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
     ].filter(Boolean);
     return parts.join(" / ");
   }, [deferredKeyword, fCustomer, fEngineer, fModel, fPhase, fRegion]);
+
+  const clearInstallFilters = useCallback(() => {
+    setFRegion("");
+    setFModel("");
+    setFPhase("");
+    setFCustomer("");
+    setFEngineer("");
+    setKeyword("");
+    setInstallSortKey("updatedAt");
+    setInstallSortDir("desc");
+  }, []);
+
+  const clearEquipmentFilters = useCallback(() => {
+    setERegion("");
+    setEStatus("");
+    setECap("");
+    setEKeyword("");
+    setEquipSortKey("updatedAt");
+    setEquipSortDir("desc");
+  }, []);
+
+  const installActiveFilters = useMemo<ActiveFilterChip[]>(() => {
+    const chips: ActiveFilterChip[] = [];
+    if (fRegion) chips.push({ id: "region", label: "區域", value: regionLabel(fRegion), onClear: () => setFRegion("") });
+    if (fPhase) chips.push({ id: "phase", label: "階段", value: PHASE_MAP[fPhase]?.label ?? fPhase, onClear: () => setFPhase("") });
+    if (deferredKeyword) chips.push({ id: "keyword", label: "關鍵字", value: deferredKeyword, onClear: () => setKeyword("") });
+    if (fModel) {
+      const modelLabel = machineModels.find((model) => model.code === fModel)?.displayName ?? fModel;
+      chips.push({ id: "model", label: "機型", value: modelLabel, onClear: () => setFModel("") });
+    }
+    if (fCustomer) chips.push({ id: "customer", label: "客戶", value: fCustomer, onClear: () => setFCustomer("") });
+    if (fEngineer) chips.push({ id: "engineer", label: "工程師", value: fEngineer, onClear: () => setFEngineer("") });
+    return chips;
+  }, [deferredKeyword, fCustomer, fEngineer, fModel, fPhase, fRegion, machineModels]);
+
+  const equipmentActiveFilters = useMemo<ActiveFilterChip[]>(() => {
+    const chips: ActiveFilterChip[] = [];
+    if (eRegion) chips.push({ id: "region", label: "區域", value: regionLabel(eRegion), onClear: () => setERegion("") });
+    if (eStatus) chips.push({ id: "status", label: "主狀態", value: eStatus, onClear: () => setEStatus("") });
+    if (eCap) chips.push({ id: "capacity", label: "容量", value: eCap, onClear: () => setECap("") });
+    if (deferredEquipmentKeyword) chips.push({ id: "keyword", label: "關鍵字", value: deferredEquipmentKeyword, onClear: () => setEKeyword("") });
+    return chips;
+  }, [deferredEquipmentKeyword, eCap, eRegion, eStatus]);
 
   const updateInstallCustomer = (value: string) => {
     const inferredRegion = resolveCustomerRegion(value);
@@ -944,7 +1028,7 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
                 </button>
 
                 {(fRegion || fModel || fPhase || fCustomer || fEngineer || keyword) ? (
-                  <button className="btn" onClick={() => { setFRegion(""); setFModel(""); setFPhase(""); setFCustomer(""); setFEngineer(""); setKeyword(""); setInstallSortKey("updatedAt"); setInstallSortDir("desc"); }}>
+                  <button className="btn" onClick={clearInstallFilters}>
                     清除
                   </button>
                 ) : null}
@@ -954,13 +1038,20 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
                 </div>
               </div>
 
+              <ActiveFilterSummary
+                filters={installActiveFilters}
+                visibleCount={filteredInstallations.length}
+                totalCount={installations.length}
+                onClearAll={clearInstallFilters}
+              />
+
               {showInstallAdvancedFilters ? (
                 <div className="filters" style={{ marginTop: 10 }}>
                   <div className="field">
                     <div className="label">機型</div>
                     <select value={fModel} onChange={(e) => setFModel(e.target.value)}>
                       <option value="">全部</option>
-                      {machineModels.map((m: any) => <option key={m.code} value={m.code}>{m.displayName}</option>)}
+                      {machineModels.map((m: MachineModel) => <option key={m.code} value={m.code}>{m.displayName}</option>)}
                     </select>
                   </div>
                   <div className="field">
@@ -1317,7 +1408,7 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
                 </div>
 
                 {(eRegion || eStatus || eCap || eKeyword) ? (
-                  <button className="btn" onClick={() => { setERegion(""); setEStatus(""); setECap(""); setEKeyword(""); setEquipSortKey("updatedAt"); setEquipSortDir("desc"); }}>
+                  <button className="btn" onClick={clearEquipmentFilters}>
                     清除
                   </button>
                 ) : null}
@@ -1326,6 +1417,13 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
                   {filteredEquipments.length}/{equipments.length}
                 </div>
               </div>
+
+              <ActiveFilterSummary
+                filters={equipmentActiveFilters}
+                visibleCount={filteredEquipments.length}
+                totalCount={equipments.length}
+                onClearAll={clearEquipmentFilters}
+              />
 
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
                 <Badge text={`裝機 ${equipStats.byStatus["裝機"]}`} color={STATUS_COLOR["裝機"]} subtle />
@@ -2054,7 +2152,7 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
             <div className="field" ref={(node) => { installFieldRefs.current.modelCode = node; }}>
               <div className="label"><span style={{color:"var(--destructive)"}}>* </span>機型</div>
               <select value={installForm.modelCode} onChange={(e) => updateInstallField("modelCode", e.target.value)} aria-invalid={!!installErrors.modelCode}>
-                {machineModels.map((m: any) => <option key={m.code} value={m.code}>{m.displayName}</option>)}
+                {machineModels.map((m: MachineModel) => <option key={m.code} value={m.code}>{m.displayName}</option>)}
               </select>
               {installErrors.modelCode ? <div style={{ color: "var(--destructive)", fontSize: 12 }}>{installErrors.modelCode}</div> : null}
             </div>
@@ -2265,7 +2363,7 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
             <div className="field">
               <div className="label"><span style={{color:"var(--destructive)"}}>* </span>機型</div>
               <select value={equipForm.modelCode} onChange={(e) => setEquipForm({ ...equipForm, modelCode: e.target.value })}>
-                {machineModels.map((m: any) => <option key={m.code} value={m.code}>{m.displayName}</option>)}
+                {machineModels.map((m: MachineModel) => <option key={m.code} value={m.code}>{m.displayName}</option>)}
               </select>
             </div>
             <div className="field">
