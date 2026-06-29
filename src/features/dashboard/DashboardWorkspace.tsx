@@ -145,6 +145,8 @@ type DashboardEmptyStateAction = {
 };
 
 type DashboardStatusTone = "info" | "error";
+type EquipmentValidationIssue = { path: readonly PropertyKey[]; message: string };
+type EquipmentFieldErrorMap = Partial<Record<string, string>>;
 
 const EQUIPMENT_VALIDATION_LABELS: Record<string, string> = {
   equipmentId: "設備 ID",
@@ -167,19 +169,37 @@ const EQUIPMENT_VALIDATION_LABELS: Record<string, string> = {
   "blocking.eta": "阻塞 ETA",
 };
 
-function formatEquipmentValidationIssues(issues: { path: readonly PropertyKey[]; message: string }[]): string[] {
-  const messages = issues.map((issue) => {
-    const path = issue.path.map(String);
-    const key = path.join(".");
-    const root = path[0] ?? "";
-    const label = EQUIPMENT_VALIDATION_LABELS[key] ?? EQUIPMENT_VALIDATION_LABELS[root] ?? "設備資料";
-    const rowIndex = root === "products" && path.length > 1 && Number.isFinite(Number(path[1]))
-      ? `第 ${Number(path[1]) + 1} 筆`
-      : "";
-    return `${label}${rowIndex ? `（${rowIndex}）` : ""}：${issue.message}`;
-  });
+function getEquipmentValidationFieldKey(path: string[]): string {
+  if (path[0] === "capacity" && path[1]) return `capacity.${path[1]}`;
+  if (path[0] === "blocking" && path[1]) return `blocking.${path[1]}`;
+  if (path[0] === "products") return "products";
+  return path[0] ?? "equipment";
+}
+
+function formatEquipmentValidationIssue(issue: EquipmentValidationIssue): string {
+  const path = issue.path.map(String);
+  const key = path.join(".");
+  const root = path[0] ?? "";
+  const label = EQUIPMENT_VALIDATION_LABELS[key] ?? EQUIPMENT_VALIDATION_LABELS[root] ?? "設備資料";
+  const rowIndex = root === "products" && path.length > 1 && Number.isFinite(Number(path[1]))
+    ? `第 ${Number(path[1]) + 1} 筆`
+    : "";
+  return `${label}${rowIndex ? `（${rowIndex}）` : ""}：${issue.message}`;
+}
+
+function formatEquipmentValidationIssues(issues: EquipmentValidationIssue[]): string[] {
+  const messages = issues.map(formatEquipmentValidationIssue);
 
   return Array.from(new Set(messages));
+}
+
+function buildEquipmentFieldErrors(issues: EquipmentValidationIssue[]): EquipmentFieldErrorMap {
+  return issues.reduce<EquipmentFieldErrorMap>((acc, issue) => {
+    const path = issue.path.map(String);
+    const key = getEquipmentValidationFieldKey(path);
+    if (!acc[key]) acc[key] = formatEquipmentValidationIssue(issue);
+    return acc;
+  }, {});
 }
 
 function pickHealthColor(score: number): string {
@@ -387,6 +407,7 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
   const [equipEditId, setEquipEditId] = useState<string | null>(null);
   const [equipSubmitBusy, setEquipSubmitBusy] = useState(false);
   const [equipErrorSummary, setEquipErrorSummary] = useState<string[]>([]);
+  const [equipErrors, setEquipErrors] = useState<EquipmentFieldErrorMap>({});
   const [equipForm, setEquipForm] = useState<EquipmentFormDraft>(() => getEquipmentDefaultFormDraft());
 
   useEffect(() => {
@@ -976,6 +997,7 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
     setEquipEditId(null);
     setEquipSubmitBusy(false);
     setEquipErrorSummary([]);
+    setEquipErrors({});
     setEquipForm(getEquipmentDefaultFormDraft(machineModels?.[0]?.code ?? "FlexTRAK-S"));
     setEquipModalOpen(true);
   };
@@ -984,6 +1006,7 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
     setEquipEditId(r.id);
     setEquipSubmitBusy(false);
     setEquipErrorSummary([]);
+    setEquipErrors({});
     setEquipForm(buildEquipmentFormDraftFromEquipment(r));
     setEquipModalOpen(true);
   };
@@ -997,11 +1020,13 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
     if (!parsed.success) {
       const summary = formatEquipmentValidationIssues(parsed.error.issues ?? []);
       setEquipErrorSummary(summary);
+      setEquipErrors(buildEquipmentFieldErrors(parsed.error.issues ?? []));
       setToast(summary[0] ?? "表單驗證失敗");
       return;
     }
 
     setEquipErrorSummary([]);
+    setEquipErrors({});
     const safeMilestones = buildSafeEquipmentMilestones(parsed.data.milestones);
     const safeBlocking = buildSafeEquipmentBlocking(parsed.data.blocking);
     const previousEquipment = equipEditId ? equipments.find((row) => row.id === equipEditId) : undefined;
@@ -1034,6 +1059,7 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
       }
       setEquipModalOpen(false);
       setEquipErrorSummary([]);
+      setEquipErrors({});
     } catch (e) {
       setToast(`儲存失敗：${safeStr(e)}`);
     } finally {
@@ -2645,31 +2671,37 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
           <div className="formGrid">
             <div className="field">
               <div className="label"><span style={{color:"var(--destructive)"}}>* </span>設備 ID</div>
-              <input value={equipForm.equipmentId} onChange={(e) => setEquipForm({ ...equipForm, equipmentId: e.target.value })} placeholder="例如：EQ-N-001" />
+              <input value={equipForm.equipmentId} onChange={(e) => setEquipForm({ ...equipForm, equipmentId: e.target.value })} aria-invalid={!!equipErrors.equipmentId} placeholder="例如：EQ-N-001" />
+              {equipErrors.equipmentId ? <div style={{ color: "var(--destructive)", fontSize: 12 }}>{equipErrors.equipmentId}</div> : null}
             </div>
             <div className="field">
               <div className="label">區域</div>
-              <select value={equipForm.region} onChange={(e) => setEquipForm({ ...equipForm, region: parseRegionKey(e.target.value) })}>
+              <select value={equipForm.region} onChange={(e) => setEquipForm({ ...equipForm, region: parseRegionKey(e.target.value) })} aria-invalid={!!equipErrors.region}>
                 {Object.entries(REGIONS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
               </select>
+              {equipErrors.region ? <div style={{ color: "var(--destructive)", fontSize: 12 }}>{equipErrors.region}</div> : null}
             </div>
             <div className="field">
               <div className="label"><span style={{color:"var(--destructive)"}}>* </span>客戶</div>
-              <input list="customerOptions" value={equipForm.customer} onChange={(e) => setEquipForm({ ...equipForm, customer: e.target.value })} placeholder="例如：TSMC" />
+              <input list="customerOptions" value={equipForm.customer} onChange={(e) => setEquipForm({ ...equipForm, customer: e.target.value })} aria-invalid={!!equipErrors.customer} placeholder="例如：TSMC" />
+              {equipErrors.customer ? <div style={{ color: "var(--destructive)", fontSize: 12 }}>{equipErrors.customer}</div> : null}
             </div>
             <div className="field">
               <div className="label">站點</div>
-              <input value={equipForm.site} onChange={(e) => setEquipForm({ ...equipForm, site: e.target.value })} placeholder="例如：竹科Fab1" />
+              <input value={equipForm.site} onChange={(e) => setEquipForm({ ...equipForm, site: e.target.value })} aria-invalid={!!equipErrors.site} placeholder="例如：竹科Fab1" />
+              {equipErrors.site ? <div style={{ color: "var(--destructive)", fontSize: 12 }}>{equipErrors.site}</div> : null}
             </div>
             <div className="field">
               <div className="label"><span style={{color:"var(--destructive)"}}>* </span>機型</div>
-              <select value={equipForm.modelCode} onChange={(e) => setEquipForm({ ...equipForm, modelCode: e.target.value })}>
+              <select value={equipForm.modelCode} onChange={(e) => setEquipForm({ ...equipForm, modelCode: e.target.value })} aria-invalid={!!equipErrors.modelCode}>
                 {machineModels.map((m: MachineModel) => <option key={m.code} value={m.code}>{m.displayName}</option>)}
               </select>
+              {equipErrors.modelCode ? <div style={{ color: "var(--destructive)", fontSize: 12 }}>{equipErrors.modelCode}</div> : null}
             </div>
             <div className="field">
               <div className="label"><span style={{color:"var(--destructive)"}}>* </span>機台序號</div>
-              <input value={equipForm.serialNo} onChange={(e) => setEquipForm({ ...equipForm, serialNo: e.target.value })} placeholder="例如：P160623" />
+              <input value={equipForm.serialNo} onChange={(e) => setEquipForm({ ...equipForm, serialNo: e.target.value })} aria-invalid={!!equipErrors.serialNo} placeholder="例如：P160623" />
+              {equipErrors.serialNo ? <div style={{ color: "var(--destructive)", fontSize: 12 }}>{equipErrors.serialNo}</div> : null}
             </div>
             <div className="field">
               <div className="label">主狀態</div>
@@ -2738,6 +2770,7 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
             <div className="field">
               <div className="label">UPH</div>
               <input type="number" min={0} step={0.1} value={equipForm.capacity.uph}
+                aria-invalid={!!equipErrors["capacity.uph"]}
                 onChange={(e) => {
                   // 只更新字串；不在 onChange 做 round，避免 "01.8" 顯示問題
                   const raw = e.target.value;
@@ -2748,10 +2781,12 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
                   const v = Math.round((parseFloat(e.target.value) || 0) * 10) / 10;
                   setEquipForm({ ...equipForm, capacity: updateEquipmentCapacityDraft(equipForm.capacity, { uph: String(v) }) });
                 }} />
+              {equipErrors["capacity.uph"] ? <div style={{ color: "var(--destructive)", fontSize: 12 }}>{equipErrors["capacity.uph"]}</div> : null}
             </div>
             <div className="field">
               <div className="label">Target UPH</div>
               <input type="number" min={0} step={0.1} value={equipForm.capacity.targetUph}
+                aria-invalid={!!equipErrors["capacity.targetUph"]}
                 onChange={(e) => {
                   const raw = e.target.value;
                   setEquipForm({ ...equipForm, capacity: updateEquipmentCapacityDraft(equipForm.capacity, { targetUph: raw }) });
@@ -2760,6 +2795,7 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
                   const v = Math.round((parseFloat(e.target.value) || 0) * 10) / 10;
                   setEquipForm({ ...equipForm, capacity: updateEquipmentCapacityDraft(equipForm.capacity, { targetUph: String(v) }) });
                 }} />
+              {equipErrors["capacity.targetUph"] ? <div style={{ color: "var(--destructive)", fontSize: 12 }}>{equipErrors["capacity.targetUph"]}</div> : null}
             </div>
             <div className="field">
               <div className="label">容量等級（自動換算）</div>
@@ -2772,12 +2808,14 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
 
             <div className="field" style={{ gridColumn: "1 / -1" }}>
               <div className="label">7 天趨勢（可選，逗號分隔 7 個 0~100；未填會自動生成）</div>
-              <input value={equipForm.capacity.trend7dCsv} onChange={(e) => setEquipForm({ ...equipForm, capacity: { ...equipForm.capacity, trend7dCsv: e.target.value } })} placeholder="例如：40,55,60,58,62,64,62" />
+              <input value={equipForm.capacity.trend7dCsv} onChange={(e) => setEquipForm({ ...equipForm, capacity: { ...equipForm.capacity, trend7dCsv: e.target.value } })} aria-invalid={!!equipErrors["capacity.trend7d"]} placeholder="例如：40,55,60,58,62,64,62" />
+              {equipErrors["capacity.trend7d"] ? <div style={{ color: "var(--destructive)", fontSize: 12 }}>{equipErrors["capacity.trend7d"]}</div> : null}
             </div>
 
             {/* ── 產品產能清單 ── */}
             <div className="field" style={{ gridColumn: "1 / -1" }}>
               <div className="label" style={{ marginBottom: 8 }}>產品產能（生產產品 + 日產能）</div>
+              {equipErrors.products ? <div style={{ color: "var(--destructive)", fontSize: 12, marginBottom: 6 }}>{equipErrors.products}</div> : null}
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                 {(equipForm.products ?? []).map((p: { name: string; dailyCap: number | string }, idx: number) => (
                   <div key={idx} style={{ display: "flex", gap: 8, alignItems: "center" }}>
@@ -2852,11 +2890,13 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
                 </div>
                 <div className="field">
                   <div className="label">阻塞原因</div>
-                  <input value={equipForm.blocking.reasonCode} onChange={(e) => setEquipForm({ ...equipForm, blocking: { ...equipForm.blocking, reasonCode: e.target.value } })} placeholder="例如：料件未到" />
+                  <input value={equipForm.blocking.reasonCode} onChange={(e) => setEquipForm({ ...equipForm, blocking: { ...equipForm.blocking, reasonCode: e.target.value } })} aria-invalid={!!equipErrors["blocking.reasonCode"]} placeholder="例如：料件未到" />
+                  {equipErrors["blocking.reasonCode"] ? <div style={{ color: "var(--destructive)", fontSize: 12 }}>{equipErrors["blocking.reasonCode"]}</div> : null}
                 </div>
                 <div className="field">
                   <div className="label">阻塞 Owner</div>
-                  <input value={equipForm.blocking.owner} onChange={(e) => setEquipForm({ ...equipForm, blocking: { ...equipForm.blocking, owner: e.target.value } })} placeholder="例如：SCM-Judy" />
+                  <input value={equipForm.blocking.owner} onChange={(e) => setEquipForm({ ...equipForm, blocking: { ...equipForm.blocking, owner: e.target.value } })} aria-invalid={!!equipErrors["blocking.owner"]} placeholder="例如：SCM-Judy" />
+                  {equipErrors["blocking.owner"] ? <div style={{ color: "var(--destructive)", fontSize: 12 }}>{equipErrors["blocking.owner"]}</div> : null}
                 </div>
                 <div className="field" style={{ gridColumn: "1 / -1" }}>
                   <div className="label">阻塞細節</div>
@@ -2864,7 +2904,8 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
                 </div>
                 <div className="field">
                   <div className="label">ETA</div>
-                  <input value={equipForm.blocking.eta} onChange={(e) => setEquipForm({ ...equipForm, blocking: { ...equipForm.blocking, eta: e.target.value } })} placeholder="YYYY-MM-DD" />
+                  <input value={equipForm.blocking.eta} onChange={(e) => setEquipForm({ ...equipForm, blocking: { ...equipForm.blocking, eta: e.target.value } })} aria-invalid={!!equipErrors["blocking.eta"]} placeholder="YYYY-MM-DD" />
+                  {equipErrors["blocking.eta"] ? <div style={{ color: "var(--destructive)", fontSize: 12 }}>{equipErrors["blocking.eta"]}</div> : null}
                 </div>
                 <div className="field" style={{ gridColumn: "1 / -1" }}>
                   <div className="label">解決備註</div>
