@@ -329,6 +329,7 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
   // ───────── Modal: Installation ─────────
   const [installModalOpen, setInstallModalOpen] = useState(false);
   const [installEditId, setInstallEditId] = useState<string | null>(null);
+  const [installSubmitBusy, setInstallSubmitBusy] = useState(false);
   const {
     installForm,
     setInstallForm,
@@ -348,6 +349,7 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
   // ───────── Modal: Equipment ─────────
   const [equipModalOpen, setEquipModalOpen] = useState(false);
   const [equipEditId, setEquipEditId] = useState<string | null>(null);
+  const [equipSubmitBusy, setEquipSubmitBusy] = useState(false);
   const [equipForm, setEquipForm] = useState<EquipmentFormDraft>(() => getEquipmentDefaultFormDraft());
 
   useEffect(() => {
@@ -754,6 +756,7 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
   // ───────── Actions: Installations ─────────
   const openAddInstall = () => {
     setInstallEditId(null);
+    setInstallSubmitBusy(false);
     const inferredRegion = fCustomer ? resolveCustomerRegion(fCustomer) : null;
     setInstallForm(buildNewInstallationDraft(machineModels, {
       customer: fCustomer,
@@ -769,6 +772,7 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
 
   const openEditInstall = useCallback((r: Installation) => {
     setInstallEditId(r.id);
+    setInstallSubmitBusy(false);
     setInstallForm(buildEditInstallationDraft(r, machineModels));
     clearInstallErrors();
     setInstallModalOpen(true);
@@ -777,6 +781,7 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
 
   const submitInstall = async () => {
     if (!user?.email) return;
+    if (installSubmitBusy) return;
     const previousInstall = installEditId ? installations.find((row) => row.id === installEditId) ?? null : null;
     const normalized = normalizeInstallationForSave({
       ...installForm,
@@ -788,6 +793,7 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
       return;
     }
     clearInstallErrors();
+    setInstallSubmitBusy(true);
     try {
       let createdInstallId: string | null = null;
       if (installEditId) {
@@ -817,6 +823,8 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
       setInstallModalOpen(false);
     } catch (e) {
       setToast(`儲存失敗：${safeStr(e)}`);
+    } finally {
+      setInstallSubmitBusy(false);
     }
   };
 
@@ -921,18 +929,21 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
   // ───────── Actions: Equipments ─────────
   const openAddEquip = () => {
     setEquipEditId(null);
+    setEquipSubmitBusy(false);
     setEquipForm(getEquipmentDefaultFormDraft(machineModels?.[0]?.code ?? "FlexTRAK-S"));
     setEquipModalOpen(true);
   };
 
   const openEditEquip = (r: Equipment) => {
     setEquipEditId(r.id);
+    setEquipSubmitBusy(false);
     setEquipForm(buildEquipmentFormDraftFromEquipment(r));
     setEquipModalOpen(true);
   };
 
   const submitEquip = async () => {
     if (!user?.email) return;
+    if (equipSubmitBusy) return;
 
     const payload = buildEquipmentPayloadFromDraft(equipForm);
     const parsed = equipmentSchema.safeParse(payload);
@@ -948,6 +959,7 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
     const equipmentData = { ...parsed.data };
     delete equipmentData.blocking;
 
+    setEquipSubmitBusy(true);
     try {
       if (equipEditId) {
         const patch: EquipmentUpdatePatch = {
@@ -973,6 +985,8 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
       setEquipModalOpen(false);
     } catch (e) {
       setToast(`儲存失敗：${safeStr(e)}`);
+    } finally {
+      setEquipSubmitBusy(false);
     }
   };
 
@@ -2335,7 +2349,11 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
         <Modal
           open={installModalOpen}
           title={installEditId ? "編輯裝機案" : "新增裝機案"}
-          onClose={() => { clearInstallErrors(); setInstallModalOpen(false); }}
+          onClose={() => {
+            if (installSubmitBusy) return;
+            clearInstallErrors();
+            setInstallModalOpen(false);
+          }}
         >
           <div className="quickFormIntro">
             <div>
@@ -2546,8 +2564,10 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
           ) : null}
 
           <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", position: "sticky", bottom: 0, background: "var(--background)", paddingTop: 8 }}>
-            <button className="btn" onClick={() => { clearInstallErrors(); setInstallModalOpen(false); }}>取消</button>
-            <button className="btn btnAccent" onClick={submitInstall}>儲存</button>
+            <button className="btn" onClick={() => { clearInstallErrors(); setInstallModalOpen(false); }} disabled={installSubmitBusy}>取消</button>
+            <button className="btn btnAccent" onClick={submitInstall} disabled={installSubmitBusy}>
+              {installSubmitBusy ? "儲存中..." : "儲存"}
+            </button>
           </div>
         </Modal>
 
@@ -2555,7 +2575,10 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
         <Modal
           open={equipModalOpen}
           title={equipEditId ? "編輯設備" : "新增設備"}
-          onClose={() => setEquipModalOpen(false)}
+          onClose={() => {
+            if (equipSubmitBusy) return;
+            setEquipModalOpen(false);
+          }}
         >
           <div className="formGrid">
             <div className="field">
@@ -2799,8 +2822,10 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
           </div>
 
           <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-            <button className="btn" onClick={() => setEquipModalOpen(false)}>取消</button>
-            <button className="btn btnAccent" onClick={submitEquip}>儲存</button>
+            <button className="btn" onClick={() => setEquipModalOpen(false)} disabled={equipSubmitBusy}>取消</button>
+            <button className="btn btnAccent" onClick={submitEquip} disabled={equipSubmitBusy}>
+              {equipSubmitBusy ? "儲存中..." : "儲存"}
+            </button>
           </div>
         </Modal>
 
