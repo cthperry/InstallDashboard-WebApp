@@ -285,6 +285,21 @@ body {
   .activeFilterChip strong {
     @apply max-w-[180px] truncate font-bold text-foreground;
   }
+  .dashboardEmptyCell {
+    padding: 0 !important;
+  }
+  .dashboardEmptyState {
+    @apply flex min-h-[132px] flex-col items-center justify-center gap-3 px-4 py-6 text-center;
+  }
+  .dashboardEmptyTitle {
+    @apply text-sm font-black text-foreground;
+  }
+  .dashboardEmptyDetail {
+    @apply mt-1 max-w-[420px] text-xs font-semibold text-muted-foreground;
+  }
+  .dashboardEmptyActions {
+    @apply flex flex-wrap items-center justify-center gap-2;
+  }
 
   input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]),
   select, textarea {
@@ -409,6 +424,15 @@ body {
     font-size: 12px;
     font-weight: 800;
     border-top: 1px solid rgba(148, 163, 184, 0.22);
+  }
+  .kanbanEmptyState {
+    border: 1px dashed rgba(148, 163, 184, 0.32);
+    border-radius: 8px;
+    color: #94a3b8;
+    font-size: 12px;
+    font-weight: 800;
+    padding: 12px;
+    text-align: center;
   }
   .installListTable { min-width: 1490px; }
   .installListTable col.installListColSerial { width: 150px; }

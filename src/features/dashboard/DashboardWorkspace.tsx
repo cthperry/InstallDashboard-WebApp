@@ -138,6 +138,12 @@ type ActiveFilterChip = {
   onClear: () => void;
 };
 
+type DashboardEmptyStateAction = {
+  label: string;
+  onClick: () => void;
+  variant?: "accent" | "ghost";
+};
+
 function pickHealthColor(score: number): string {
   if (score >= 80) return "#10b981";
   if (score >= 60) return "#f59e0b";
@@ -181,6 +187,47 @@ function ActiveFilterSummary({
       <button type="button" className="btn btnSmall btnGhost" onClick={onClearAll}>
         清除全部
       </button>
+    </div>
+  );
+}
+
+function DashboardEmptyState({
+  title,
+  detail,
+  primaryAction,
+  secondaryAction,
+}: {
+  title: string;
+  detail: string;
+  primaryAction?: DashboardEmptyStateAction;
+  secondaryAction?: DashboardEmptyStateAction;
+}) {
+  const actionClassName = (action: DashboardEmptyStateAction) => {
+    if (action.variant === "accent") return "btn btnSmall btnAccent";
+    if (action.variant === "ghost") return "btn btnSmall btnGhost";
+    return "btn btnSmall";
+  };
+
+  return (
+    <div className="dashboardEmptyState">
+      <div>
+        <div className="dashboardEmptyTitle">{title}</div>
+        <div className="dashboardEmptyDetail">{detail}</div>
+      </div>
+      {primaryAction || secondaryAction ? (
+        <div className="dashboardEmptyActions">
+          {primaryAction ? (
+            <button type="button" className={actionClassName(primaryAction)} onClick={primaryAction.onClick}>
+              {primaryAction.label}
+            </button>
+          ) : null}
+          {secondaryAction ? (
+            <button type="button" className={actionClassName(secondaryAction)} onClick={secondaryAction.onClick}>
+              {secondaryAction.label}
+            </button>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -1209,7 +1256,22 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
                       })}
                       {filteredInstallations.length === 0 ? (
                         <tr>
-                          <td colSpan={12} style={{ textAlign: "center", padding: 20, color: "#94a3b8" }}>無資料</td>
+                          <td colSpan={12} className="dashboardEmptyCell">
+                            {installations.length === 0 ? (
+                              <DashboardEmptyState
+                                title="尚無裝機案"
+                                detail="先建立第一筆裝機資料，或匯入現有 Excel 清單。"
+                                primaryAction={{ label: "新增裝機案", onClick: openAddInstall, variant: "accent" }}
+                                secondaryAction={{ label: "Excel 智慧匯入", onClick: () => setSmartImportOpen(true) }}
+                              />
+                            ) : (
+                              <DashboardEmptyState
+                                title="沒有符合的裝機案"
+                                detail="調整條件或清除目前篩選。"
+                                primaryAction={{ label: "清除篩選", onClick: clearInstallFilters }}
+                              />
+                            )}
+                          </td>
                         </tr>
                       ) : null}
                     </tbody>
@@ -1325,7 +1387,7 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
                         );
                       })}
                       {rows.length === 0 ? (
-                        <div style={{ color: "#94a3b8", fontSize: 12, padding: 10 }}>—</div>
+                        <div className="kanbanEmptyState">此階段目前無案件</div>
                       ) : null}
                     </div>
                   </div>
@@ -1514,7 +1576,22 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
                     })}
                     {filteredEquipments.length === 0 ? (
                       <tr>
-                        <td colSpan={8} style={{ textAlign: "center", padding: 20, color: "#94a3b8" }}>無資料</td>
+                        <td colSpan={8} className="dashboardEmptyCell">
+                          {equipments.length === 0 ? (
+                            <DashboardEmptyState
+                              title="尚無設備"
+                              detail="先建立第一台設備，或匯入既有設備清單。"
+                              primaryAction={{ label: "新增設備", onClick: openAddEquip, variant: "accent" }}
+                              secondaryAction={{ label: "Excel 智慧匯入", onClick: () => setSmartImportOpen(true) }}
+                            />
+                          ) : (
+                            <DashboardEmptyState
+                              title="沒有符合的設備"
+                              detail="調整條件或清除目前篩選。"
+                              primaryAction={{ label: "清除篩選", onClick: clearEquipmentFilters }}
+                            />
+                          )}
+                        </td>
                       </tr>
                     ) : null}
                   </tbody>
@@ -1992,7 +2069,12 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
                     ))}
                     {auditLogs.length === 0 ? (
                       <tr>
-                        <td colSpan={5} style={{ textAlign: "center", padding: 20, color: "#94a3b8" }}>無資料</td>
+                        <td colSpan={5} className="dashboardEmptyCell">
+                          <DashboardEmptyState
+                            title="尚無治理紀錄"
+                            detail="新增、更新、刪除或批次治理後會出現在這裡。"
+                          />
+                        </td>
                       </tr>
                     ) : null}
                   </tbody>
@@ -2024,7 +2106,12 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
                       ))}
                       {events.length === 0 ? (
                         <tr>
-                          <td colSpan={3} style={{ textAlign: "center", padding: 20, color: "#94a3b8" }}>無資料</td>
+                          <td colSpan={3} className="dashboardEmptyCell">
+                            <DashboardEmptyState
+                              title="尚無事件"
+                              detail="使用者操作與系統事件寫入後會出現在這裡。"
+                            />
+                          </td>
                         </tr>
                       ) : null}
                     </tbody>
