@@ -28,6 +28,17 @@ if (fs.existsSync(publicVersionPath)) {
   }
 }
 
+const packageLockPath = path.join(root, 'package-lock.json');
+if (fs.existsSync(packageLockPath)) {
+  const content = JSON.parse(fs.readFileSync(packageLockPath, 'utf8'));
+  if (content.version !== packageVersion) {
+    problems.push(`package-lock.json 版本需等於 package.json (${packageVersion})`);
+  }
+  if (content.packages?.['']?.version !== packageVersion) {
+    problems.push(`package-lock.json packages[""].version 需等於 package.json (${packageVersion})`);
+  }
+}
+
 const swPath = path.join(root, 'public', 'sw.js');
 if (fs.existsSync(swPath)) {
   const content = fs.readFileSync(swPath, 'utf8');

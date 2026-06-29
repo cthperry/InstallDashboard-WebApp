@@ -17,12 +17,16 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Input } from "@/components/ui/input";
 
+type RoleFilter = "all" | UserRole;
+
 export default function AdminUsersPage() {
   const { isAdmin, user, appVersion } = useAuth();
   const canUse = useMemo(() => isAdmin, [isAdmin]);
 
   const [users, setUsers] = useState<ManagedUser[]>([]);
   const [roleDraft, setRoleDraft] = useState<Record<string, UserRole>>({});
+  const [userSearch, setUserSearch] = useState("");
+  const [roleFilter, setRoleFilter] = useState<RoleFilter>("all");
 
   const [uid, setUid] = useState("");
   const [email, setEmail] = useState("");
@@ -54,6 +58,29 @@ export default function AdminUsersPage() {
 
     return () => unsub?.();
   }, [canUse]);
+
+  const filteredUsers = useMemo(() => {
+    const keyword = userSearch.trim().toLowerCase();
+    return users.filter((row) => {
+      const draftRole = roleDraft[row.id] || row.role;
+      if (roleFilter !== "all" && draftRole !== roleFilter) return false;
+      if (!keyword) return true;
+      return row.email.toLowerCase().includes(keyword) || row.id.toLowerCase().includes(keyword);
+    });
+  }, [users, roleDraft, roleFilter, userSearch]);
+
+  const userCounts = useMemo(() => ({
+    total: users.length,
+    filtered: filteredUsers.length,
+    admin: users.filter((row) => (roleDraft[row.id] || row.role) === "admin").length,
+    engineer: users.filter((row) => (roleDraft[row.id] || row.role) === "engineer").length,
+  }), [users, filteredUsers, roleDraft]);
+  const hasUserFilters = userSearch.trim().length > 0 || roleFilter !== "all";
+
+  function clearUserFilters() {
+    setUserSearch("");
+    setRoleFilter("all");
+  }
 
   const saveByUid = async () => {
     setMsg("");
@@ -238,9 +265,20 @@ export default function AdminUsersPage() {
 
             <Card className="py-0">
               <CardHeader className="border-b pb-3">
-                <CardTitle className="text-base">既有使用者清單（勾選後儲存）</CardTitle>
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+                  <CardTitle className="text-base">既有使用者清單（勾選後儲存）</CardTitle>
+                  <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr),140px] lg:min-w-[460px]">
+                    <Input value={userSearch} onChange={(event) => setUserSearch(event.target.value)} placeholder="搜尋 Email 或 UID…" />
+                    <select value={roleFilter} onChange={(event) => setRoleFilter(event.target.value as RoleFilter)}>
+                      <option value="all">全部角色</option>
+                      {USER_ROLES.map((option) => (
+                        <option key={option} value={option}>{option}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
               </CardHeader>
-              <CardContent className="pt-4">
+              <CardContent className="space-y-3 pt-4">
                 {listErr ? (
                   <Alert variant="destructive">
                     <AlertDescription>
@@ -251,7 +289,28 @@ export default function AdminUsersPage() {
                   </Alert>
                 ) : null}
 
-                <div className="tableWrap" style={{ marginTop: 10 }}>
+                <div className="flex flex-col gap-2 rounded-lg border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
+                  <span>
+                    顯示 {userCounts.filtered} / {userCounts.total} 位，admin {userCounts.admin}、engineer {userCounts.engineer}
+                  </span>
+                  {hasUserFilters ? (
+                    <Button type="button" variant="secondary" size="sm" onClick={clearUserFilters}>
+                      清除篩選
+                    </Button>
+                  ) : null}
+                </div>
+
+                {users.length > 0 && filteredUsers.length === 0 ? (
+                  <div className="rounded-lg border border-dashed border-border bg-card px-4 py-6 text-center">
+                    <div className="text-sm font-bold">沒有符合條件的使用者</div>
+                    <div className="mt-1 text-xs text-muted-foreground">請調整搜尋字或角色篩選，權限資料仍保留在清單中。</div>
+                    <Button type="button" variant="secondary" size="sm" onClick={clearUserFilters} className="mt-3">
+                      顯示全部使用者
+                    </Button>
+                  </div>
+                ) : null}
+
+                <div className="tableWrap">
                   <table className="table">
                     <thead>
                       <tr>
@@ -263,7 +322,7 @@ export default function AdminUsersPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {users.map((r) => {
+                      {filteredUsers.map((r) => {
                         const checked = (roleDraft[r.id] || r.role) === "admin";
                         return (
                           <tr key={r.id}>
