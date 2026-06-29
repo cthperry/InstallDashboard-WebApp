@@ -14,6 +14,7 @@ function buildReleaseNotes(releaseLabel: string): string[] {
     "Insights 新增治理健康分數、cycle time、階段 aging、客戶 / 機型健康摘要與 Markdown 分析報告下載。",
     "War Room 新增晨會 / 週會模式、決策佇列、Markdown 複製與下載，方便跨團隊追蹤 overdue、blocking、due soon 與 stale updates。",
     "品質流程新增輕量 unit test runner，將治理、分析與報表純邏輯納入 verify:quality gate。",
+    "GitHub Actions 新增版本、品質與 build 守門，PR 與 main/codex 分支推送都會留下可追蹤的 CI 紀錄。",
   ];
 }
 
@@ -93,6 +94,7 @@ export function SystemStatusPage() {
           <div className="f66GuardList">
             <div><b>Build</b><span>npm run build</span></div>
             <div><b>Version gate</b><span>npm run verify:version</span></div>
+            <div><b>CI gate</b><span>GitHub Actions: Quality Gates</span></div>
             <div><b>Author</b><span>Perry &lt;cthperry@gmail.com&gt;</span></div>
             <div><b>Target</b><span>GitHub main → Vercel production</span></div>
           </div>
