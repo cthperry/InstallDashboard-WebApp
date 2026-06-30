@@ -43,6 +43,24 @@ type Props = {
   importConfig?: ImportConfigDoc | null;
 };
 
+type PreviewRowMeta = {
+  row: PreviewRow;
+  issues: string[];
+};
+
+type PreviewMetrics = {
+  selectedRows: PreviewRow[];
+  issueRowMetas: PreviewRowMeta[];
+  selectedIssueRowMetas: PreviewRowMeta[];
+  visibleRowMetas: PreviewRowMeta[];
+  allSelected: boolean;
+  someSelected: boolean;
+  selectedInstallations: number;
+  selectedEquipments: number;
+  unmatchedRegions: number;
+  equipmentWithoutSerial: number;
+};
+
 function applyLifecycleToPreviewRow(row: PreviewRow, phaseOverride?: PhaseKey): PreviewRow {
   const lifecycle = resolveWorkbookImportDisposition(row, phaseOverride);
   return {
@@ -82,7 +100,7 @@ function toCsvCell(value: string): string {
   return `"${value.replaceAll('"', '""')}"`;
 }
 
-function buildRejectRowsCsv(rows: PreviewRow[]): string {
+function buildRejectRowsCsv(rowMetas: PreviewRowMeta[]): string {
   const columns = [
     "sourceRow",
     "customer",
@@ -99,7 +117,7 @@ function buildRejectRowsCsv(rows: PreviewRow[]): string {
   ];
   return [
     columns.join(","),
-    ...rows.map((row) => [
+    ...rowMetas.map(({ row, issues }) => [
       String(row._sourceRowIndex + 1),
       row.customer,
       row.modelCode,
@@ -111,13 +129,13 @@ function buildRejectRowsCsv(rows: PreviewRow[]): string {
       row.estComplete,
       row.actArrival,
       row.actComplete,
-      getPreviewRowIssues(row).join("；"),
+      issues.join("；"),
     ].map((value) => toCsvCell(String(value ?? "").replace(/\r?\n/g, " "))).join(",")),
   ].join("\r\n");
 }
 
-function downloadRejectRowsCsv(rows: PreviewRow[], fileName: string): void {
-  const csv = buildRejectRowsCsv(rows);
+function downloadRejectRowsCsv(rowMetas: PreviewRowMeta[], fileName: string): void {
+  const csv = buildRejectRowsCsv(rowMetas);
   const blob = new Blob(["\uFEFF", csv], { type: "text/csv;charset=utf-8" });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
@@ -131,6 +149,47 @@ function formatSessionTime(value?: number): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "-";
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")} ${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+}
+
+function buildPreviewMetrics(rows: PreviewRow[], showOnlyIssues: boolean): PreviewMetrics {
+  const selectedRows: PreviewRow[] = [];
+  const issueRowMetas: PreviewRowMeta[] = [];
+  const selectedIssueRowMetas: PreviewRowMeta[] = [];
+  let selectedInstallations = 0;
+  let selectedEquipments = 0;
+  let unmatchedRegions = 0;
+  let equipmentWithoutSerial = 0;
+
+  const rowMetas = rows.map((row) => {
+    const meta = { row, issues: getPreviewRowIssues(row) };
+    if (meta.issues.length > 0) issueRowMetas.push(meta);
+    if (row._selected) {
+      selectedRows.push(row);
+      if (row._createEquipment) {
+        selectedEquipments += 1;
+        if (!row.serialNo) equipmentWithoutSerial += 1;
+      } else {
+        selectedInstallations += 1;
+      }
+      if (!row._regionMatched) unmatchedRegions += 1;
+      if (meta.issues.length > 0) selectedIssueRowMetas.push(meta);
+    }
+    return meta;
+  });
+
+  const allSelected = rows.length > 0 && selectedRows.length === rows.length;
+  return {
+    selectedRows,
+    issueRowMetas,
+    selectedIssueRowMetas,
+    visibleRowMetas: showOnlyIssues && issueRowMetas.length > 0 ? issueRowMetas : rowMetas,
+    allSelected,
+    someSelected: selectedRows.length > 0 && !allSelected,
+    selectedInstallations,
+    selectedEquipments,
+    unmatchedRegions,
+    equipmentWithoutSerial,
+  };
 }
 
 function ImportSessionList({ rows, error }: { rows: ImportSessionRow[]; error: string }) {
@@ -257,20 +316,23 @@ export function SmartImportModal({ open, onClose, onImported, customerRegionMap 
     setRows((prev) => prev.map((row) => ({ ...row, _selected: checked })));
   }
 
-  const selectedRows = useMemo(() => rows.filter((row) => row._selected), [rows]);
-  const allSelected = rows.length > 0 && rows.every((row) => row._selected);
-  const someSelected = rows.some((row) => row._selected) && !allSelected;
-  const selectedInstallations = selectedRows.filter((row) => !row._createEquipment).length;
-  const selectedEquipments = selectedRows.filter((row) => row._createEquipment).length;
-  const unmatchedRegions = selectedRows.filter((row) => !row._regionMatched).length;
-  const equipmentWithoutSerial = selectedRows.filter((row) => row._createEquipment && !row.serialNo).length;
-  const issueRows = useMemo(() => rows.filter((row) => getPreviewRowIssues(row).length > 0), [rows]);
-  const selectedIssueRows = useMemo(() => selectedRows.filter((row) => getPreviewRowIssues(row).length > 0), [selectedRows]);
-  const visibleRows = showOnlyIssues && issueRows.length > 0 ? issueRows : rows;
+  const previewMetrics = useMemo(() => buildPreviewMetrics(rows, showOnlyIssues), [rows, showOnlyIssues]);
+  const {
+    selectedRows,
+    issueRowMetas,
+    selectedIssueRowMetas,
+    visibleRowMetas,
+    allSelected,
+    someSelected,
+    selectedInstallations,
+    selectedEquipments,
+    unmatchedRegions,
+    equipmentWithoutSerial,
+  } = previewMetrics;
   const importBlockedReason = selectedRows.length === 0
     ? "請至少選取 1 筆資料後再匯入。"
-    : selectedIssueRows.length > 0
-      ? `已選資料仍有 ${selectedIssueRows.length} 筆需確認；請修正區域、階段或序號，或取消勾選後再匯入。`
+    : selectedIssueRowMetas.length > 0
+      ? `已選資料仍有 ${selectedIssueRowMetas.length} 筆需確認；請修正區域、階段或序號，或取消勾選後再匯入。`
       : "";
   const previewTableMinWidth = 1320;
 
@@ -282,8 +344,8 @@ export function SmartImportModal({ open, onClose, onImported, customerRegionMap 
         status,
         totalRows: rows.length,
         selectedRows: selectedRows.length,
-        acceptedRows: Math.max(0, selectedRows.length - selectedIssueRows.length),
-        rejectedRows: selectedIssueRows.length,
+        acceptedRows: Math.max(0, selectedRows.length - selectedIssueRowMetas.length),
+        rejectedRows: selectedIssueRowMetas.length,
         createdInstallations: counts?.createdInstallations ?? 0,
         updatedInstallations: counts?.updatedInstallations ?? 0,
         createdEquipments: counts?.createdEquipments ?? 0,
@@ -300,14 +362,14 @@ export function SmartImportModal({ open, onClose, onImported, customerRegionMap 
 
   async function handleSaveDryRunSession() {
     if (rows.length === 0) return;
-    await recordImportSession("dryRun", null, selectedIssueRows.flatMap((row) => getPreviewRowIssues(row)).slice(0, 20));
+    await recordImportSession("dryRun", null, selectedIssueRowMetas.flatMap(({ issues }) => issues).slice(0, 20));
     setError("");
     setSessionNotice("已儲存 dry-run session");
   }
 
   async function handleImport() {
     if (selectedRows.length === 0) return;
-    if (selectedIssueRows.length > 0) {
+    if (selectedIssueRowMetas.length > 0) {
       setShowOnlyIssues(true);
       setError(importBlockedReason);
       return;
@@ -371,7 +433,7 @@ export function SmartImportModal({ open, onClose, onImported, customerRegionMap 
         installations: installationPayloads,
         transfers,
       });
-      await recordImportSession("committed", counts, selectedIssueRows.flatMap((row) => getPreviewRowIssues(row)).slice(0, 20));
+      await recordImportSession("committed", counts, selectedIssueRowMetas.flatMap(({ issues }) => issues).slice(0, 20));
       setDone(counts);
       onImported?.(counts);
     } catch (rowError) {
@@ -431,15 +493,15 @@ export function SmartImportModal({ open, onClose, onImported, customerRegionMap 
             </div>
             <div>
               <span>可直接處理</span>
-              <strong>{Math.max(0, rows.length - issueRows.length)}</strong>
+              <strong>{Math.max(0, rows.length - issueRowMetas.length)}</strong>
             </div>
-            <div className={issueRows.length ? "importReviewAttention" : ""}>
+            <div className={issueRowMetas.length ? "importReviewAttention" : ""}>
               <span>需確認</span>
-              <strong>{issueRows.length}</strong>
+              <strong>{issueRowMetas.length}</strong>
             </div>
             <div>
               <span>目前顯示</span>
-              <strong>{visibleRows.length}</strong>
+              <strong>{visibleRowMetas.length}</strong>
             </div>
           </div>
 
@@ -453,12 +515,12 @@ export function SmartImportModal({ open, onClose, onImported, customerRegionMap 
 
           <div className="importReviewToolbar">
             <label>
-              <input type="checkbox" checked={showOnlyIssues} onChange={(event) => setShowOnlyIssues(event.target.checked)} disabled={issueRows.length === 0} />
+              <input type="checkbox" checked={showOnlyIssues} onChange={(event) => setShowOnlyIssues(event.target.checked)} disabled={issueRowMetas.length === 0} />
               只顯示需人工確認的列
             </label>
-            <span>{issueRows.length === 0 ? "目前沒有異常列，可直接匯入。" : "正常列已預設選取，不需要逐筆檢查。"}</span>
-            {issueRows.length > 0 ? (
-              <button className="btn btnSmall" type="button" onClick={() => downloadRejectRowsCsv(issueRows, sourceFileName)}>
+            <span>{issueRowMetas.length === 0 ? "目前沒有異常列，可直接匯入。" : "正常列已預設選取，不需要逐筆檢查。"}</span>
+            {issueRowMetas.length > 0 ? (
+              <button className="btn btnSmall" type="button" onClick={() => downloadRejectRowsCsv(issueRowMetas, sourceFileName)}>
                 下載 reject CSV
               </button>
             ) : null}
@@ -470,7 +532,7 @@ export function SmartImportModal({ open, onClose, onImported, customerRegionMap 
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 8, fontSize: 12 }}>
             <div className="card" style={{ padding: 10 }}>
               <div style={{ color: "var(--muted-foreground)", fontWeight: 900 }}>Dry-run 結果</div>
-              <div style={{ marginTop: 4 }}>Accepted {Math.max(0, selectedRows.length - selectedIssueRows.length)} / Rejected {selectedIssueRows.length}</div>
+              <div style={{ marginTop: 4 }}>Accepted {Math.max(0, selectedRows.length - selectedIssueRowMetas.length)} / Rejected {selectedIssueRowMetas.length}</div>
             </div>
             <div className="card" style={{ padding: 10 }}>
               <div style={{ color: "var(--muted-foreground)", fontWeight: 900 }}>最近匯入</div>
@@ -506,8 +568,7 @@ export function SmartImportModal({ open, onClose, onImported, customerRegionMap 
                 </tr>
               </thead>
               <tbody>
-                {visibleRows.map((row) => {
-                  const rowIssues = getPreviewRowIssues(row);
+                {visibleRowMetas.map(({ row, issues: rowIssues }) => {
                   return (
                   <tr key={row._idx} style={{ borderTop: "1px solid var(--border)" }}>
                     <td style={{ position: "sticky", left: 0, zIndex: 4, padding: "8px 6px", textAlign: "center", whiteSpace: "nowrap", borderTop: "1px solid var(--border)", background: "var(--card)" }}>
