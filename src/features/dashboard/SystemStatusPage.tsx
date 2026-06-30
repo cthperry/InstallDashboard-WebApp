@@ -23,6 +23,7 @@ function buildReleaseNotes(releaseLabel: string): string[] {
     "效能優化：War Room 指標、區域健康與決策佇列改為單次聚合，降低晨會頁資料更新時的重複掃描。",
     "效能優化：智慧匯入預覽改為單次建構列異常與選取統計，降低大型 Excel 預覽、dry-run 與 reject CSV 的重複驗證成本。",
     "效能優化：Insights analytics 改為單次累積安裝與設備統計，減少分析頁 region、engineer、due、cycle time 與 health 指標的重複掃描。",
+    "效能優化：Insights governance 報告改為單次累積治理問題，降低 score、critical issue 與 issue rows 的重複掃描成本。",
   ];
 }
 
