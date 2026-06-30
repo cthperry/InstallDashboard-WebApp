@@ -126,6 +126,11 @@ assert.equal(issueCount.get("stale-updates"), 1);
 assert.equal(issueCount.get("equipment-blocking"), 1);
 assert.equal(issueCount.get("equipment-reopened"), 1);
 assert.equal(issueCount.get("high-utilization"), 1);
+assert.equal(governance.activeInstallations, 1);
+assert.equal(governance.equipments, 1);
+assert.equal(governance.totalIssues, 10);
+assert.equal(governance.criticalIssues, 6);
+assert.equal(governance.issueRows[0].tone, "critical");
 assert.ok(governance.score < 72);
 
 const markdown = buildInsightsMarkdownReport({
