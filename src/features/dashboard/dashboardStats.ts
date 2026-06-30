@@ -17,10 +17,10 @@ export function isOverdueInstall(row: Installation, today: string): boolean {
 
 export function calcInstallStats(rows: Installation[], today: string) {
   const total = rows.length;
-  const wip = rows.filter((row) => row.phase !== "released").length;
-  const released = rows.filter((row) => row.phase === "released").length;
-  const overdue = rows.filter((row) => isOverdueInstall(row, today)).length;
-  const avgProg = total ? Math.round(rows.reduce((sum, row) => sum + (row.progress ?? 0), 0) / total) : 0;
+  let wip = 0;
+  let released = 0;
+  let overdue = 0;
+  let progressTotal = 0;
   const byPhase: Record<PhaseKey, number> = {
     ordered: 0,
     shipping: 0,
@@ -30,7 +30,18 @@ export function calcInstallStats(rows: Installation[], today: string) {
     qual: 0,
     released: 0,
   };
-  for (const row of rows) byPhase[row.phase] = (byPhase[row.phase] ?? 0) + 1;
+  for (const row of rows) {
+    const phase = row.phase;
+    progressTotal += row.progress ?? 0;
+    if (phase === "released") {
+      released++;
+    } else {
+      wip++;
+      if (isOverdueInstall(row, today)) overdue++;
+    }
+    byPhase[phase] = (byPhase[phase] ?? 0) + 1;
+  }
+  const avgProg = total ? Math.round(progressTotal / total) : 0;
   return { total, wip, released, overdue, avgProg, byPhase };
 }
 
@@ -45,14 +56,15 @@ export function calcCapacityLevel(uph: number, targetUph: number): CapacityLevel
 
 export function calcEquipmentStats(rows: Equipment[]) {
   const total = rows.length;
-  const avgUtil = total ? Math.round(rows.reduce((sum, row) => sum + getLiveUtilization(row.capacity), 0) / total) : 0;
   const byStatus: Record<EquipmentMainStatus, number> = { "裝機": 0, "試產": 0, "正式生產中": 0 };
   const byCap: Record<CapacityLevel, number> = { "綠": 0, "黃": 0, "紅": 0 };
+  let utilizationTotal = 0;
   let blocked = 0;
   let resolvedBlocking = 0;
   let blockingDaysTotal = 0;
   let blockingDaysCount = 0;
   for (const row of rows) {
+    utilizationTotal += getLiveUtilization(row.capacity);
     byStatus[row.statusMain] = (byStatus[row.statusMain] ?? 0) + 1;
     const liveLevel = calcCapacityLevel(Number(row.capacity.uph), Number(row.capacity.targetUph));
     byCap[liveLevel] = (byCap[liveLevel] ?? 0) + 1;
@@ -64,6 +76,7 @@ export function calcEquipmentStats(rows: Equipment[]) {
       blockingDaysCount++;
     }
   }
+  const avgUtil = total ? Math.round(utilizationTotal / total) : 0;
   const avgBlockingDays = blockingDaysCount ? Math.round(blockingDaysTotal / blockingDaysCount) : 0;
   return { total, avgUtil, byStatus, byCap, blocked, resolvedBlocking, avgBlockingDays };
 }
