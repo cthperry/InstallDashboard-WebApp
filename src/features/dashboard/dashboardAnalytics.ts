@@ -163,6 +163,20 @@ function ensureHealthBucket(map: Map<string, HealthBucket>, name: string): Healt
   return next;
 }
 
+function compareHealthRows(a: DashboardHealthRow, b: DashboardHealthRow): number {
+  const riskDiff = b.overdue + b.blocked - (a.overdue + a.blocked);
+  if (riskDiff !== 0) return riskDiff;
+  return b.installs + b.equipments - (a.installs + a.equipments);
+}
+
+function pushTopHealthRow(rows: DashboardHealthRow[], row: DashboardHealthRow, limit: number): void {
+  let index = 0;
+  while (index < rows.length && compareHealthRows(row, rows[index]) >= 0) index++;
+  if (index >= limit) return;
+  rows.splice(index, 0, row);
+  if (rows.length > limit) rows.pop();
+}
+
 function createAnalyticsAccumulator(): AnalyticsAccumulator {
   const by: Record<string, number> = {};
   const phaseAging: Record<string, PhaseAgingAccumulator> = {};
@@ -251,30 +265,24 @@ function addInstallationToAccumulator(acc: AnalyticsAccumulator, row: Installati
 }
 
 function buildHealthRows(map: Map<string, HealthBucket>): DashboardHealthRow[] {
-  return [...map.entries()]
-    .map(([name, value]) => {
-      const avgProgress = value.installs ? Math.round(value.progressTotal / value.installs) : 0;
-      const loadPenalty = Math.min(18, Math.max(0, value.activeInstalls - 3) * 3);
-      const progressPenalty = Math.max(0, 70 - avgProgress) * 0.25;
-      const health = clampHealth(100 - value.overdue * 14 - value.blocked * 16 - loadPenalty - progressPenalty);
-
-      return {
-        name,
-        installs: value.installs,
-        activeInstalls: value.activeInstalls,
-        equipments: value.equipments,
-        overdue: value.overdue,
-        blocked: value.blocked,
-        avgProgress,
-        health,
-      };
-    })
-    .sort((a, b) => {
-      const riskDiff = b.overdue + b.blocked - (a.overdue + a.blocked);
-      if (riskDiff !== 0) return riskDiff;
-      return b.installs + b.equipments - (a.installs + a.equipments);
-    })
-    .slice(0, 8);
+  const rows: DashboardHealthRow[] = [];
+  for (const [name, value] of map) {
+    const avgProgress = value.installs ? Math.round(value.progressTotal / value.installs) : 0;
+    const loadPenalty = Math.min(18, Math.max(0, value.activeInstalls - 3) * 3);
+    const progressPenalty = Math.max(0, 70 - avgProgress) * 0.25;
+    const health = clampHealth(100 - value.overdue * 14 - value.blocked * 16 - loadPenalty - progressPenalty);
+    pushTopHealthRow(rows, {
+      name,
+      installs: value.installs,
+      activeInstalls: value.activeInstalls,
+      equipments: value.equipments,
+      overdue: value.overdue,
+      blocked: value.blocked,
+      avgProgress,
+      health,
+    }, 8);
+  }
+  return rows;
 }
 
 function buildRegionRows(acc: AnalyticsAccumulator): DashboardAnalytics["region"] {

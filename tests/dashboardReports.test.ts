@@ -116,6 +116,39 @@ assert.deepEqual(analytics.regionProductStats[0]?.products, [
 ]);
 assert.ok(analytics.customerHealth.some((row) => row.name === "Customer A" && row.blocked === 1 && row.health < 100));
 
+const healthRankingAnalytics = buildDashboardAnalytics({
+  installations: [
+    install({ id: "health-risk", customer: "Risk Customer", modelCode: "M-RISK", estComplete: "2020-01-01", progress: 10 }),
+    ...Array.from({ length: 9 }, (_, index) => install({
+      id: `health-low-${index}`,
+      customer: `Low Customer ${index}`,
+      modelCode: `M-LOW-${index}`,
+      estComplete: "2099-01-01",
+      progress: 90,
+    })),
+  ],
+  equipments: [
+    equipment({
+      id: "health-blocked",
+      customer: "Blocked Customer",
+      modelCode: "M-BLOCKED",
+      blocking: {
+        reasonCode: "WAIT_PART",
+        detail: "Waiting",
+        owner: "Bob",
+        status: "open",
+        openedAt: Date.now() - DAY_MS,
+      },
+    }),
+  ],
+  engineers: [],
+});
+
+assert.equal(healthRankingAnalytics.customerHealth.length, 8);
+assert.deepEqual(healthRankingAnalytics.customerHealth.slice(0, 2).map((row) => row.name), ["Risk Customer", "Blocked Customer"]);
+assert.equal(healthRankingAnalytics.customerHealth[0].overdue, 1);
+assert.equal(healthRankingAnalytics.customerHealth[1].blocked, 1);
+
 const installStats = calcInstallStats([...completedInstallations, { ...riskyInstallation, estComplete: "2020-01-03" }], "2026-06-29");
 
 assert.equal(installStats.total, 3);
