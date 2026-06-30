@@ -214,6 +214,23 @@ assert.deepEqual(installQueue.map((row) => row.id), [
   "install-stale-queue-stale",
 ]);
 
+const boundedInstallQueue = buildInstallActionQueue(Array.from({ length: 8 }, (_, index) => install({
+  id: `bounded-stale-${index}`,
+  name: `SN-STALE-${index}`,
+  phase: "ordered",
+  orderDate: "2099-01-01",
+  updatedAt: Date.now() - (7 + index) * DAY_MS,
+})));
+
+assert.equal(boundedInstallQueue.length, 5);
+assert.deepEqual(boundedInstallQueue.map((row) => row.id), [
+  "install-stale-bounded-stale-0",
+  "install-stale-bounded-stale-1",
+  "install-stale-bounded-stale-2",
+  "install-stale-bounded-stale-3",
+  "install-stale-bounded-stale-4",
+]);
+
 const equipmentQueue = buildEquipmentActionQueue([
   equipment({ id: "queue-high-util", equipmentId: "EQ-HIGH", capacity: { utilization: 85, uph: 0, targetUph: 100, level: "綠", trend7d: [] } }),
   equipment({ id: "queue-red", equipmentId: "EQ-RED", capacity: { utilization: 0, uph: 90, targetUph: 100, level: "紅", trend7d: [] } }),
@@ -224,6 +241,21 @@ assert.deepEqual(equipmentQueue.map((row) => row.id), [
   "equipment-blocked-blocked-equipment",
   "equipment-capacity-queue-red",
   "equipment-util-queue-high-util",
+]);
+
+const boundedEquipmentQueue = buildEquipmentActionQueue(Array.from({ length: 8 }, (_, index) => equipment({
+  id: `bounded-capacity-${index}`,
+  equipmentId: `EQ-CAP-${index}`,
+  capacity: { utilization: 0, uph: 88 + index, targetUph: 100, level: "綠", trend7d: [] },
+})), (region) => region);
+
+assert.equal(boundedEquipmentQueue.length, 5);
+assert.deepEqual(boundedEquipmentQueue.map((row) => row.id), [
+  "equipment-capacity-bounded-capacity-7",
+  "equipment-capacity-bounded-capacity-6",
+  "equipment-capacity-bounded-capacity-5",
+  "equipment-capacity-bounded-capacity-4",
+  "equipment-capacity-bounded-capacity-3",
 ]);
 
 const governance = buildDashboardGovernanceReport([riskyInstallation], [blockingEquipment]);
