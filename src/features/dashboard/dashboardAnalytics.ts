@@ -117,97 +117,167 @@ function clampHealth(value: number): number {
   return Math.max(0, Math.min(100, Math.round(value)));
 }
 
-function buildCycleTimeStats(installations: Installation[]): InstallationCycleTimeStats {
-  const rows = installations.flatMap((row): InstallationCycleTimeRow[] => {
-    if (!row.actComplete) return [];
-    const startDate = row.orderDate || row.estArrival || row.actArrival;
-    const days = daysBetweenYmd(startDate, row.actComplete);
-    if (days == null) return [];
-    return [{
-      id: row.id,
-      title: getInstallModelSerial(row),
-      customer: row.customer,
-      modelCode: row.modelCode,
-      days,
-      completedAt: row.actComplete,
-    }];
-  });
-  const values = rows.map((row) => row.days);
-
-  return {
-    completedCount: rows.length,
-    avgDays: averageRounded(values),
-    p50Days: medianRounded(values),
-    longestRows: [...rows].sort((a, b) => b.days - a.days).slice(0, 5),
-  };
-}
-
-function buildPhaseAgingStats(installations: Installation[]): PhaseAgingRow[] {
-  return PHASES.filter((phase) => phase.key !== "released").map((phase) => {
-    const rows = installations.filter((row) => row.phase === phase.key);
-    const slaRows = rows.map((row) => getInstallSlaStatus(row));
-    const agingValues = slaRows.map((row) => row.agingDays);
-    return {
-      key: phase.key,
-      label: phase.label,
-      color: phase.color,
-      count: rows.length,
-      avgAgeDays: averageRounded(agingValues),
-      maxAgeDays: agingValues.length ? Math.max(...agingValues) : 0,
-      breached: slaRows.filter((row) => row.status === "breached").length,
-    };
-  });
-}
-
-type HealthDimension = "customer" | "modelCode";
-
-type HealthAccumulator = {
-  installations: Installation[];
-  equipments: Equipment[];
+type HealthBucket = {
+  installs: number;
+  activeInstalls: number;
+  equipments: number;
+  overdue: number;
+  blocked: number;
+  progressTotal: number;
 };
 
-function buildHealthRows(
-  installations: Installation[],
-  equipments: Equipment[],
-  dimension: HealthDimension,
-): DashboardHealthRow[] {
-  const map = new Map<string, HealthAccumulator>();
-  const ensure = (name: string) => {
-    const key = name.trim() || "未指定";
-    const existing = map.get(key);
-    if (existing) return existing;
-    const next = { installations: [], equipments: [] };
-    map.set(key, next);
-    return next;
+type PhaseAgingAccumulator = {
+  count: number;
+  totalAgeDays: number;
+  maxAgeDays: number;
+  breached: number;
+};
+
+type RegionAccumulator = {
+  rows: Installation[];
+  progressTotal: number;
+  total: number;
+};
+
+type EngineerAccumulator = {
+  total: number;
+  active: number;
+};
+
+type AnalyticsAccumulator = {
+  by: Record<string, number>;
+  region: Record<RegionKey, RegionAccumulator>;
+  engineer: Map<string, EngineerAccumulator>;
+  due: InstallationDueRow[];
+  cycleRows: InstallationCycleTimeRow[];
+  cycleDays: number[];
+  phaseAging: Record<string, PhaseAgingAccumulator>;
+  customerHealth: Map<string, HealthBucket>;
+  modelHealth: Map<string, HealthBucket>;
+};
+
+function createHealthBucket(): HealthBucket {
+  return {
+    installs: 0,
+    activeInstalls: 0,
+    equipments: 0,
+    overdue: 0,
+    blocked: 0,
+    progressTotal: 0,
   };
+}
 
-  for (const row of installations) {
-    ensure(dimension === "customer" ? row.customer : row.modelCode).installations.push(row);
-  }
-  for (const row of equipments) {
-    ensure(dimension === "customer" ? row.customer : row.modelCode).equipments.push(row);
+function ensureHealthBucket(map: Map<string, HealthBucket>, name: string): HealthBucket {
+  const key = name.trim() || "未指定";
+  const existing = map.get(key);
+  if (existing) return existing;
+  const next = createHealthBucket();
+  map.set(key, next);
+  return next;
+}
+
+function createAnalyticsAccumulator(): AnalyticsAccumulator {
+  const by: Record<string, number> = {};
+  const phaseAging: Record<string, PhaseAgingAccumulator> = {};
+  for (const phase of PHASES) {
+    by[phase.key] = 0;
+    phaseAging[phase.key] = { count: 0, totalAgeDays: 0, maxAgeDays: 0, breached: 0 };
   }
 
+  const region = {} as Record<RegionKey, RegionAccumulator>;
+  for (const key of Object.keys(REGIONS) as RegionKey[]) {
+    region[key] = { rows: [], progressTotal: 0, total: 0 };
+  }
+
+  return {
+    by,
+    region,
+    engineer: new Map(),
+    due: [],
+    cycleRows: [],
+    cycleDays: [],
+    phaseAging,
+    customerHealth: new Map(),
+    modelHealth: new Map(),
+  };
+}
+
+function addInstallationToAccumulator(acc: AnalyticsAccumulator, row: Installation): void {
+  const isActive = row.phase !== "released";
+  acc.by[row.phase] = (acc.by[row.phase] ?? 0) + 1;
+
+  const regionBucket = acc.region[row.region];
+  regionBucket.total += 1;
+  regionBucket.progressTotal += row.progress ?? 0;
+  if (regionBucket.rows.length < 10) regionBucket.rows.push(row);
+
+  const engineerName = toDisplayShortName(row.engineer);
+  const engineerBucket = acc.engineer.get(engineerName) ?? { total: 0, active: 0 };
+  engineerBucket.total += 1;
+  if (isActive) engineerBucket.active += 1;
+  acc.engineer.set(engineerName, engineerBucket);
+
+  const overdue = isActive && row.estComplete ? daysLeft(row.estComplete) : null;
+  if (overdue != null && overdue < 14) {
+    acc.due.push({ ...row, dl: overdue });
+  }
+
+  if (row.actComplete) {
+    const startDate = row.orderDate || row.estArrival || row.actArrival;
+    const days = daysBetweenYmd(startDate, row.actComplete);
+    if (days != null) {
+      acc.cycleDays.push(days);
+      acc.cycleRows.push({
+        id: row.id,
+        title: getInstallModelSerial(row),
+        customer: row.customer,
+        modelCode: row.modelCode,
+        days,
+        completedAt: row.actComplete,
+      });
+    }
+  }
+
+  if (isActive) {
+    const sla = getInstallSlaStatus(row);
+    const agingBucket = acc.phaseAging[row.phase];
+    agingBucket.count += 1;
+    agingBucket.totalAgeDays += sla.agingDays;
+    agingBucket.maxAgeDays = Math.max(agingBucket.maxAgeDays, sla.agingDays);
+    if (sla.status === "breached") agingBucket.breached += 1;
+  }
+
+  for (const bucket of [
+    ensureHealthBucket(acc.customerHealth, row.customer),
+    ensureHealthBucket(acc.modelHealth, row.modelCode),
+  ]) {
+    bucket.installs += 1;
+    bucket.progressTotal += row.progress ?? 0;
+    if (isActive) {
+      bucket.activeInstalls += 1;
+      if (row.estComplete) {
+        const dl = daysLeft(row.estComplete);
+        if (dl != null && dl < 0) bucket.overdue += 1;
+      }
+    }
+  }
+}
+
+function buildHealthRows(map: Map<string, HealthBucket>): DashboardHealthRow[] {
   return [...map.entries()]
     .map(([name, value]) => {
-      const activeInstalls = value.installations.filter((row) => row.phase !== "released");
-      const overdue = activeInstalls.filter((row) => {
-        const dl = row.estComplete ? daysLeft(row.estComplete) : null;
-        return dl != null && dl < 0;
-      }).length;
-      const blocked = value.equipments.filter((row) => isActiveEquipmentBlocking(row.blocking)).length;
-      const avgProgress = averageRounded(value.installations.map((row) => row.progress ?? 0));
-      const loadPenalty = Math.min(18, Math.max(0, activeInstalls.length - 3) * 3);
+      const avgProgress = value.installs ? Math.round(value.progressTotal / value.installs) : 0;
+      const loadPenalty = Math.min(18, Math.max(0, value.activeInstalls - 3) * 3);
       const progressPenalty = Math.max(0, 70 - avgProgress) * 0.25;
-      const health = clampHealth(100 - overdue * 14 - blocked * 16 - loadPenalty - progressPenalty);
+      const health = clampHealth(100 - value.overdue * 14 - value.blocked * 16 - loadPenalty - progressPenalty);
 
       return {
         name,
-        installs: value.installations.length,
-        activeInstalls: activeInstalls.length,
-        equipments: value.equipments.length,
-        overdue,
-        blocked,
+        installs: value.installs,
+        activeInstalls: value.activeInstalls,
+        equipments: value.equipments,
+        overdue: value.overdue,
+        blocked: value.blocked,
         avgProgress,
         health,
       };
@@ -220,6 +290,59 @@ function buildHealthRows(
     .slice(0, 8);
 }
 
+function buildRegionRows(acc: AnalyticsAccumulator): DashboardAnalytics["region"] {
+  return (Object.keys(REGIONS) as RegionKey[]).map((key) => {
+    const regionMeta = REGIONS[key];
+    const bucket = acc.region[key];
+    return {
+      key,
+      label: regionMeta.label,
+      color: regionMeta.color,
+      total: bucket.total,
+      avg: bucket.total ? Math.round(bucket.progressTotal / bucket.total) : 0,
+      rows: bucket.rows,
+    };
+  });
+}
+
+function buildEngineerRows(acc: AnalyticsAccumulator, engineers: string[], totalInstallations: number): DashboardAnalytics["engineer"] {
+  const engineerTotal = totalInstallations || 1;
+  return engineers.map((name) => {
+    const bucket = acc.engineer.get(name);
+    const total = bucket?.total ?? 0;
+    return {
+      name,
+      total,
+      active: bucket?.active ?? 0,
+      pct: Math.round((total / engineerTotal) * 100),
+    };
+  });
+}
+
+function buildCycleTimeStatsFromAccumulator(acc: AnalyticsAccumulator): InstallationCycleTimeStats {
+  return {
+    completedCount: acc.cycleRows.length,
+    avgDays: averageRounded(acc.cycleDays),
+    p50Days: medianRounded(acc.cycleDays),
+    longestRows: [...acc.cycleRows].sort((a, b) => b.days - a.days).slice(0, 5),
+  };
+}
+
+function buildPhaseAgingStatsFromAccumulator(acc: AnalyticsAccumulator): PhaseAgingRow[] {
+  return PHASES.filter((phase) => phase.key !== "released").map((phase) => {
+    const bucket = acc.phaseAging[phase.key];
+    return {
+      key: phase.key,
+      label: phase.label,
+      color: phase.color,
+      count: bucket.count,
+      avgAgeDays: bucket.count ? Math.round(bucket.totalAgeDays / bucket.count) : 0,
+      maxAgeDays: bucket.maxAgeDays,
+      breached: bucket.breached,
+    };
+  });
+}
+
 export function buildDashboardAnalytics({
   installations,
   equipments,
@@ -229,38 +352,22 @@ export function buildDashboardAnalytics({
   equipments: Equipment[];
   engineers: string[];
 }): DashboardAnalytics {
+  const acc = createAnalyticsAccumulator();
   const total = installations.length;
-  const by: Record<string, number> = {};
-  for (const phase of PHASES) by[phase.key] = 0;
-  for (const row of installations) by[row.phase] = (by[row.phase] ?? 0) + 1;
-
-  const region = (Object.keys(REGIONS) as RegionKey[]).map((key) => {
-    const regionMeta = REGIONS[key];
-    const rows = installations.filter((row) => row.region === key);
-    const avg = rows.length ? Math.round(rows.reduce((sum, row) => sum + (row.progress ?? 0), 0) / rows.length) : 0;
-    return { key, label: regionMeta.label, color: regionMeta.color, total: rows.length, avg, rows: rows.slice(0, 10) };
-  });
-
-  const engineerTotal = installations.length || 1;
-  const engineer = engineers.map((name) => {
-    const rows = installations.filter((row) => toDisplayShortName(row.engineer) === name);
-    const active = rows.filter((row) => row.phase !== "released").length;
-    const pct = Math.round((rows.length / engineerTotal) * 100);
-    return { name, total: rows.length, active, pct };
-  });
-
-  const due = installations
-    .filter((row) => row.phase !== "released" && row.estComplete)
-    .map((row) => ({
-      ...row,
-      dl: daysLeft(row.estComplete || ""),
-    }))
-    .filter((row): row is InstallationDueRow => row.dl != null && row.dl < 14)
-    .sort((a, b) => a.dl - b.dl);
+  for (const row of installations) addInstallationToAccumulator(acc, row);
 
   type RegionProductEntry = { label: string; color: string; productMap: Record<string, number> };
   const regionProductMap: Partial<Record<RegionKey, RegionProductEntry>> = {};
   for (const equipment of equipments) {
+    const blocked = isActiveEquipmentBlocking(equipment.blocking);
+    for (const bucket of [
+      ensureHealthBucket(acc.customerHealth, equipment.customer),
+      ensureHealthBucket(acc.modelHealth, equipment.modelCode),
+    ]) {
+      bucket.equipments += 1;
+      if (blocked) bucket.blocked += 1;
+    }
+
     if ((equipment.products ?? []).length === 0) continue;
     const regionKey = equipment.region;
     const regionMeta = REGIONS[regionKey];
@@ -283,14 +390,14 @@ export function buildDashboardAnalytics({
   }));
 
   return {
-    phase: { total, by },
-    region,
-    engineer,
-    due,
-    cycleTime: buildCycleTimeStats(installations),
-    phaseAging: buildPhaseAgingStats(installations),
-    customerHealth: buildHealthRows(installations, equipments, "customer"),
-    modelHealth: buildHealthRows(installations, equipments, "modelCode"),
+    phase: { total, by: acc.by },
+    region: buildRegionRows(acc),
+    engineer: buildEngineerRows(acc, engineers, total),
+    due: acc.due.sort((a, b) => a.dl - b.dl),
+    cycleTime: buildCycleTimeStatsFromAccumulator(acc),
+    phaseAging: buildPhaseAgingStatsFromAccumulator(acc),
+    customerHealth: buildHealthRows(acc.customerHealth),
+    modelHealth: buildHealthRows(acc.modelHealth),
     regionProductStats,
   };
 }

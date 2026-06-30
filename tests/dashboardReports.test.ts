@@ -105,6 +105,12 @@ assert.equal(analytics.cycleTime.avgDays, 15);
 assert.equal(analytics.cycleTime.p50Days, 15);
 assert.equal(analytics.cycleTime.longestRows[0].days, 20);
 assert.ok(analytics.phaseAging.some((row) => row.key === "installing" && row.breached === 1));
+assert.ok(analytics.region.some((row) => row.key === "north" && row.total === 3 && row.avg === 83 && row.rows.length === 3));
+assert.deepEqual(analytics.engineer.find((row) => row.name === "Alice"), { name: "Alice", total: 2, active: 0, pct: 67 });
+assert.deepEqual(analytics.regionProductStats[0]?.products, [
+  { name: "GB100", cap: 1200 },
+  { name: "GB200", cap: 800 },
+]);
 assert.ok(analytics.customerHealth.some((row) => row.name === "Customer A" && row.blocked === 1 && row.health < 100));
 
 const governance = buildDashboardGovernanceReport([riskyInstallation], [blockingEquipment]);
