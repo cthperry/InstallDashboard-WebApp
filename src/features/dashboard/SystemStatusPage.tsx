@@ -25,6 +25,7 @@ function buildReleaseNotes(releaseLabel: string): string[] {
     "效能優化：Insights analytics 改為單次累積安裝與設備統計，減少分析頁 region、engineer、due、cycle time 與 health 指標的重複掃描。",
     "效能優化：Insights governance 報告改為單次累積治理問題，降低 score、critical issue 與 issue rows 的重複掃描成本。",
     "效能優化：Dashboard stats 改為單次累積 WIP、released、overdue、平均進度、容量與阻塞摘要，降低主頁 KPI 重算成本。",
+    "效能優化：Dashboard filter 排序 lookup 改為 module-level 快取，keyword 搜尋改為逐欄位比對並避免 filtered rows 二次複製。",
   ];
 }
 

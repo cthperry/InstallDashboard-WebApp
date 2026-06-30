@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import type { Equipment, Installation } from "@/domain/types";
 import { buildDashboardAnalytics } from "@/features/dashboard/dashboardAnalytics";
 import { buildEquipmentsCsv } from "@/features/dashboard/dashboardExports";
+import { filterAndSortEquipments, filterAndSortInstallations } from "@/features/dashboard/dashboardFilters";
 import { buildDashboardGovernanceReport } from "@/features/dashboard/dashboardGovernance";
 import { calcEquipmentStats, calcInstallStats } from "@/features/dashboard/dashboardStats";
 import { buildInsightsMarkdownReport } from "@/features/dashboard/insightsReport";
@@ -133,6 +134,38 @@ assert.equal(equipmentStats.byCap["紅"], 1);
 assert.equal(equipmentStats.blocked, 1);
 assert.equal(equipmentStats.resolvedBlocking, 0);
 assert.equal(equipmentStats.avgBlockingDays, 5);
+
+const filteredInstallations = filterAndSortInstallations([
+  install({ id: "filter-b", name: "SN-B", region: "central", customer: "Beta", phase: "trial", engineer: "bob.lin@example.com", updatedAt: 300 }),
+  install({ id: "filter-a", name: "SN-A", region: "north", customer: "Alpha", phase: "installing", engineer: "alice.chen@example.com", notes: "Valve tuning", updatedAt: 200 }),
+  install({ id: "filter-c", name: "SN-C", region: "north", customer: "Gamma", phase: "released", engineer: "alice.chen@example.com", updatedAt: 100 }),
+], {
+  region: "north",
+  model: "",
+  phase: "",
+  customer: "",
+  engineer: "Alice",
+  keyword: "sn",
+  sortKey: "phase",
+  sortDir: "asc",
+});
+
+assert.deepEqual(filteredInstallations.map((row) => row.id), ["filter-a", "filter-c"]);
+
+const filteredEquipments = filterAndSortEquipments([
+  equipment({ id: "equip-b", equipmentId: "EQ-B", region: "north", serialNo: "SN-B", statusMain: "正式生產中", statusSub: "blocked", owner: "bob.lin@example.com", updatedAt: 300 }),
+  equipment({ id: "equip-a", equipmentId: "EQ-A", region: "north", serialNo: "SN-A", statusMain: "裝機", statusSub: "blocked", owner: "alice.chen@example.com", updatedAt: 200 }),
+  equipment({ id: "equip-c", equipmentId: "EQ-C", region: "central", serialNo: "SN-C", statusMain: "試產", statusSub: "blocked", owner: "alice.chen@example.com", updatedAt: 100 }),
+], {
+  region: "north",
+  status: "",
+  capacity: "紅",
+  keyword: "blocked",
+  sortKey: "statusMain",
+  sortDir: "asc",
+});
+
+assert.deepEqual(filteredEquipments.map((row) => row.id), ["equip-a", "equip-b"]);
 
 const governance = buildDashboardGovernanceReport([riskyInstallation], [blockingEquipment]);
 const issueCount = new Map(governance.issueRows.map((row) => [row.id, row.count]));
