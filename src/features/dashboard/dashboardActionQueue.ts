@@ -41,6 +41,18 @@ function calcCapacityLevel(uph: number, targetUph: number): "綠" | "黃" | "紅
   return "綠";
 }
 
+function compareQueueEntries(a: DashboardQueueEntry, b: DashboardQueueEntry): number {
+  return a.priority - b.priority;
+}
+
+function pushTopQueueEntry(queue: DashboardQueueEntry[], entry: DashboardQueueEntry, limit: number): void {
+  let index = 0;
+  while (index < queue.length && compareQueueEntries(entry, queue[index]) >= 0) index++;
+  if (index >= limit) return;
+  queue.splice(index, 0, entry);
+  if (queue.length > limit) queue.pop();
+}
+
 export function buildInstallActionQueue(rows: Installation[]): DashboardQueueEntry[] {
   const today = todayInTaipeiYmd();
   const queue: DashboardQueueEntry[] = [];
@@ -54,7 +66,7 @@ export function buildInstallActionQueue(rows: Installation[]): DashboardQueueEnt
     const label = getInstallationTaskTitle(row);
 
     if (doesInstallationPhaseRequireSerial(row.phase) && !serial) {
-      queue.push({
+      pushTopQueueEntry(queue, {
         id: `install-serial-${row.id}`,
         targetId: row.id,
         label,
@@ -62,12 +74,12 @@ export function buildInstallActionQueue(rows: Installation[]): DashboardQueueEnt
         value: "缺序號",
         tone: "critical",
         priority: 0,
-      });
+      }, 5);
       continue;
     }
 
     if (!toDisplayShortName(row.engineer) && doesInstallationPhaseRequireEngineer(row.phase)) {
-      queue.push({
+      pushTopQueueEntry(queue, {
         id: `install-owner-${row.id}`,
         targetId: row.id,
         label,
@@ -75,7 +87,7 @@ export function buildInstallActionQueue(rows: Installation[]): DashboardQueueEnt
         value: "未指派",
         tone: "warning",
         priority: 10,
-      });
+      }, 5);
       continue;
     }
 
@@ -83,7 +95,7 @@ export function buildInstallActionQueue(rows: Installation[]): DashboardQueueEnt
     if (sla.status === "breached") {
       const missingGovernance = !hasGovernanceFields(row);
       const missingReason = !row.overdueReason;
-      queue.push({
+      pushTopQueueEntry(queue, {
         id: `install-sla-${row.id}`,
         targetId: row.id,
         label,
@@ -91,12 +103,12 @@ export function buildInstallActionQueue(rows: Installation[]): DashboardQueueEnt
         value: missingGovernance || missingReason ? `${sla.label} · 缺治理` : sla.label,
         tone: "critical",
         priority: (missingGovernance || missingReason ? 5 : 15) - Math.abs(sla.remainingDays),
-      });
+      }, 5);
       continue;
     }
 
     if (!row.estComplete && row.phase !== "ordered") {
-      queue.push({
+      pushTopQueueEntry(queue, {
         id: `install-date-${row.id}`,
         targetId: row.id,
         label,
@@ -104,12 +116,12 @@ export function buildInstallActionQueue(rows: Installation[]): DashboardQueueEnt
         value: "缺預計日",
         tone: "warning",
         priority: 20,
-      });
+      }, 5);
       continue;
     }
 
     if (row.nextDueDate && row.nextDueDate < today) {
-      queue.push({
+      pushTopQueueEntry(queue, {
         id: `install-next-due-${row.id}`,
         targetId: row.id,
         label,
@@ -117,12 +129,12 @@ export function buildInstallActionQueue(rows: Installation[]): DashboardQueueEnt
         value: "下一步逾期",
         tone: "critical",
         priority: 18,
-      });
+      }, 5);
       continue;
     }
 
     if (sla.status === "warning") {
-      queue.push({
+      pushTopQueueEntry(queue, {
         id: `install-sla-warning-${row.id}`,
         targetId: row.id,
         label,
@@ -130,13 +142,13 @@ export function buildInstallActionQueue(rows: Installation[]): DashboardQueueEnt
         value: sla.label,
         tone: "warning",
         priority: 25 + sla.remainingDays,
-      });
+      }, 5);
       continue;
     }
 
     const staleDays = daysSinceTimestamp(row.updatedAt);
     if (staleDays >= 7) {
-      queue.push({
+      pushTopQueueEntry(queue, {
         id: `install-stale-${row.id}`,
         targetId: row.id,
         label,
@@ -144,11 +156,11 @@ export function buildInstallActionQueue(rows: Installation[]): DashboardQueueEnt
         value: `${staleDays} 天未更新`,
         tone: "info",
         priority: 30 + staleDays,
-      });
+      }, 5);
     }
   }
 
-  return queue.sort((a, b) => a.priority - b.priority).slice(0, 5);
+  return queue;
 }
 
 export function buildEquipmentActionQueue(
@@ -165,7 +177,7 @@ export function buildEquipmentActionQueue(
     const blocking = row.blocking;
 
     if (isActiveEquipmentBlocking(blocking)) {
-      queue.push({
+      pushTopQueueEntry(queue, {
         id: `equipment-blocked-${row.id}`,
         targetId: row.id,
         label: serial,
@@ -173,12 +185,12 @@ export function buildEquipmentActionQueue(
         value: "阻塞",
         tone: "critical",
         priority: 0,
-      });
+      }, 5);
       continue;
     }
 
     if (liveLevel === "紅") {
-      queue.push({
+      pushTopQueueEntry(queue, {
         id: `equipment-capacity-${row.id}`,
         targetId: row.id,
         label: serial,
@@ -186,12 +198,12 @@ export function buildEquipmentActionQueue(
         value: `紅燈 ${utilization}%`,
         tone: "warning",
         priority: 10 + (100 - utilization),
-      });
+      }, 5);
       continue;
     }
 
     if (utilization >= 80) {
-      queue.push({
+      pushTopQueueEntry(queue, {
         id: `equipment-util-${row.id}`,
         targetId: row.id,
         label: serial,
@@ -199,9 +211,9 @@ export function buildEquipmentActionQueue(
         value: `高稼動 ${utilization}%`,
         tone: "info",
         priority: 30 + (100 - utilization),
-      });
+      }, 5);
     }
   }
 
-  return queue.sort((a, b) => a.priority - b.priority).slice(0, 5);
+  return queue;
 }
