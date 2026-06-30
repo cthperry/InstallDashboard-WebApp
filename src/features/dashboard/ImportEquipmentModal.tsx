@@ -1,11 +1,12 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Modal } from "@/features/ui/Modal";
 import { createEquipment, listExistingEquipmentSerialKeys } from "@/features/data/equipments";
 import type { EquipmentMainStatus, RegionKey } from "@/domain/types";
 import { EQUIPMENT_MAIN_STATUSES, REGIONS } from "@/domain/constants";
 import { buildEquipmentPayload, cleanModelName, excelDateToString, getWorkbookFileValidationError, readWorkbookJsonRows } from "@/domain/importRules";
+import { buildEquipmentImportPreviewMetrics } from "@/features/dashboard/importPreviewMetrics";
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
@@ -36,6 +37,8 @@ type PreviewRow = RawRow & {
   _status:       EquipmentMainStatus;
   _selected:     boolean;
 };
+
+const REGION_OPTIONS = Object.entries(REGIONS) as Array<[RegionKey, { label: string }]>;
 
 // ─── Column mapping ──────────────────────────────────────────────────────────
 
@@ -168,11 +171,15 @@ export function ImportEquipmentModal({ open, onClose, onImported, customerRegion
     setRows((prev) => prev.map((r) => r._idx === idx ? { ...r, _status: status } : r));
   }
 
-  const selectedRows   = rows.filter((r) => r._selected);
-  const allSelected    = rows.length > 0 && rows.every((r) => r._selected);
-  const someSelected   = rows.some((r) => r._selected) && !allSelected;
-  const unmatchedCount = rows.filter((r) => r._selected && !r._regionMatched).length;
-  const noSerialCount  = rows.filter((r) => r._selected && !r.serialNo).length;
+  const previewMetrics = useMemo(() => buildEquipmentImportPreviewMetrics(rows), [rows]);
+  const {
+    selectedRows,
+    selectedSerials,
+    allSelected,
+    someSelected,
+    unmatchedCount,
+    noSerialCount,
+  } = previewMetrics;
 
   async function handleImport() {
     if (selectedRows.length === 0) return;
@@ -180,7 +187,6 @@ export function ImportEquipmentModal({ open, onClose, onImported, customerRegion
     let count = 0;
     let skippedDuplicates = 0;
     const errors: string[] = [];
-    const selectedSerials = selectedRows.map((r) => r.serialNo.trim()).filter(Boolean);
     const existingSerials = await listExistingEquipmentSerialKeys(selectedSerials);
     const importedSerials = new Set<string>();
     for (const r of selectedRows) {
@@ -346,7 +352,7 @@ export function ImportEquipmentModal({ open, onClose, onImported, customerRegion
                     }}>
                       <select value={r._region} onChange={(e) => setRowRegion(r._idx, e.target.value as RegionKey)}
                         style={{ fontSize: 12, padding: "2px 4px", minWidth: 60, border: !r._regionMatched ? "1px solid #f59e0b" : undefined }}>
-                        {(Object.entries(REGIONS) as [RegionKey, { label: string }][]).map(([key, rg]) => (
+                        {REGION_OPTIONS.map(([key, rg]) => (
                           <option key={key} value={key}>{rg.label}</option>
                         ))}
                       </select>

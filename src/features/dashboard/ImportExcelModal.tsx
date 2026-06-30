@@ -1,11 +1,12 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Modal } from "@/features/ui/Modal";
 import type { PhaseKey, RegionKey } from "@/domain/types";
 import { PHASES, REGIONS } from "@/domain/constants";
 import { buildInstallationPayload, buildWorkbookInstallationImportKey, getWorkbookFileValidationError, inferRegionByCustomer, parseWorkbookJsonRows, readWorkbookJsonRows, resolveWorkbookImportDisposition, validateWorkbookRow, type WorkbookRow } from "@/domain/importRules";
 import { commitSmartImportBatch } from "@/features/dashboard/services/smartImportService";
+import { buildInstallationImportPreviewMetrics } from "@/features/dashboard/importPreviewMetrics";
 
 type PreviewRow = WorkbookRow & {
   _idx: number;
@@ -16,6 +17,8 @@ type PreviewRow = WorkbookRow & {
   _progress: number;
   _selected: boolean;
 };
+
+const REGION_OPTIONS = Object.entries(REGIONS) as Array<[RegionKey, { label: string }]>;
 
 async function downloadTemplate() {
   const ExcelJS = await import("exceljs");
@@ -145,9 +148,8 @@ export function ImportExcelModal({ open, onClose, onImported, customerRegionMap 
     setRows((prev) => prev.map((r) => r._idx === idx ? applyLifecycleToPreviewRow(r, phase) : r));
   }
 
-  const selectedRows = rows.filter((r) => r._selected);
-  const allSelected = rows.length > 0 && rows.every((r) => r._selected);
-  const unmatchedCount = rows.filter((r) => r._selected && !r._regionMatched).length;
+  const previewMetrics = useMemo(() => buildInstallationImportPreviewMetrics(rows), [rows]);
+  const { selectedRows, allSelected, unmatchedCount } = previewMetrics;
 
   async function handleImport() {
     if (selectedRows.length === 0) return;
@@ -244,7 +246,7 @@ export function ImportExcelModal({ open, onClose, onImported, customerRegionMap 
                     <td style={{ padding: "8px 8px", borderTop: "1px solid var(--border)" }}>{r.customer || "-"}</td>
                     <td style={{ padding: "8px 8px", borderTop: "1px solid var(--border)" }}>{r.modelCode || "-"}</td>
                     <td style={{ padding: "8px 8px", borderTop: "1px solid var(--border)" }}>{r.serialNo}</td>
-                    <td style={{ padding: "8px 8px", borderTop: "1px solid var(--border)" }}><select style={{ width: 88, fontSize: 12 }} value={r._region} onChange={(e) => setRowRegion(r._idx, e.target.value as RegionKey)}>{(Object.entries(REGIONS) as [RegionKey, { label: string }][]).map(([key, meta]) => <option key={key} value={key}>{meta.label}</option>)}</select></td>
+                    <td style={{ padding: "8px 8px", borderTop: "1px solid var(--border)" }}><select style={{ width: 88, fontSize: 12 }} value={r._region} onChange={(e) => setRowRegion(r._idx, e.target.value as RegionKey)}>{REGION_OPTIONS.map(([key, meta]) => <option key={key} value={key}>{meta.label}</option>)}</select></td>
                     <td style={{ padding: "8px 8px", borderTop: "1px solid var(--border)" }}><select style={{ width: 118, fontSize: 12 }} value={r._phase} onChange={(e) => setRowPhase(r._idx, e.target.value as PhaseKey)}>{PHASES.map((phase) => <option key={phase.key} value={phase.key}>{phase.label}</option>)}</select></td>
                     <td style={{ padding: "8px 8px", borderTop: "1px solid var(--border)" }}>{r.estArrival || "-"}</td>
                     <td style={{ padding: "8px 8px", borderTop: "1px solid var(--border)" }}>{r.estComplete || "-"}</td>
