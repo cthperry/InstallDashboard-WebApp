@@ -4,6 +4,7 @@ import type { Equipment, Installation } from "@/domain/types";
 import { buildDashboardAnalytics } from "@/features/dashboard/dashboardAnalytics";
 import { buildEquipmentsCsv } from "@/features/dashboard/dashboardExports";
 import { buildDashboardGovernanceReport } from "@/features/dashboard/dashboardGovernance";
+import { calcEquipmentStats, calcInstallStats } from "@/features/dashboard/dashboardStats";
 import { buildInsightsMarkdownReport } from "@/features/dashboard/insightsReport";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -112,6 +113,26 @@ assert.deepEqual(analytics.regionProductStats[0]?.products, [
   { name: "GB200", cap: 800 },
 ]);
 assert.ok(analytics.customerHealth.some((row) => row.name === "Customer A" && row.blocked === 1 && row.health < 100));
+
+const installStats = calcInstallStats([...completedInstallations, { ...riskyInstallation, estComplete: "2020-01-03" }], "2026-06-29");
+
+assert.equal(installStats.total, 3);
+assert.equal(installStats.wip, 1);
+assert.equal(installStats.released, 2);
+assert.equal(installStats.overdue, 1);
+assert.equal(installStats.avgProg, 83);
+assert.equal(installStats.byPhase.released, 2);
+assert.equal(installStats.byPhase.installing, 1);
+
+const equipmentStats = calcEquipmentStats([blockingEquipment]);
+
+assert.equal(equipmentStats.total, 1);
+assert.equal(equipmentStats.avgUtil, 90);
+assert.equal(equipmentStats.byStatus["正式生產中"], 1);
+assert.equal(equipmentStats.byCap["紅"], 1);
+assert.equal(equipmentStats.blocked, 1);
+assert.equal(equipmentStats.resolvedBlocking, 0);
+assert.equal(equipmentStats.avgBlockingDays, 5);
 
 const governance = buildDashboardGovernanceReport([riskyInstallation], [blockingEquipment]);
 const issueCount = new Map(governance.issueRows.map((row) => [row.id, row.count]));
