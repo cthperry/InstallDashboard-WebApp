@@ -30,6 +30,7 @@ function buildReleaseNotes(releaseLabel: string): string[] {
     "效能優化：Insights cycle time 改為單次排序同時計算 p50 與 longest rows，減少分析頁 completed cases 的重複排序成本。",
     "效能優化：Insights customer/model health 改為 bounded top 8 累積，避免大量客戶或機型時全量排序後再裁切。",
     "效能優化：Dashboard action queue 改為 bounded top 5 累積，避免大量任務候選全量排序後再裁切。",
+    "效能優化：舊版裝機/設備 Excel 匯入預覽改為單次選取統計，減少大型檔案預覽時的重複 filter/every/some 掃描。",
   ];
 }
 

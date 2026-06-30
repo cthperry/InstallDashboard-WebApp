@@ -7,6 +7,7 @@ import { buildEquipmentsCsv } from "@/features/dashboard/dashboardExports";
 import { filterAndSortEquipments, filterAndSortInstallations } from "@/features/dashboard/dashboardFilters";
 import { buildDashboardGovernanceReport } from "@/features/dashboard/dashboardGovernance";
 import { calcEquipmentStats, calcInstallStats } from "@/features/dashboard/dashboardStats";
+import { buildEquipmentImportPreviewMetrics, buildInstallationImportPreviewMetrics } from "@/features/dashboard/importPreviewMetrics";
 import { buildInsightsMarkdownReport } from "@/features/dashboard/insightsReport";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -301,3 +302,28 @@ assert.ok(equipmentCsv.includes("\"Waiting for replacement valve vendor ETA shif
 assert.ok(equipmentCsv.includes("\"reopened\""));
 assert.ok(equipmentCsv.includes("\"90\""));
 assert.ok(equipmentCsv.includes("\"GB100:1200; GB200:800\""));
+
+const installationPreviewRows = [
+  { _idx: 0, _selected: true, _regionMatched: true },
+  { _idx: 1, _selected: true, _regionMatched: false },
+  { _idx: 2, _selected: false, _regionMatched: false },
+];
+const installationPreviewMetrics = buildInstallationImportPreviewMetrics(installationPreviewRows);
+
+assert.equal(installationPreviewMetrics.selectedRows.length, 2);
+assert.equal(installationPreviewMetrics.allSelected, false);
+assert.equal(installationPreviewMetrics.unmatchedCount, 1);
+
+const equipmentPreviewRows = [
+  { _idx: 0, _selected: true, _regionMatched: true, serialNo: " EQ-A " },
+  { _idx: 1, _selected: true, _regionMatched: false, serialNo: "" },
+  { _idx: 2, _selected: false, _regionMatched: false, serialNo: "EQ-C" },
+];
+const equipmentPreviewMetrics = buildEquipmentImportPreviewMetrics(equipmentPreviewRows);
+
+assert.equal(equipmentPreviewMetrics.selectedRows.length, 2);
+assert.deepEqual(equipmentPreviewMetrics.selectedSerials, ["EQ-A"]);
+assert.equal(equipmentPreviewMetrics.allSelected, false);
+assert.equal(equipmentPreviewMetrics.someSelected, true);
+assert.equal(equipmentPreviewMetrics.unmatchedCount, 1);
+assert.equal(equipmentPreviewMetrics.noSerialCount, 1);
