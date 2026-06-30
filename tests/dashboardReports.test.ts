@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 
 import type { Equipment, Installation } from "@/domain/types";
+import { buildEquipmentActionQueue, buildInstallActionQueue } from "@/features/dashboard/dashboardActionQueue";
 import { buildDashboardAnalytics } from "@/features/dashboard/dashboardAnalytics";
 import { buildEquipmentsCsv } from "@/features/dashboard/dashboardExports";
 import { filterAndSortEquipments, filterAndSortInstallations } from "@/features/dashboard/dashboardFilters";
@@ -166,6 +167,31 @@ const filteredEquipments = filterAndSortEquipments([
 });
 
 assert.deepEqual(filteredEquipments.map((row) => row.id), ["equip-a", "equip-b"]);
+
+const installQueue = buildInstallActionQueue([
+  install({ id: "queue-released", phase: "released", updatedAt: Date.now() - 30 * DAY_MS }),
+  install({ id: "queue-stale", name: "SN-STALE", phase: "ordered", updatedAt: Date.now() - 8 * DAY_MS }),
+  install({ id: "queue-owner", name: "SN-OWNER", phase: "trial", engineer: "", estComplete: "2099-01-01" }),
+  install({ id: "queue-serial", name: "", phase: "installing", engineer: "Alice", estComplete: "2099-01-01" }),
+]);
+
+assert.deepEqual(installQueue.map((row) => row.id), [
+  "install-serial-queue-serial",
+  "install-owner-queue-owner",
+  "install-stale-queue-stale",
+]);
+
+const equipmentQueue = buildEquipmentActionQueue([
+  equipment({ id: "queue-high-util", equipmentId: "EQ-HIGH", capacity: { utilization: 85, uph: 0, targetUph: 100, level: "綠", trend7d: [] } }),
+  equipment({ id: "queue-red", equipmentId: "EQ-RED", capacity: { utilization: 0, uph: 90, targetUph: 100, level: "紅", trend7d: [] } }),
+  blockingEquipment,
+], (region) => region);
+
+assert.deepEqual(equipmentQueue.map((row) => row.id), [
+  "equipment-blocked-blocked-equipment",
+  "equipment-capacity-queue-red",
+  "equipment-util-queue-high-util",
+]);
 
 const governance = buildDashboardGovernanceReport([riskyInstallation], [blockingEquipment]);
 const issueCount = new Map(governance.issueRows.map((row) => [row.id, row.count]));
