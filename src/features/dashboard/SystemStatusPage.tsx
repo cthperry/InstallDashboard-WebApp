@@ -27,6 +27,7 @@ function buildReleaseNotes(releaseLabel: string): string[] {
     "效能優化：Dashboard stats 改為單次累積 WIP、released、overdue、平均進度、容量與阻塞摘要，降低主頁 KPI 重算成本。",
     "效能優化：Dashboard filter 排序 lookup 改為 module-level 快取，keyword 搜尋改為逐欄位比對並避免 filtered rows 二次複製。",
     "效能優化：Dashboard action queue 改為單次累積任務候選，避免 map / filter 中間陣列並保留前五優先排序。",
+    "效能優化：Insights cycle time 改為單次排序同時計算 p50 與 longest rows，減少分析頁 completed cases 的重複排序成本。",
   ];
 }
 

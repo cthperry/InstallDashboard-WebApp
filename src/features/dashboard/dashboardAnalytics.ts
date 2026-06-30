@@ -100,19 +100,6 @@ function daysBetweenYmd(startYmd?: string | null, endYmd?: string | null): numbe
   return Math.max(0, Math.floor((end.getTime() - start.getTime()) / DAY_MS));
 }
 
-function averageRounded(values: number[]): number {
-  if (!values.length) return 0;
-  return Math.round(values.reduce((sum, value) => sum + value, 0) / values.length);
-}
-
-function medianRounded(values: number[]): number {
-  if (!values.length) return 0;
-  const sorted = [...values].sort((a, b) => a - b);
-  const mid = Math.floor(sorted.length / 2);
-  if (sorted.length % 2) return sorted[mid];
-  return Math.round((sorted[mid - 1] + sorted[mid]) / 2);
-}
-
 function clampHealth(value: number): number {
   return Math.max(0, Math.min(100, Math.round(value)));
 }
@@ -150,7 +137,7 @@ type AnalyticsAccumulator = {
   engineer: Map<string, EngineerAccumulator>;
   due: InstallationDueRow[];
   cycleRows: InstallationCycleTimeRow[];
-  cycleDays: number[];
+  cycleDaysTotal: number;
   phaseAging: Record<string, PhaseAgingAccumulator>;
   customerHealth: Map<string, HealthBucket>;
   modelHealth: Map<string, HealthBucket>;
@@ -195,7 +182,7 @@ function createAnalyticsAccumulator(): AnalyticsAccumulator {
     engineer: new Map(),
     due: [],
     cycleRows: [],
-    cycleDays: [],
+    cycleDaysTotal: 0,
     phaseAging,
     customerHealth: new Map(),
     modelHealth: new Map(),
@@ -226,7 +213,7 @@ function addInstallationToAccumulator(acc: AnalyticsAccumulator, row: Installati
     const startDate = row.orderDate || row.estArrival || row.actArrival;
     const days = daysBetweenYmd(startDate, row.actComplete);
     if (days != null) {
-      acc.cycleDays.push(days);
+      acc.cycleDaysTotal += days;
       acc.cycleRows.push({
         id: row.id,
         title: getInstallModelSerial(row),
@@ -320,11 +307,24 @@ function buildEngineerRows(acc: AnalyticsAccumulator, engineers: string[], total
 }
 
 function buildCycleTimeStatsFromAccumulator(acc: AnalyticsAccumulator): InstallationCycleTimeStats {
+  const completedCount = acc.cycleRows.length;
+  const sortedRows = [...acc.cycleRows].sort((a, b) => a.days - b.days);
+  const mid = Math.floor(completedCount / 2);
+  const p50Days = completedCount
+    ? completedCount % 2
+      ? sortedRows[mid].days
+      : Math.round((sortedRows[mid - 1].days + sortedRows[mid].days) / 2)
+    : 0;
+  const longestRows: InstallationCycleTimeRow[] = [];
+  for (let index = sortedRows.length - 1; index >= 0 && longestRows.length < 5; index--) {
+    longestRows.push(sortedRows[index]);
+  }
+
   return {
-    completedCount: acc.cycleRows.length,
-    avgDays: averageRounded(acc.cycleDays),
-    p50Days: medianRounded(acc.cycleDays),
-    longestRows: [...acc.cycleRows].sort((a, b) => b.days - a.days).slice(0, 5),
+    completedCount,
+    avgDays: completedCount ? Math.round(acc.cycleDaysTotal / completedCount) : 0,
+    p50Days,
+    longestRows,
   };
 }
 
