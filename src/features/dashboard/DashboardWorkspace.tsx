@@ -83,6 +83,7 @@ import { buildDashboardGovernanceReport, type DashboardGovernanceReport, type Go
 import { buildInsightsMarkdownReport } from "@/features/dashboard/insightsReport";
 import { downloadMarkdownFile } from "@/features/dashboard/warRoomBrief";
 import { buildDashboardDirectoryOptions } from "@/features/dashboard/dashboardDirectoryOptions";
+import { buildBulkInstallTargets } from "@/features/dashboard/dashboardBulkInstall";
 import { downloadEquipmentsCsv, downloadInstallationsCsv } from "@/features/dashboard/dashboardExports";
 import { buildEditInstallationDraft, buildNewInstallationDraft } from "@/features/dashboard/installationForm";
 import { calcCapacityLevel, calcEquipmentStats, calcInstallStats, isOverdueInstall } from "@/features/dashboard/dashboardStats";
@@ -656,11 +657,11 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
 
   const equipStats = useMemo(() => calcEquipmentStats(filteredEquipments), [filteredEquipments]);
 
-  const bulkInstallTargetRows = useMemo(
-    () => filteredInstallations.filter((row) => row.phase !== "released"),
+  const bulkInstallTargets = useMemo(
+    () => buildBulkInstallTargets(filteredInstallations),
     [filteredInstallations],
   );
-  const bulkInstallTargetCount = bulkInstallTargetRows.length;
+  const bulkInstallTargetCount = bulkInstallTargets.count;
   const hasBulkInstallPatch = Boolean(bulkInstallOwner.trim() || bulkInstallEta.trim() || bulkInstallAction.trim());
   const installCsvDisabled = installLoading || Boolean(installErr) || filteredInstallations.length === 0;
   const equipmentCsvDisabled = equipLoading || Boolean(equipErr) || filteredEquipments.length === 0;
@@ -989,18 +990,18 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
       return;
     }
 
-    const targetRows = bulkInstallTargetRows;
-    if (targetRows.length === 0) {
+    const targetIds = bulkInstallTargets.ids;
+    if (targetIds.length === 0) {
       setToast("目前篩選下沒有可批次更新的進行中裝機案");
       return;
     }
 
-    const ok = confirm(`將批次更新目前篩選下 ${targetRows.length} 筆進行中裝機案。是否繼續？`);
+    const ok = confirm(`將批次更新目前篩選下 ${targetIds.length} 筆進行中裝機案。是否繼續？`);
     if (!ok) return;
 
     setBulkInstallBusy(true);
     try {
-      const count = await updateInstallationsBulk(targetRows.map((row) => row.id), {
+      const count = await updateInstallationsBulk(targetIds, {
         ...(owner ? { engineer: owner, nextOwner: owner } : {}),
         ...(eta ? { estComplete: eta, nextDueDate: eta } : {}),
         ...(nextAction ? { nextAction } : {}),
