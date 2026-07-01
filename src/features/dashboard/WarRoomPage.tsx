@@ -5,12 +5,7 @@ import Link from "next/link";
 import { useAuth } from "@/features/auth/AuthProvider";
 import { listenInstallations } from "@/features/data/installations";
 import { listenEquipments } from "@/features/data/equipments";
-import type { Equipment, Installation, PhaseKey, RegionKey } from "@/domain/types";
-import { PHASES, PHASE_MAP, REGIONS } from "@/domain/constants";
-import { getLiveUtilization } from "@/domain/capacity";
-import { isActiveEquipmentBlocking } from "@/domain/equipmentBlocking";
-import { getInstallationSerial } from "@/domain/installationDisplay";
-import { toDisplayShortName } from "@/domain/personDisplay";
+import type { Equipment, Installation } from "@/domain/types";
 import { getAppReleaseLabel } from "@/config/appVersion";
 import { todayInTaipeiYmd } from "@/lib/utils";
 import {
@@ -18,84 +13,20 @@ import {
   downloadMarkdownFile,
   type WarRoomMeetingMode,
 } from "@/features/dashboard/warRoomBrief";
-
-type Tone = "critical" | "warning" | "info" | "good";
-
-type QueueItem = {
-  id: string;
-  title: string;
-  meta: string;
-  value: string;
-  tone: Tone;
-  href: string;
-  priority: number;
-};
-
-type RegionCommandRow = {
-  key: RegionKey;
-  label: string;
-  color: string;
-  installs: number;
-  equipments: number;
-  overdue: number;
-  blocked: number;
-  hot: number;
-  score: number;
-};
-
-type RegionAccumulator = {
-  installs: number;
-  equipments: number;
-  overdue: number;
-  blocked: number;
-  hot: number;
-};
+import {
+  buildWarRoomViewModel,
+  type PhaseCommandRow,
+  type QueueItem,
+  type RegionCommandRow,
+  type Tone,
+} from "@/features/dashboard/warRoomViewModel";
 
 function todayYYYYMMDD() {
   return todayInTaipeiYmd();
 }
 
-function safeStr(v: unknown): string {
-  if (typeof v === "string") return v;
-  if (v == null) return "";
-  return String(v);
-}
-
 function clamp(n: number, a: number, b: number) {
   return Math.max(a, Math.min(b, n));
-}
-
-function parseYmd(ymd?: string): Date | null {
-  const value = safeStr(ymd).trim();
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
-  const [y, m, d] = value.split("-").map(Number);
-  const dt = new Date(y, m - 1, d);
-  return Number.isNaN(dt.getTime()) ? null : dt;
-}
-
-function daysBetween(aYmd: string, bYmd: string): number | null {
-  const a = parseYmd(aYmd);
-  const b = parseYmd(bYmd);
-  if (!a || !b) return null;
-  return Math.round((b.getTime() - a.getTime()) / 86400000);
-}
-
-function isReleased(r: Installation) {
-  return r.phase === "released";
-}
-
-function isOverdue(r: Installation, today: string) {
-  const due = safeStr(r.estComplete);
-  return Boolean(due && !isReleased(r) && due < today);
-}
-
-function daysSinceUpdated(ts?: number): number {
-  if (!ts) return 999;
-  return Math.max(0, Math.floor((Date.now() - ts) / 86400000));
-}
-
-function getInstallTitle(row: Installation) {
-  return getInstallationSerial(row) || safeStr(row.modelCode) || safeStr(row.customer) || row.id;
 }
 
 function ControlMetric({
@@ -154,8 +85,7 @@ function ActionQueue({ items }: { items: QueueItem[] }) {
   );
 }
 
-function PhaseRail({ phaseRows }: { phaseRows: Array<{ key: PhaseKey; label: string; color: string; count: number }> }) {
-  const max = Math.max(...phaseRows.map((p) => p.count), 1);
+function PhaseRail({ phaseRows, maxPhaseCount }: { phaseRows: PhaseCommandRow[]; maxPhaseCount: number }) {
   return (
     <section className="f66Panel">
       <div className="f66PanelHead">
@@ -172,7 +102,7 @@ function PhaseRail({ phaseRows }: { phaseRows: Array<{ key: PhaseKey; label: str
               {phase.label}
             </div>
             <div className="f66PhaseTrack">
-              <i style={{ width: `${clamp((phase.count / max) * 100, 0, 100)}%`, background: phase.color }} />
+              <i style={{ width: `${clamp((phase.count / maxPhaseCount) * 100, 0, 100)}%`, background: phase.color }} />
             </div>
             <b>{phase.count}</b>
           </div>
@@ -248,168 +178,7 @@ export function WarRoomPage() {
   const today = todayYYYYMMDD();
   const loading = loadingI || loadingE;
 
-  const computed = useMemo(() => {
-    const total = installs.length;
-    let wip = 0;
-    let released = 0;
-    let utilizationSum = 0;
-    const overdue: Installation[] = [];
-    const dueSoon: Installation[] = [];
-    const stale: Installation[] = [];
-    const blocked: Equipment[] = [];
-    const hot: Equipment[] = [];
-
-    const phaseCount: Record<PhaseKey, number> = {
-      ordered: 0,
-      shipping: 0,
-      arrived: 0,
-      installing: 0,
-      trial: 0,
-      qual: 0,
-      released: 0,
-    };
-
-    const regionAccumulator = (Object.keys(REGIONS) as RegionKey[]).reduce(
-      (acc, key) => {
-        acc[key] = { installs: 0, equipments: 0, overdue: 0, blocked: 0, hot: 0 };
-        return acc;
-      },
-      {} as Record<RegionKey, RegionAccumulator>,
-    );
-
-    for (const row of installs) {
-      const releasedRow = isReleased(row);
-      if (releasedRow) released += 1;
-      else wip += 1;
-
-      phaseCount[row.phase] = (phaseCount[row.phase] ?? 0) + 1;
-
-      const regionStats = regionAccumulator[row.region];
-      if (regionStats) regionStats.installs += 1;
-
-      const overdueRow = isOverdue(row, today);
-      if (overdueRow) {
-        overdue.push(row);
-        if (regionStats) regionStats.overdue += 1;
-      }
-
-      if (!releasedRow) {
-        const daysUntilDue = daysBetween(today, safeStr(row.estComplete));
-        if (daysUntilDue != null && daysUntilDue >= 0 && daysUntilDue <= 7) dueSoon.push(row);
-        if (daysSinceUpdated(row.updatedAt) >= 7) stale.push(row);
-      }
-    }
-
-    for (const row of equips) {
-      const utilization = getLiveUtilization(row.capacity);
-      utilizationSum += utilization;
-      const regionStats = regionAccumulator[row.region];
-      if (regionStats) regionStats.equipments += 1;
-
-      if (isActiveEquipmentBlocking(row.blocking)) {
-        blocked.push(row);
-        if (regionStats) regionStats.blocked += 1;
-      }
-
-      if (utilization >= 80) {
-        hot.push(row);
-        if (regionStats) regionStats.hot += 1;
-      }
-    }
-
-    const avgUtilization = equips.length ? Math.round(utilizationSum / equips.length) : 0;
-    const healthScore = clamp(100 - overdue.length * 8 - blocked.length * 6 - dueSoon.length * 3 - stale.length * 2, 0, 100);
-
-    const regionRows: RegionCommandRow[] = (Object.keys(REGIONS) as RegionKey[]).map((key) => {
-      const regionStats = regionAccumulator[key];
-      const score = clamp(100 - regionStats.overdue * 14 - regionStats.blocked * 12 - regionStats.hot * 4, 0, 100);
-      return {
-        key,
-        label: REGIONS[key].label,
-        color: REGIONS[key].color,
-        installs: regionStats.installs,
-        equipments: regionStats.equipments,
-        overdue: regionStats.overdue,
-        blocked: regionStats.blocked,
-        hot: regionStats.hot,
-        score,
-      };
-    });
-
-    const queue: QueueItem[] = [
-      ...overdue.map((row) => ({
-        id: `overdue-${row.id}`,
-        title: getInstallTitle(row),
-        meta: `${row.customer || "未填客戶"} · ${PHASE_MAP[row.phase]?.label ?? row.phase} · ${toDisplayShortName(row.nextOwner || row.engineer) || "未指派"} · ${row.nextDueDate || "未設定 ETA"}`,
-        value: `逾期 ${Math.abs(daysBetween(today, safeStr(row.estComplete)) ?? 0)} 天`,
-        tone: "critical" as Tone,
-        href: "/dashboard/install?view=pipeline",
-        priority: 100,
-      })),
-      ...blocked.map((row) => ({
-        id: `blocked-${row.id}`,
-        title: row.equipmentId || row.serialNo || row.id,
-        meta: `${row.customer || "未填客戶"} · ${row.blocking?.reasonCode || "阻塞"} · ${row.blocking?.owner || "未指派 owner"}`,
-        value: "BLOCK",
-        tone: "warning" as Tone,
-        href: "/dashboard/equipment",
-        priority: 90,
-      })),
-      ...dueSoon.map((row) => ({
-        id: `due-${row.id}`,
-        title: getInstallTitle(row),
-        meta: `${row.customer || "未填客戶"} · 預計 ${row.estComplete} · ${toDisplayShortName(row.nextOwner || row.engineer) || "未指派"} · ${row.nextAction || "未設定下一步"}`,
-        value: `${daysBetween(today, safeStr(row.estComplete)) ?? 0} 天內`,
-        tone: "info" as Tone,
-        href: "/dashboard/install?view=table",
-        priority: 70,
-      })),
-      ...stale.slice(0, 8).map((row) => ({
-        id: `stale-${row.id}`,
-        title: getInstallTitle(row),
-        meta: `${row.customer || "未填客戶"} · ${PHASE_MAP[row.phase]?.label ?? row.phase} · ${daysSinceUpdated(row.updatedAt)} 天未更新`,
-        value: "STALE",
-        tone: "warning" as Tone,
-        href: "/dashboard/install?view=pipeline",
-        priority: 60,
-      })),
-      ...hot.slice(0, 8).map((row) => ({
-        id: `hot-${row.id}`,
-        title: row.equipmentId || row.serialNo || row.id,
-        meta: `${row.customer || "未填客戶"} · ${row.modelCode} · ${getLiveUtilization(row.capacity)}% utilization`,
-        value: "高負載",
-        tone: "good" as Tone,
-        href: "/dashboard/equipment",
-        priority: 40,
-      })),
-    ].sort((a, b) => b.priority - a.priority).slice(0, 12);
-
-    return {
-      total,
-      wip,
-      released,
-      overdue,
-      dueSoon,
-      stale,
-      blocked,
-      hot,
-      avgUtilization,
-      healthScore,
-      phaseRows: PHASES.map((phase) => ({ ...phase, count: phaseCount[phase.key] ?? 0 })),
-      regionRows,
-      queue,
-    };
-  }, [installs, equips, today]);
-
-  const briefLines = useMemo(() => {
-    const lines: string[] = [];
-    if (computed.overdue.length > 0) lines.push(`${computed.overdue.length} 件裝機逾期，先要求 owner 更新 ETA 與下一步。`);
-    if (computed.blocked.length > 0) lines.push(`${computed.blocked.length} 台設備有 blocking，需確認責任人與解除日期。`);
-    if (computed.dueSoon.length > 0) lines.push(`${computed.dueSoon.length} 件本週到期，適合排進 morning standup。`);
-    if (computed.hot.length > 0) lines.push(`${computed.hot.length} 台設備稼動率超過 80%，產能壓力需追蹤。`);
-    if (lines.length === 0) lines.push("目前沒有紅色警戒，建議把焦點放在資料完整度與下週交付排序。");
-    return lines;
-  }, [computed.blocked.length, computed.dueSoon.length, computed.hot.length, computed.overdue.length]);
+  const computed = useMemo(() => buildWarRoomViewModel(installs, equips, today), [installs, equips, today]);
 
   const meetingMarkdown = useMemo(() => buildWarRoomMeetingMarkdown({
     mode: meetingMode,
@@ -469,7 +238,7 @@ export function WarRoomPage() {
 
       <div className="f66MainGrid f66MainGridWide">
         <RegionCommand rows={computed.regionRows} />
-        <PhaseRail phaseRows={computed.phaseRows} />
+        <PhaseRail phaseRows={computed.phaseRows} maxPhaseCount={computed.maxPhaseCount} />
       </div>
 
       <div className="f66MainGrid f66MainGridWide">
@@ -481,7 +250,7 @@ export function WarRoomPage() {
             </div>
           </div>
           <div className="f66BriefList">
-            {briefLines.map((line) => <p key={line}>{line}</p>)}
+            {computed.briefLines.map((line) => <p key={line}>{line}</p>)}
           </div>
         </section>
       </div>
