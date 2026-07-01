@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import type { Equipment, Installation } from "@/domain/types";
 import { buildEquipmentActionQueue, buildInstallActionQueue } from "@/features/dashboard/dashboardActionQueue";
 import { buildDashboardAnalytics } from "@/features/dashboard/dashboardAnalytics";
+import { buildBulkInstallTargets } from "@/features/dashboard/dashboardBulkInstall";
 import { buildDashboardDirectoryOptions } from "@/features/dashboard/dashboardDirectoryOptions";
 import { buildEquipmentsCsv } from "@/features/dashboard/dashboardExports";
 import { filterAndSortEquipments, filterAndSortInstallations } from "@/features/dashboard/dashboardFilters";
@@ -119,6 +120,14 @@ assert.equal(analytics.cycleTime.completedCount, 2);
 assert.equal(analytics.cycleTime.avgDays, 15);
 assert.equal(analytics.cycleTime.p50Days, 15);
 assert.equal(analytics.cycleTime.longestRows[0].days, 20);
+
+const bulkInstallTargets = buildBulkInstallTargets([
+  install({ id: "bulk-ordered", phase: "ordered" }),
+  install({ id: "bulk-released", phase: "released" }),
+  install({ id: "bulk-installing", phase: "installing" }),
+]);
+assert.deepEqual(bulkInstallTargets.ids, ["bulk-ordered", "bulk-installing"]);
+assert.equal(bulkInstallTargets.count, 2);
 assert.ok(analytics.phaseAging.some((row) => row.key === "installing" && row.breached === 1));
 assert.ok(analytics.region.some((row) => row.key === "north" && row.total === 3 && row.avg === 83 && row.rows.length === 3));
 assert.deepEqual(analytics.engineer.find((row) => row.name === "Alice"), { name: "Alice", total: 2, active: 0, pct: 67 });

@@ -35,6 +35,7 @@ function buildReleaseNotes(releaseLabel: string): string[] {
     "效能優化：War Room view model 抽成純函式並以 bounded queue 建構決策佇列，避免大型 overdue/blocking/due soon 清單全量展開後再排序裁切。",
     "效能優化：Dashboard directory options 改為單一純函式建構工程師、客戶與 customer-region lookup，減少資料更新時多段 map/filter/set 掃描。",
     "效能優化：Dashboard action queue entry 直接保留 target row，移除 UI mapping 時額外建立 rowsById Map 的配置成本。",
+    "效能優化：Dashboard 批次治理改為直接 memo target ids/count，避免保留整批 row references 與送出時再 map id 陣列。",
   ];
 }
 
