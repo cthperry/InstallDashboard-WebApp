@@ -1,19 +1,10 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import type { Installation, PhaseKey } from "@/domain/types";
+import type { Installation } from "@/domain/types";
 import { PHASES } from "@/domain/constants";
 import { toDisplayShortName } from "@/domain/personDisplay";
-
-function parseYmd(s?: string): Date | null {
-  if (!s) return null;
-  const m = String(s).trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (!m) return null;
-  const dt = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
-  return isNaN(dt.getTime()) ? null : dt;
-}
-
-type GanttRow = { id: string; install: Installation; phase: PhaseKey; start: Date; end: Date; progress: number; };
+import { buildGanttViewModel } from "@/features/dashboard/ganttViewModel";
 
 export function GanttView({ rows, onClickRow }: { rows: Installation[]; onClickRow: (r: Installation) => void }) {
   const today = useMemo(() => {
@@ -27,27 +18,7 @@ export function GanttView({ rows, onClickRow }: { rows: Installation[]; onClickR
     return colors;
   }, []);
 
-  const gRows: GanttRow[] = useMemo(() => rows.map((r) => {
-    const s = parseYmd(r.orderDate) ?? (r.createdAt ? new Date(r.createdAt) : new Date(today.getTime() - 14 * 86400000));
-    const e = parseYmd(r.estComplete) ?? new Date(today.getTime() + 30 * 86400000);
-    const start = s < e ? s : e; const end = s < e ? e : new Date(s.getTime() + 86400000);
-    return { id: r.id, install: r, phase: r.phase, start, end, progress: r.progress ?? 0 };
-  }).sort((a, b) => a.start.getTime() - b.start.getTime()), [rows, today]);
-
-  const timeline = useMemo(() => {
-    const minDate = gRows.length ? new Date(Math.min(...gRows.map((r) => r.start.getTime()))) : new Date(today.getTime() - 30 * 86400000);
-    const maxDate = gRows.length ? new Date(Math.max(...gRows.map((r) => r.end.getTime()))) : new Date(today.getTime() + 60 * 86400000);
-    minDate.setDate(minDate.getDate() - 3); maxDate.setDate(maxDate.getDate() + 7);
-    const totalMs = maxDate.getTime() - minDate.getTime();
-    const pct = (d: Date) => ((d.getTime() - minDate.getTime()) / totalMs) * 100;
-    const months: { label: string; left: number }[] = [];
-    const cur = new Date(minDate.getFullYear(), minDate.getMonth(), 1);
-    while (cur <= maxDate) {
-      months.push({ label: cur.getFullYear() + "/" + String(cur.getMonth() + 1).padStart(2, "0"), left: pct(cur) });
-      cur.setMonth(cur.getMonth() + 1);
-    }
-    return { minDate, totalMs, todayPct: pct(today), months };
-  }, [gRows, today]);
+  const { rows: gRows, timeline } = useMemo(() => buildGanttViewModel(rows, today), [rows, today]);
   const { totalMs, todayPct, months } = timeline;
   function pct(d: Date) { return ((d.getTime() - timeline.minDate.getTime()) / totalMs) * 100; }
 
