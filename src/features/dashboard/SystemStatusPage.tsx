@@ -31,6 +31,7 @@ function buildReleaseNotes(releaseLabel: string): string[] {
     "效能優化：Insights customer/model health 改為 bounded top 8 累積，避免大量客戶或機型時全量排序後再裁切。",
     "效能優化：Dashboard action queue 改為 bounded top 5 累積，避免大量任務候選全量排序後再裁切。",
     "效能優化：舊版裝機/設備 Excel 匯入預覽改為單次選取統計，減少大型檔案預覽時的重複 filter/every/some 掃描。",
+    "效能優化：甘特圖 view model 改為單次建立 rows 並同步累積時間邊界，避免大型清單用 map + spread 重複計算 min/max。",
   ];
 }
 

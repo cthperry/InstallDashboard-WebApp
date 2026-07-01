@@ -7,10 +7,19 @@ import { buildEquipmentsCsv } from "@/features/dashboard/dashboardExports";
 import { filterAndSortEquipments, filterAndSortInstallations } from "@/features/dashboard/dashboardFilters";
 import { buildDashboardGovernanceReport } from "@/features/dashboard/dashboardGovernance";
 import { calcEquipmentStats, calcInstallStats } from "@/features/dashboard/dashboardStats";
+import { buildGanttViewModel } from "@/features/dashboard/ganttViewModel";
 import { buildEquipmentImportPreviewMetrics, buildInstallationImportPreviewMetrics } from "@/features/dashboard/importPreviewMetrics";
 import { buildInsightsMarkdownReport } from "@/features/dashboard/insightsReport";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+
+function localYmd(date: Date): string {
+  return [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, "0"),
+    String(date.getDate()).padStart(2, "0"),
+  ].join("-");
+}
 
 function install(overrides: Partial<Installation>): Installation {
   return {
@@ -327,3 +336,23 @@ assert.equal(equipmentPreviewMetrics.allSelected, false);
 assert.equal(equipmentPreviewMetrics.someSelected, true);
 assert.equal(equipmentPreviewMetrics.unmatchedCount, 1);
 assert.equal(equipmentPreviewMetrics.noSerialCount, 1);
+
+const ganttToday = new Date(2026, 5, 29);
+const ganttModel = buildGanttViewModel([
+  install({ id: "gantt-normal", orderDate: "2024-02-01", estComplete: "2024-02-10", progress: 65 }),
+  install({ id: "gantt-inverted", orderDate: "2024-01-10", estComplete: "2024-01-08", progress: 20 }),
+  install({ id: "gantt-default", orderDate: "", estComplete: "", createdAt: new Date(2024, 0, 20).getTime(), progress: 40 }),
+], ganttToday);
+
+assert.deepEqual(ganttModel.rows.map((row) => row.id), ["gantt-inverted", "gantt-default", "gantt-normal"]);
+assert.equal(localYmd(ganttModel.rows[0].start), "2024-01-08");
+assert.equal(localYmd(ganttModel.rows[0].end), "2024-01-11");
+assert.equal(localYmd(ganttModel.rows[1].end), "2026-07-29");
+assert.equal(localYmd(ganttModel.timeline.minDate), "2024-01-05");
+assert.ok(ganttModel.timeline.months.some((month) => month.label === "2024/01"));
+
+const emptyGanttModel = buildGanttViewModel([], ganttToday);
+
+assert.equal(emptyGanttModel.rows.length, 0);
+assert.equal(localYmd(emptyGanttModel.timeline.minDate), "2026-05-27");
+assert.ok(emptyGanttModel.timeline.totalMs > 0);
