@@ -10,6 +10,7 @@ import { calcEquipmentStats, calcInstallStats } from "@/features/dashboard/dashb
 import { buildGanttViewModel } from "@/features/dashboard/ganttViewModel";
 import { buildEquipmentImportPreviewMetrics, buildInstallationImportPreviewMetrics } from "@/features/dashboard/importPreviewMetrics";
 import { buildInsightsMarkdownReport } from "@/features/dashboard/insightsReport";
+import { buildWarRoomViewModel } from "@/features/dashboard/warRoomViewModel";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -267,6 +268,128 @@ assert.deepEqual(boundedEquipmentQueue.map((row) => row.id), [
   "equipment-capacity-bounded-capacity-4",
   "equipment-capacity-bounded-capacity-3",
 ]);
+
+const warRoomNow = new Date(2026, 5, 29, 12).getTime();
+const warRoomModel = buildWarRoomViewModel([
+  install({
+    id: "war-overdue",
+    name: "SN-OVERDUE",
+    region: "north",
+    customer: "Alpha",
+    phase: "installing",
+    engineer: "alice.chen@example.com",
+    estComplete: "2026-06-20",
+    nextDueDate: "2026-06-21",
+    updatedAt: warRoomNow - 9 * DAY_MS,
+  }),
+  install({
+    id: "war-due",
+    name: "SN-DUE",
+    region: "central",
+    customer: "Beta",
+    phase: "trial",
+    engineer: "Bob",
+    estComplete: "2026-07-03",
+    nextAction: "Site check",
+    updatedAt: warRoomNow - DAY_MS,
+  }),
+  install({
+    id: "war-stale",
+    name: "SN-STALE",
+    region: "south",
+    customer: "Gamma",
+    phase: "ordered",
+    estComplete: "2026-07-20",
+    updatedAt: warRoomNow - 8 * DAY_MS,
+  }),
+  install({
+    id: "war-released",
+    name: "SN-RELEASED",
+    region: "north",
+    phase: "released",
+    progress: 100,
+    estComplete: "2026-06-01",
+    updatedAt: warRoomNow,
+  }),
+], [
+  equipment({
+    id: "war-blocked",
+    equipmentId: "EQ-BLOCK",
+    region: "north",
+    customer: "Alpha",
+    capacity: { utilization: 85, uph: 0, targetUph: 100, level: "綠", trend7d: [] },
+    blocking: {
+      reasonCode: "PART_DELAY",
+      detail: "Waiting",
+      owner: "Owner",
+      status: "open",
+      openedAt: warRoomNow - DAY_MS,
+    },
+  }),
+  equipment({
+    id: "war-hot",
+    equipmentId: "EQ-HOT",
+    region: "central",
+    customer: "Beta",
+    capacity: { utilization: 82, uph: 0, targetUph: 100, level: "黃", trend7d: [] },
+  }),
+], "2026-06-29", warRoomNow);
+
+assert.equal(warRoomModel.total, 4);
+assert.equal(warRoomModel.wip, 3);
+assert.equal(warRoomModel.released, 1);
+assert.equal(warRoomModel.overdue.length, 1);
+assert.equal(warRoomModel.dueSoon.length, 1);
+assert.equal(warRoomModel.stale.length, 2);
+assert.equal(warRoomModel.blocked.length, 1);
+assert.equal(warRoomModel.hot.length, 2);
+assert.equal(warRoomModel.avgUtilization, 84);
+assert.equal(warRoomModel.healthScore, 79);
+assert.equal(warRoomModel.maxPhaseCount, 1);
+assert.deepEqual(warRoomModel.queue.map((row) => row.id), [
+  "overdue-war-overdue",
+  "blocked-war-blocked",
+  "due-war-due",
+  "stale-war-overdue",
+  "stale-war-stale",
+  "hot-war-blocked",
+  "hot-war-hot",
+]);
+assert.deepEqual(warRoomModel.briefLines, [
+  "1 件裝機逾期，先要求 owner 更新 ETA 與下一步。",
+  "1 台設備有 blocking，需確認責任人與解除日期。",
+  "1 件本週到期，適合排進 morning standup。",
+  "2 台設備稼動率超過 80%，產能壓力需追蹤。",
+]);
+assert.deepEqual(warRoomModel.regionRows.find((row) => row.key === "north"), {
+  key: "north",
+  label: "北區",
+  color: "#3b82f6",
+  installs: 2,
+  equipments: 1,
+  overdue: 1,
+  blocked: 1,
+  hot: 1,
+  score: 70,
+});
+
+const boundedWarRoomModel = buildWarRoomViewModel(
+  Array.from({ length: 15 }, (_, index) => install({
+    id: `war-overdue-${index}`,
+    name: `SN-WAR-${index}`,
+    estComplete: "2026-06-01",
+    updatedAt: warRoomNow,
+  })),
+  [],
+  "2026-06-29",
+  warRoomNow,
+);
+
+assert.equal(boundedWarRoomModel.queue.length, 12);
+assert.deepEqual(
+  boundedWarRoomModel.queue.map((row) => row.id),
+  Array.from({ length: 12 }, (_, index) => `overdue-war-overdue-${index}`),
+);
 
 const governance = buildDashboardGovernanceReport([riskyInstallation], [blockingEquipment]);
 const issueCount = new Map(governance.issueRows.map((row) => [row.id, row.count]));
