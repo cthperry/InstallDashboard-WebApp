@@ -18,12 +18,10 @@ import {
 import { writeAuditLog } from "@/features/data/audit";
 import { trackEvent } from "@/features/telemetry/track";
 
-import type { CapacityLevel, CustomerEntry, Equipment, EquipmentMainStatus, Installation, MachineModel, PhaseKey, RegionKey, RetentionSettingsDoc } from "@/domain/types";
+import type { CapacityLevel, Equipment, EquipmentMainStatus, Installation, MachineModel, PhaseKey, RegionKey, RetentionSettingsDoc } from "@/domain/types";
 import {
   CAPACITY_COLOR,
   CAPACITY_LEVELS,
-  DEFAULT_CUSTOMERS,
-  DEFAULT_ENGINEERS,
   DEFAULT_MACHINE_MODELS,
   EQUIPMENT_SUB_STATUS_OPTIONS,
   EQUIPMENT_MAIN_STATUSES,
@@ -43,7 +41,7 @@ import {
   mergeEquipmentBlockingLifecycle,
   normalizeEquipmentBlockingStatus,
 } from "@/domain/equipmentBlocking";
-import { buildOwnerListFromUserEmails, dedupeDisplayNames, toDisplayShortName } from "@/domain/personDisplay";
+import { toDisplayShortName } from "@/domain/personDisplay";
 
 import { useDashboardData } from "@/features/dashboard/hooks/useDashboardData";
 import { useInstallationFormState } from "@/features/dashboard/hooks/useInstallationFormState";
@@ -84,6 +82,7 @@ import { getInstallSlaStatus } from "@/features/dashboard/installSla";
 import { buildDashboardGovernanceReport, type DashboardGovernanceReport, type GovernanceIssueTone } from "@/features/dashboard/dashboardGovernance";
 import { buildInsightsMarkdownReport } from "@/features/dashboard/insightsReport";
 import { downloadMarkdownFile } from "@/features/dashboard/warRoomBrief";
+import { buildDashboardDirectoryOptions } from "@/features/dashboard/dashboardDirectoryOptions";
 import { downloadEquipmentsCsv, downloadInstallationsCsv } from "@/features/dashboard/dashboardExports";
 import { buildEditInstallationDraft, buildNewInstallationDraft } from "@/features/dashboard/installationForm";
 import { calcCapacityLevel, calcEquipmentStats, calcInstallStats, isOverdueInstall } from "@/features/dashboard/dashboardStats";
@@ -602,51 +601,11 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
     return () => clearInterval(timer);
   }, [isAdmin, user?.email, retentionCfg.autoPurgeEnabled, retentionCfg.autoPurgeTime, retentionCfg.lastAutoPurgeAt, doPurgeByRetention, saveRetention]);
 
-  // ───────── Owner / 工程師顯示名稱：一律走短名規則─────────
-  const ownerList = useMemo(() => {
-    return buildOwnerListFromUserEmails(managedUsers.map((u) => u.email));
-  }, [managedUsers]);
-
-  // ───────── Derived lists ─────────
-  const engineers = useMemo(() => {
-    if (ownerList.length > 0) return ownerList;
-
-    return dedupeDisplayNames([
-      ...(appVars?.engineers ?? []),
-      ...installations.map((r) => r.engineer),
-      ...equipments.map((r) => r.owner),
-    ]);
-  }, [ownerList, appVars, installations, equipments]);
-
-  /** 客戶名稱清單（用於下拉選單） */
-  const customers = useMemo(() => {
-    const cfgEntries = (appVars?.customers ?? []) as CustomerEntry[];
-    // 向後相容：舊資料可能是 string[]
-    const fromCfg = cfgEntries
-      .map((c) => (typeof c === "string" ? c : c.name))
-      .map((s) => String(s).trim())
-      .filter(Boolean);
-    if (fromCfg.length) return Array.from(new Set(fromCfg)).sort((a, b) => a.localeCompare(b, "zh-Hant"));
-
-    const set = new Set<string>();
-    for (const r of installations) if (r.customer) set.add(r.customer);
-    for (const r of equipments) if (r.customer) set.add(r.customer);
-    const fromData = Array.from(set).sort((a, b) => a.localeCompare(b, "zh-Hant"));
-    if (fromData.length) return fromData;
-
-    const fallback = Array.from(new Set(Array.from(DEFAULT_CUSTOMERS)));
-    return fallback.sort((a, b) => a.localeCompare(b, "zh-Hant"));
-  }, [appVars, installations, equipments]);
-
-  /** 客戶 → 區域 對照表（給 Excel 匯入用） */
-  const customerRegionMap = useMemo(() => {
-    const map: Record<string, RegionKey> = {};
-    const cfgEntries = (appVars?.customers ?? []) as CustomerEntry[];
-    for (const c of cfgEntries) {
-      if (typeof c === "object" && c.name) map[c.name] = c.region;
-    }
-    return map;
-  }, [appVars]);
+  const directoryOptions = useMemo(
+    () => buildDashboardDirectoryOptions({ managedUsers, appVars, installations, equipments }),
+    [managedUsers, appVars, installations, equipments],
+  );
+  const { ownerList, engineers, customers, customerRegionMap } = directoryOptions;
 
   const resolveCustomerRegion = useCallback((customer: string): RegionKey | null => {
     return resolveCustomerRegionFromMap(customerRegionMap, customer);

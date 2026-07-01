@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import type { Equipment, Installation } from "@/domain/types";
 import { buildEquipmentActionQueue, buildInstallActionQueue } from "@/features/dashboard/dashboardActionQueue";
 import { buildDashboardAnalytics } from "@/features/dashboard/dashboardAnalytics";
+import { buildDashboardDirectoryOptions } from "@/features/dashboard/dashboardDirectoryOptions";
 import { buildEquipmentsCsv } from "@/features/dashboard/dashboardExports";
 import { filterAndSortEquipments, filterAndSortInstallations } from "@/features/dashboard/dashboardFilters";
 import { buildDashboardGovernanceReport } from "@/features/dashboard/dashboardGovernance";
@@ -479,3 +480,61 @@ const emptyGanttModel = buildGanttViewModel([], ganttToday);
 assert.equal(emptyGanttModel.rows.length, 0);
 assert.equal(localYmd(emptyGanttModel.timeline.minDate), "2026-05-27");
 assert.ok(emptyGanttModel.timeline.totalMs > 0);
+
+const configuredDirectoryOptions = buildDashboardDirectoryOptions({
+  managedUsers: [{ email: "pii@premtek.com.tw" }, { email: "alice.chen@premtek.com.tw" }, { email: "bob.lin@premtek.com.tw" }],
+  appVars: {
+    version: "test",
+    engineers: ["Fallback Engineer"],
+    customers: [
+      { name: " Config B ", region: "south" },
+      { name: "Config A", region: "north" },
+      { name: "Config A", region: "central" },
+    ],
+    updatedAt: 0,
+    updatedBy: "test",
+  },
+  installations: [
+    install({ id: "directory-install", customer: "Data Customer", engineer: "data.engineer@example.com" }),
+  ],
+  equipments: [
+    equipment({ id: "directory-equipment", customer: "Equipment Customer", owner: "equipment.owner@example.com" }),
+  ],
+});
+
+assert.deepEqual(configuredDirectoryOptions.ownerList, ["Alice", "Bob"]);
+assert.deepEqual(configuredDirectoryOptions.engineers, ["Alice", "Bob"]);
+assert.deepEqual(configuredDirectoryOptions.customers, ["Config A", "Config B"]);
+assert.deepEqual(configuredDirectoryOptions.customerRegionMap, { "Config B": "south", "Config A": "central" });
+
+const dataDirectoryOptions = buildDashboardDirectoryOptions({
+  managedUsers: [],
+  appVars: {
+    version: "test",
+    engineers: ["app.engineer@example.com"],
+    customers: [],
+    updatedAt: 0,
+    updatedBy: "test",
+  },
+  installations: [
+    install({ id: "directory-alpha", customer: "Alpha", engineer: "alice.chen@example.com" }),
+    install({ id: "directory-beta", customer: "Beta", engineer: "app.engineer@example.com" }),
+  ],
+  equipments: [
+    equipment({ id: "directory-equip", customer: "Alpha", owner: "carol.lin@example.com" }),
+  ],
+});
+
+assert.deepEqual(dataDirectoryOptions.ownerList, []);
+assert.deepEqual(dataDirectoryOptions.engineers, ["Alice", "App", "Carol"]);
+assert.deepEqual(dataDirectoryOptions.customers, ["Alpha", "Beta"]);
+assert.deepEqual(dataDirectoryOptions.customerRegionMap, {});
+
+const fallbackDirectoryOptions = buildDashboardDirectoryOptions({
+  managedUsers: [],
+  appVars: null,
+  installations: [],
+  equipments: [],
+});
+
+assert.deepEqual(fallbackDirectoryOptions.customers, ["ASE", "SPIL", "TSMC"]);
