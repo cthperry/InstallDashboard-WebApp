@@ -65,7 +65,6 @@ import { DateInput } from "@/features/ui/DateInput";
 import { Badge } from "@/features/ui/Badge";
 import { Drawer } from "@/features/ui/Drawer";
 import { MiniTrend } from "@/features/ui/MiniTrend";
-import { RegionTabs } from "@/features/ui/RegionTabs";
 import {
   filterAndSortEquipments,
   filterAndSortInstallations,
@@ -85,8 +84,12 @@ import { downloadMarkdownFile } from "@/features/dashboard/warRoomBrief";
 import { buildDashboardDirectoryOptions } from "@/features/dashboard/dashboardDirectoryOptions";
 import { buildBulkInstallTargets } from "@/features/dashboard/dashboardBulkInstall";
 import { downloadEquipmentsCsv, downloadInstallationsCsv } from "@/features/dashboard/dashboardExports";
+import { DashboardEmptyState, type ActiveFilterChip } from "@/features/dashboard/DashboardSharedControls";
+import { DashboardEquipmentSection } from "@/features/dashboard/DashboardEquipmentSection";
+import { DashboardInstallSection } from "@/features/dashboard/DashboardInstallSection";
+import { DashboardInsightsSection } from "@/features/dashboard/DashboardInsightsSection";
 import { buildEditInstallationDraft, buildNewInstallationDraft } from "@/features/dashboard/installationForm";
-import { calcCapacityLevel, calcEquipmentStats, calcInstallStats, isOverdueInstall } from "@/features/dashboard/dashboardStats";
+import { calcEquipmentStats, calcInstallStats, isOverdueInstall } from "@/features/dashboard/dashboardStats";
 import {
   buildEquipmentFormDraftFromEquipment,
   buildEquipmentPayloadFromDraft,
@@ -98,7 +101,7 @@ import {
   type EquipmentFormDraft,
   type EquipmentProductDraft,
 } from "@/features/dashboard/equipmentForm";
-import { MissionQueuePanel, SortableTh, type MissionQueueItem, type SortDirection } from "@/features/dashboard/dashboardWidgets";
+import { SortableTh, type MissionQueueItem, type SortDirection } from "@/features/dashboard/dashboardWidgets";
 import { getErrorMessage } from "@/lib/errors";
 import { todayInTaipeiYmd } from "@/lib/utils";
 import { getLiveUtilization } from "@/domain/capacity";
@@ -111,11 +114,8 @@ import {
   getInstallTaskLabel,
   getPhaseHint,
   normalizeOptionList,
-  parseCapacityFilter,
-  parseEquipmentStatusFilter,
   parseInsightsTab,
   parseInstallView,
-  parsePhaseFilter,
   parsePhaseKey,
   parseRegionKey,
   pickColorByUtil,
@@ -171,20 +171,6 @@ const EMPTY_GOVERNANCE_REPORT: DashboardGovernanceReport = {
   issueRows: [],
 };
 
-type ActiveFilterChip = {
-  id: string;
-  label: string;
-  value: string;
-  onClear: () => void;
-};
-
-type DashboardEmptyStateAction = {
-  label: string;
-  onClick: () => void;
-  variant?: "accent" | "ghost";
-};
-
-type DashboardStatusTone = "info" | "error";
 type EquipmentValidationIssue = { path: readonly PropertyKey[]; message: string };
 type EquipmentFieldErrorMap = Partial<Record<string, string>>;
 
@@ -253,102 +239,6 @@ function pickGovernanceToneColor(tone: GovernanceIssueTone): string {
   if (tone === "info") return "#3b82f6";
   if (tone === "warning") return "#f59e0b";
   return "#ef4444";
-}
-
-function ActiveFilterSummary({
-  filters,
-  visibleCount,
-  totalCount,
-  onClearAll,
-}: {
-  filters: ActiveFilterChip[];
-  visibleCount: number;
-  totalCount: number;
-  onClearAll: () => void;
-}) {
-  if (filters.length === 0) return null;
-
-  return (
-    <div className="activeFilterSummary" aria-label="目前篩選條件">
-      <div className="activeFilterCount">
-        {visibleCount}/{totalCount}
-      </div>
-      <div className="activeFilterChips">
-        {filters.map((filter) => (
-          <button key={filter.id} type="button" className="activeFilterChip" onClick={filter.onClear} title={`移除 ${filter.label}`}>
-            <span>{filter.label}</span>
-            <strong>{filter.value}</strong>
-            <span aria-hidden="true">×</span>
-          </button>
-        ))}
-      </div>
-      <button type="button" className="btn btnSmall btnGhost" onClick={onClearAll}>
-        清除全部
-      </button>
-    </div>
-  );
-}
-
-function DashboardStatusBanner({
-  tone,
-  title,
-  detail,
-}: {
-  tone: DashboardStatusTone;
-  title: string;
-  detail: string;
-}) {
-  return (
-    <div
-      className={`card dashboardStatusBanner ${tone === "error" ? "dashboardStatusBannerError" : "dashboardStatusBannerInfo"}`}
-      role={tone === "error" ? "alert" : "status"}
-      aria-live={tone === "error" ? "assertive" : "polite"}
-    >
-      <div className="dashboardStatusTitle">{title}</div>
-      <div className="dashboardStatusDetail">{detail}</div>
-    </div>
-  );
-}
-
-function DashboardEmptyState({
-  title,
-  detail,
-  primaryAction,
-  secondaryAction,
-}: {
-  title: string;
-  detail: string;
-  primaryAction?: DashboardEmptyStateAction;
-  secondaryAction?: DashboardEmptyStateAction;
-}) {
-  const actionClassName = (action: DashboardEmptyStateAction) => {
-    if (action.variant === "accent") return "btn btnSmall btnAccent";
-    if (action.variant === "ghost") return "btn btnSmall btnGhost";
-    return "btn btnSmall";
-  };
-
-  return (
-    <div className="dashboardEmptyState">
-      <div>
-        <div className="dashboardEmptyTitle">{title}</div>
-        <div className="dashboardEmptyDetail">{detail}</div>
-      </div>
-      {primaryAction || secondaryAction ? (
-        <div className="dashboardEmptyActions">
-          {primaryAction ? (
-            <button type="button" className={actionClassName(primaryAction)} onClick={primaryAction.onClick}>
-              {primaryAction.label}
-            </button>
-          ) : null}
-          {secondaryAction ? (
-            <button type="button" className={actionClassName(secondaryAction)} onClick={secondaryAction.onClick}>
-              {secondaryAction.label}
-            </button>
-          ) : null}
-        </div>
-      ) : null}
-    </div>
-  );
 }
 
 export function DashboardWorkspace({ section }: { section: DashboardSection }) {
@@ -1221,182 +1111,66 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
         {/* ───────── Section: Installations ───────── */}
         {section === "install" ? (
           <>
-            <MissionQueuePanel
-              title="裝機資料品質"
-              subtitle={`${installActionQueue.length} 筆需補資料`}
-              items={installActionQueue}
-              emptyText="目前沒有缺序號、缺工程師、缺預計日、SLA 警戒或久未更新的裝機案。"
+            <DashboardInstallSection
+              isAdmin={isAdmin}
+              installActionQueue={installActionQueue}
+              installView={installView}
+              switchInstallView={switchInstallView}
+              downloadInstallationsCsvReport={downloadInstallationsCsvReport}
+              installCsvDisabled={installCsvDisabled}
+              installCsvTitle={installCsvTitle}
+              onOpenSmartImport={() => setSmartImportOpen(true)}
+              openAddInstall={openAddInstall}
+              fRegion={fRegion}
+              setFRegion={setFRegion}
+              fPhase={fPhase}
+              setFPhase={setFPhase}
+              keyword={keyword}
+              setKeyword={setKeyword}
+              installSortKey={installSortKey}
+              setInstallSortKey={setInstallSortKey}
+              installSortDir={installSortDir}
+              setInstallSortDir={setInstallSortDir}
+              showInstallAdvancedFilters={showInstallAdvancedFilters}
+              setShowInstallAdvancedFilters={setShowInstallAdvancedFilters}
+              fModel={fModel}
+              setFModel={setFModel}
+              fCustomer={fCustomer}
+              setFCustomer={setFCustomer}
+              fEngineer={fEngineer}
+              setFEngineer={setFEngineer}
+              clearInstallFilters={clearInstallFilters}
+              machineModels={machineModels}
+              customers={customers}
+              engineers={engineers}
+              filteredInstallationsLength={filteredInstallations.length}
+              installationsLength={installations.length}
+              installActiveFilters={installActiveFilters}
+              bulkInstallOwner={bulkInstallOwner}
+              setBulkInstallOwner={setBulkInstallOwner}
+              bulkInstallBusy={bulkInstallBusy}
+              bulkInstallEta={bulkInstallEta}
+              setBulkInstallEta={setBulkInstallEta}
+              bulkInstallAction={bulkInstallAction}
+              setBulkInstallAction={setBulkInstallAction}
+              bulkInstallDisabled={bulkInstallDisabled}
+              applyBulkInstallGovernance={applyBulkInstallGovernance}
+              bulkInstallTitle={bulkInstallTitle}
+              bulkInstallTargetCount={bulkInstallTargetCount}
+              savedFilters={savedFilters}
+              showSaveFilterInput={showSaveFilterInput}
+              setShowSaveFilterInput={setShowSaveFilterInput}
+              saveFilterName={saveFilterName}
+              setSaveFilterName={setSaveFilterName}
+              saveFilterDisabled={saveFilterDisabled}
+              saveCurrentFilter={saveCurrentFilter}
+              saveFilterTitle={saveFilterTitle}
+              hasSavableInstallFilter={hasSavableInstallFilter}
+              applyFilter={applyFilter}
+              deleteSavedFilterWithConfirm={deleteSavedFilterWithConfirm}
+              installErr={installErr}
+              installLoading={installLoading}
             />
-
-            <div className="card auroraControlPanel" style={{ padding: 14, marginTop: 12 }}>
-              <div className="panelHeader auroraPanelHeader">
-                <div style={{ fontWeight: 900 }}>篩選 / 操作</div>
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
-                  <div className="segTabs">
-                    <button className={installView === "table" ? "segTab segTabActive" : "segTab"} onClick={() => switchInstallView("table")}>表格</button>
-                    <button className={installView === "pipeline" ? "segTab segTabActive" : "segTab"} onClick={() => switchInstallView("pipeline")}>Pipeline</button>
-                    <button className={installView === "gantt" ? "segTab segTabActive" : "segTab"} onClick={() => switchInstallView("gantt")}>甘特圖</button>
-                  </div>
-                  <button className="btn btnSmall" onClick={downloadInstallationsCsvReport} disabled={installCsvDisabled} title={installCsvTitle}>匯出 CSV</button>
-                  <button className="btn btnSmall" onClick={() => setSmartImportOpen(true)}>⬆ Excel 智慧匯入</button>
-                  <button className="btn btnAccent" onClick={openAddInstall}>新增裝機案</button>
-                </div>
-              </div>
-
-              <div className="filters" style={{ marginTop: 10 }}>
-                <div className="field" style={{ flex: "1 1 240px" }}>
-                  <div className="label">區域</div>
-                  <RegionTabs value={fRegion} onChange={setFRegion} />
-                </div>
-                <div className="field">
-                  <div className="label">階段</div>
-                  <select value={fPhase} onChange={(e) => setFPhase(parsePhaseFilter(e.target.value))}>
-                    <option value="">全部</option>
-                    {PHASES.map((p) => <option key={p.key} value={p.key}>{p.icon} {p.label}</option>)}
-                  </select>
-                </div>
-                <div className="field" style={{ flex: 1, minWidth: 220 }}>
-                  <div className="label">關鍵字</div>
-                  <input value={keyword} onChange={(e) => setKeyword(e.target.value)} placeholder="設備/客戶/工程師/備註..." />
-                </div>
-
-                <div className="field" style={{ minWidth: 180 }}>
-                  <div className="label">排序欄位</div>
-                  <select value={installSortKey} onChange={(e) => setInstallSortKey(e.target.value as InstallSortKey)}>
-                    <option value="updatedAt">更新時間</option>
-                    <option value="estComplete">預計安裝日</option>
-                    <option value="phase">階段</option>
-                    <option value="customer">客戶</option>
-                    <option value="engineer">工程師</option>
-                    <option value="name">機台序號</option>
-                  </select>
-                </div>
-
-                <div className="field" style={{ minWidth: 120 }}>
-                  <div className="label">排序方向</div>
-                  <select value={installSortDir} onChange={(e) => setInstallSortDir(e.target.value as "asc" | "desc")}>
-                    <option value="desc">由大到小</option>
-                    <option value="asc">由小到大</option>
-                  </select>
-                </div>
-
-                <button className="btn btnSmall btnGhost" onClick={() => setShowInstallAdvancedFilters((v) => !v)}>
-                  {showInstallAdvancedFilters ? "收合進階篩選" : "展開進階篩選"}
-                </button>
-
-                {(fRegion || fModel || fPhase || fCustomer || fEngineer || keyword) ? (
-                  <button className="btn" onClick={clearInstallFilters}>
-                    清除
-                  </button>
-                ) : null}
-
-                <div style={{ marginLeft: "auto", color: "#94a3b8", fontSize: 12, fontWeight: 900 }}>
-                  {filteredInstallations.length}/{installations.length}
-                </div>
-              </div>
-
-              <ActiveFilterSummary
-                filters={installActiveFilters}
-                visibleCount={filteredInstallations.length}
-                totalCount={installations.length}
-                onClearAll={clearInstallFilters}
-              />
-
-              {showInstallAdvancedFilters ? (
-                <div className="filters" style={{ marginTop: 10 }}>
-                  <div className="field">
-                    <div className="label">機型</div>
-                    <select value={fModel} onChange={(e) => setFModel(e.target.value)}>
-                      <option value="">全部</option>
-                      {machineModels.map((m: MachineModel) => <option key={m.code} value={m.code}>{m.displayName}</option>)}
-                    </select>
-                  </div>
-                  <div className="field">
-                    <div className="label">客戶</div>
-                    <select value={fCustomer} onChange={(e) => setFCustomer(e.target.value)}>
-                      <option value="">全部</option>
-                      {customers.map((c) => <option key={c} value={c}>{c}</option>)}
-                    </select>
-                  </div>
-                  <div className="field">
-                    <div className="label">工程師</div>
-                    <select value={fEngineer} onChange={(e) => setFEngineer(e.target.value)}>
-                      <option value="">全部</option>
-                      {engineers.map((e) => <option key={e} value={e}>{e}</option>)}
-                    </select>
-                  </div>
-                </div>
-              ) : null}
-
-              {isAdmin ? (
-                <div className="filters" style={{ marginTop: 10, borderTop: "1px solid var(--border)", paddingTop: 10 }}>
-                  <div className="field" style={{ minWidth: 170 }}>
-                    <div className="label">批次 Owner</div>
-                    <select value={bulkInstallOwner} onChange={(e) => setBulkInstallOwner(e.target.value)} disabled={bulkInstallBusy}>
-                      <option value="">不變更</option>
-                      {engineers.map((name) => (
-                        <option key={name} value={name}>{name}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="field" style={{ minWidth: 170 }}>
-                    <div className="label">批次 ETA</div>
-                    <DateInput value={bulkInstallEta} onChange={setBulkInstallEta} disabled={bulkInstallBusy} />
-                  </div>
-                  <div className="field" style={{ flex: "1 1 260px" }}>
-                    <div className="label">批次下一步</div>
-                    <input
-                      value={bulkInstallAction}
-                      onChange={(e) => setBulkInstallAction(e.target.value)}
-                      disabled={bulkInstallBusy}
-                      placeholder="例如：補齊客戶驗收時程"
-                    />
-                  </div>
-                  <button className="btn btnSmall" disabled={bulkInstallDisabled} onClick={applyBulkInstallGovernance} title={bulkInstallTitle}>
-                    {bulkInstallBusy ? "更新中..." : `套用至目前篩選 ${bulkInstallTargetCount} 筆`}
-                  </button>
-                </div>
-              ) : null}
-
-              {/* Saved Filters */}
-              {savedFilters.length > 0 || showSaveFilterInput ? (
-                <div style={{ marginTop: 10, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-                  <span style={{ fontSize: 12, fontWeight: 700, color: "var(--muted-foreground, #64748b)", whiteSpace: "nowrap" }}>書籤:</span>
-                  {savedFilters.map((f) => (
-                    <div key={f.id} style={{ display: "inline-flex", alignItems: "center", gap: 2 }}>
-                      <button className="btn btnSmall" style={{ paddingLeft: 8, paddingRight: 8, fontSize: 11 }} onClick={() => applyFilter(f)} title={f.savedAt ? new Date(f.savedAt).toLocaleString("zh-TW") : ""}>{f.name}</button>
-                      <button style={{ background: "none", border: "none", cursor: "pointer", color: "#94a3b8", padding: "0 2px", lineHeight: 1, fontSize: 14 }} onClick={() => deleteSavedFilterWithConfirm(f)} title={`刪除書籤：${f.name}`}>×</button>
-                    </div>
-                  ))}
-                </div>
-              ) : null}
-
-              {showSaveFilterInput ? (
-                <div style={{ marginTop: 8, display: "flex", gap: 8, alignItems: "center" }}>
-                  <input style={{ flex: 1, maxWidth: 240 }} value={saveFilterName} onChange={(e) => setSaveFilterName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && !saveFilterDisabled && saveCurrentFilter()} placeholder="書籤名稱..." autoFocus />
-                  <button className="btn btnSmall btnAccent" onClick={saveCurrentFilter} disabled={saveFilterDisabled} title={saveFilterTitle}>儲存</button>
-                  <button className="btn btnSmall btnGhost" onClick={() => { setShowSaveFilterInput(false); setSaveFilterName(""); }}>取消</button>
-                </div>
-              ) : (
-                <div style={{ marginTop: 6 }}>
-                  <button className="btn btnSmall btnGhost" style={{ fontSize: 11 }} onClick={() => setShowSaveFilterInput(true)} disabled={!hasSavableInstallFilter} title={saveFilterTitle}>+ 儲存目前篩選</button>
-                </div>
-              )}
-            </div>
-
-            {installErr ? (
-              <DashboardStatusBanner
-                tone="error"
-                title="裝機資料讀取失敗"
-                detail={installErr}
-              />
-            ) : installLoading ? (
-              <DashboardStatusBanner
-                tone="info"
-                title="正在同步裝機資料"
-                detail="讀取完成後會自動更新表格、Pipeline 與甘特圖。"
-              />
-            ) : null}
 
             {installView === "pipeline" || installView === "gantt" ? null : (
               <div className="card auroraTablePanel" style={{ marginTop: 12 }}>
@@ -1631,246 +1405,68 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
 
                 {/* ───────── Section: Equipment ───────── */}
         {section === "equipment" ? (
-          <>
-            <MissionQueuePanel
-              title="設備異常待辦"
-              subtitle={`${equipmentActionQueue.length} 台需要確認`}
-              items={equipmentActionQueue}
-              emptyText="目前沒有阻塞、紅燈或高稼動設備。"
-            />
-
-            <div className="card" style={{ padding: 14, marginTop: 12 }}>
-              <div className="panelHeader">
-                <div style={{ fontWeight: 900 }}>篩選 / 操作</div>
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
-                  <button className="btn btnSmall" onClick={downloadEquipmentCsvReport} disabled={equipmentCsvDisabled} title={equipmentCsvTitle}>匯出 CSV</button>
-                  <button className="btn btnSmall" onClick={() => setSmartImportOpen(true)}>⬆ Excel 智慧匯入</button>
-                  <button className="btn btnAccent" onClick={openAddEquip}>➕ 新增設備</button>
-                </div>
-              </div>
-
-              <div className="filters" style={{ marginTop: 10 }}>
-                <div className="field" style={{ flex: "1 1 240px" }}>
-                  <div className="label">區域</div>
-                  <RegionTabs value={eRegion} onChange={setERegion} />
-                </div>
-
-                <div className="field">
-                  <div className="label">主狀態</div>
-                  <select value={eStatus} onChange={(e) => setEStatus(parseEquipmentStatusFilter(e.target.value))}>
-                    <option value="">全部</option>
-                    {EQUIPMENT_MAIN_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
-                  </select>
-                </div>
-
-                <div className="field">
-                  <div className="label">容量</div>
-                  <select value={eCap} onChange={(e) => setECap(parseCapacityFilter(e.target.value))}>
-                    <option value="">全部</option>
-                    {CAPACITY_LEVELS.map((c) => <option key={c} value={c}>{c}</option>)}
-                  </select>
-                </div>
-
-                <div className="field" style={{ flex: 1, minWidth: 240 }}>
-                  <div className="label">關鍵字</div>
-                  <input value={eKeyword} onChange={(e) => setEKeyword(e.target.value)} placeholder="客戶/站點/序號/Owner/阻塞原因..." />
-                </div>
-
-                <div className="field" style={{ minWidth: 180 }}>
-                  <div className="label">排序欄位</div>
-                  <select value={equipSortKey} onChange={(e) => setEquipSortKey(e.target.value as EquipSortKey)}>
-                    <option value="updatedAt">更新時間</option>
-                    <option value="utilization">稼動率</option>
-                    <option value="customer">客戶</option>
-                    <option value="owner">Owner</option>
-                    <option value="serialNo">序號</option>
-                    <option value="statusMain">主狀態</option>
-                  </select>
-                </div>
-
-                <div className="field" style={{ minWidth: 120 }}>
-                  <div className="label">排序方向</div>
-                  <select value={equipSortDir} onChange={(e) => setEquipSortDir(e.target.value as "asc" | "desc")}>
-                    <option value="desc">由大到小</option>
-                    <option value="asc">由小到大</option>
-                  </select>
-                </div>
-
-                {(eRegion || eStatus || eCap || eKeyword) ? (
-                  <button className="btn" onClick={clearEquipmentFilters}>
-                    清除
-                  </button>
-                ) : null}
-
-                <div style={{ marginLeft: "auto", color: "#94a3b8", fontSize: 12, fontWeight: 900 }}>
-                  {filteredEquipments.length}/{equipments.length}
-                </div>
-              </div>
-
-              <ActiveFilterSummary
-                filters={equipmentActiveFilters}
-                visibleCount={filteredEquipments.length}
-                totalCount={equipments.length}
-                onClearAll={clearEquipmentFilters}
-              />
-
-              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
-                <Badge text={`裝機 ${equipStats.byStatus["裝機"]}`} color={STATUS_COLOR["裝機"]} subtle />
-                <Badge text={`試產 ${equipStats.byStatus["試產"]}`} color={STATUS_COLOR["試產"]} subtle />
-                <Badge text={`正式生產中 ${equipStats.byStatus["正式生產中"]}`} color={STATUS_COLOR["正式生產中"]} subtle />
-                <span style={{ opacity: 0.35 }}>|</span>
-                <Badge text={`綠 ${equipStats.byCap["綠"]}`} color={CAPACITY_COLOR["綠"]} subtle />
-                <Badge text={`黃 ${equipStats.byCap["黃"]}`} color={CAPACITY_COLOR["黃"]} subtle />
-                <Badge text={`紅 ${equipStats.byCap["紅"]}`} color={CAPACITY_COLOR["紅"]} subtle />
-              </div>
-            </div>
-
-            {equipErr ? (
-              <DashboardStatusBanner
-                tone="error"
-                title="設備資料讀取失敗"
-                detail={equipErr}
-              />
-            ) : equipLoading ? (
-              <DashboardStatusBanner
-                tone="info"
-                title="正在同步設備資料"
-                detail="讀取完成後會自動更新設備清單與異常待辦。"
-              />
-            ) : null}
-
-            <div className="card" style={{ marginTop: 12 }}>
-              <div className="tableWrap">
-                <table className="table dataTableDense equipmentLedgerTable">
-                  <colgroup>
-                    <col className="equipmentColSerial" />
-                    <col className="equipmentColCustomer" />
-                    <col className="equipmentColModel" />
-                    <col className="equipmentColStatus" />
-                    <col className="equipmentColOwner" />
-                    <col className="equipmentColUtil" />
-                    <col className="equipmentColUpdated" />
-                    <col className="equipmentColActions" />
-                  </colgroup>
-                  <thead>
-                    <tr>
-                      <SortableTh className="tableStickyLeft" label="機台序號" active={equipSortKey === "serialNo"} dir={equipSortDir} onClick={() => toggleEquipSort("serialNo")} />
-                      <SortableTh label="客戶/站點" active={equipSortKey === "customer"} dir={equipSortDir} onClick={() => toggleEquipSort("customer")} />
-                      <th>機型 / 設備 ID</th>
-                      <SortableTh label="狀態" active={equipSortKey === "statusMain"} dir={equipSortDir} onClick={() => toggleEquipSort("statusMain")} />
-                      <SortableTh label="Owner" active={equipSortKey === "owner"} dir={equipSortDir} onClick={() => toggleEquipSort("owner")} />
-                      <SortableTh label="稼動率" active={equipSortKey === "utilization"} dir={equipSortDir} onClick={() => toggleEquipSort("utilization")} />
-                      <SortableTh label="更新" active={equipSortKey === "updatedAt"} dir={equipSortDir} onClick={() => toggleEquipSort("updatedAt")} />
-                      <th className="tableStickyRight">操作</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {visibleEquipments.map((r) => {
-                      const statusColor = STATUS_COLOR[r.statusMain];
-                      // 即時重算容量等級，不依賴 Firestore 存的舊值
-                      const liveLevel = calcCapacityLevel(r.capacity.uph, r.capacity.targetUph);
-                      const capColor = CAPACITY_COLOR[liveLevel];
-                      const blockingStatus = r.blocking?.reasonCode ? normalizeEquipmentBlockingStatus(r.blocking.status) : null;
-                      return (
-                        <tr key={r.id}>
-                          <td className="tableStickyLeft tableSerialCell mono" title={getEquipmentSerialLabel(r) || "-"}>{getEquipmentSerialLabel(r) || "-"}</td>
-                          <td className="tableTextClip" title={`${r.customer} ${r.site || ""}`}>
-                            <div style={{ fontWeight: 900 }}>{r.customer}</div>
-                            <div className="tableSecondaryText">{regionLabel(r.region)} · {r.site}</div>
-                          </td>
-                          <td>
-                            <div><Badge text={r.modelCode} color="#3b82f6" subtle /></div>
-                            <div className="mono tableSecondaryText" style={{ marginTop: 4 }}>
-                              {r.equipmentId || "-"}
-                            </div>
-                          </td>
-                          <td>
-                            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                              <Badge text={r.statusMain} color={statusColor} subtle />
-                              <Badge text={liveLevel} color={capColor} subtle />
-                              {blockingStatus ? <Badge text={`${EQUIPMENT_BLOCKING_STATUS_LABEL[blockingStatus]}：${r.blocking?.reasonCode}`} color={EQUIPMENT_BLOCKING_STATUS_COLOR[blockingStatus]} subtle /> : null}
-                            </div>
-                            <div className="tableSecondaryText" style={{ marginTop: 6 }}>{r.statusSub || "-"}</div>
-                          </td>
-                          <td>{toDisplayShortName(r.owner) || "-"}</td>
-                          <td>
-                            <div style={{ fontWeight: 900, color: pickColorByUtil(getLiveUtilization(r.capacity)) }}>{getLiveUtilization(r.capacity)}%</div>
-                            <div className="tableSecondaryText">{Number(r.capacity.uph).toLocaleString()}/{Number(r.capacity.targetUph).toLocaleString()} UPH</div>
-                          </td>
-                          <td className="tableDateCell tableSecondaryText">{fmtDate(r.updatedAt)}</td>
-                          <td className="tableStickyRight tableActionsCell">
-                            <div className="tableActions">
-                              <button className="btn btnSmall" onClick={() => openDrawer(r)}>詳情</button>
-                              <button className="btn btnSmall" onClick={() => openEditEquip(r)}>編輯</button>
-                              <button className="btn btnSmall btnDanger" onClick={() => delEquip(r)}>刪除</button>
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                    {filteredEquipments.length === 0 ? (
-                      <tr>
-                        <td colSpan={8} className="dashboardEmptyCell">
-                          {equipLoading ? (
-                            <DashboardEmptyState
-                              title="正在同步設備資料"
-                              detail="讀取完成後會自動更新清單。"
-                            />
-                          ) : equipErr ? (
-                            <DashboardEmptyState
-                              title="設備資料讀取失敗"
-                              detail="請稍後重新整理，或確認帳號權限。"
-                            />
-                          ) : equipments.length === 0 ? (
-                            <DashboardEmptyState
-                              title="尚無設備"
-                              detail="先建立第一台設備，或匯入既有設備清單。"
-                              primaryAction={{ label: "新增設備", onClick: openAddEquip, variant: "accent" }}
-                              secondaryAction={{ label: "Excel 智慧匯入", onClick: () => setSmartImportOpen(true) }}
-                            />
-                          ) : (
-                            <DashboardEmptyState
-                              title="沒有符合的設備"
-                              detail="調整條件或清除目前篩選。"
-                              primaryAction={{ label: "清除篩選", onClick: clearEquipmentFilters }}
-                            />
-                          )}
-                        </td>
-                      </tr>
-                    ) : null}
-                  </tbody>
-                </table>
-              </div>
-              {filteredEquipments.length > visibleEquipments.length ? (
-                <div className="tableLoadMore">
-                  <span>已顯示 {visibleEquipments.length} / {filteredEquipments.length} 台，詳情與匯出仍以目前篩選結果為準。</span>
-                  <button className="btn btnSmall" onClick={() => setEquipVisibleCount((value) => value + TABLE_PAGE_SIZE)}>載入更多</button>
-                </div>
-              ) : null}
-            </div>
-          </>
+          <DashboardEquipmentSection
+            equipmentActionQueue={equipmentActionQueue}
+            downloadEquipmentCsvReport={downloadEquipmentCsvReport}
+            equipmentCsvDisabled={equipmentCsvDisabled}
+            equipmentCsvTitle={equipmentCsvTitle}
+            onOpenSmartImport={() => setSmartImportOpen(true)}
+            openAddEquip={openAddEquip}
+            eRegion={eRegion}
+            setERegion={setERegion}
+            eStatus={eStatus}
+            setEStatus={setEStatus}
+            eCap={eCap}
+            setECap={setECap}
+            eKeyword={eKeyword}
+            setEKeyword={setEKeyword}
+            equipSortKey={equipSortKey}
+            setEquipSortKey={setEquipSortKey}
+            equipSortDir={equipSortDir}
+            setEquipSortDir={setEquipSortDir}
+            clearEquipmentFilters={clearEquipmentFilters}
+            filteredEquipments={filteredEquipments}
+            equipments={equipments}
+            equipmentActiveFilters={equipmentActiveFilters}
+            equipStats={equipStats}
+            equipErr={equipErr}
+            equipLoading={equipLoading}
+            visibleEquipments={visibleEquipments}
+            toggleEquipSort={toggleEquipSort}
+            openDrawer={openDrawer}
+            openEditEquip={openEditEquip}
+            delEquip={delEquip}
+            setEquipVisibleCount={setEquipVisibleCount}
+            tablePageSize={TABLE_PAGE_SIZE}
+          />
         ) : null}
 
         {section === "insights" ? (
-          <div className="card" style={{ padding: 10, marginTop: 12 }}>
-            <div style={{ display: "flex", gap: 8, alignItems: "center", justifyContent: "space-between", flexWrap: "wrap" }}>
-              <div className="segTabs">
-                <button className={activeInsightsTab === "analytics" ? "segTab segTabActive" : "segTab"} onClick={() => switchInsightsTab("analytics")}>
-                  分析
-                </button>
-                {isAdmin ? (
-                  <button className={activeInsightsTab === "logs" ? "segTab segTabActive" : "segTab"} onClick={() => switchInsightsTab("logs")}>
-                    治理紀錄
-                  </button>
-                ) : null}
-              </div>
-              {activeInsightsTab === "analytics" ? (
-                <button className="btn btnSmall" onClick={downloadInsightsReport} disabled={insightsReportDisabled} title={insightsReportTitle}>
-                  下載分析報告
-                </button>
-              ) : null}
-            </div>
-          </div>
+          <DashboardInsightsSection
+            isAdmin={isAdmin}
+            activeInsightsTab={activeInsightsTab}
+            switchInsightsTab={switchInsightsTab}
+            downloadInsightsReport={downloadInsightsReport}
+            insightsReportDisabled={insightsReportDisabled}
+            insightsReportTitle={insightsReportTitle}
+            auditLogs={auditLogs}
+            events={events}
+            retAuditDays={retAuditDays}
+            setRetAuditDays={setRetAuditDays}
+            retEventDays={retEventDays}
+            setRetEventDays={setRetEventDays}
+            retAutoEnabled={retAutoEnabled}
+            setRetAutoEnabled={setRetAutoEnabled}
+            retAutoTime={retAutoTime}
+            setRetAutoTime={setRetAutoTime}
+            saveRetention={saveRetention}
+            today={today}
+            doPurgeByRetention={doPurgeByRetention}
+            purgeBusy={purgeBusy}
+            doClearAllLogs={doClearAllLogs}
+            purgeHint={purgeHint}
+            retentionCfg={retentionCfg}
+          />
         ) : null}
 
         {/* ───────── Section: Insights / Analytics ───────── */}
@@ -2240,149 +1836,6 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
                 </div>
               </div>
             )}
-          </>
-        ) : null}
-
-        {/* ───────── Section: Insights / Logs ───────── */}
-        {section === "insights" && isAdmin && activeInsightsTab === "logs" ? (
-          <>
-            <div className="card" style={{ padding: 14 }}>
-              <div style={{ fontWeight: 900 }}>稽核紀錄（auditLogs）</div>
-              <div style={{ color: "#94a3b8", fontSize: 12, marginTop: 4 }}>
-                events 為 analytics 行為事件：僅 admin 可讀。
-              </div>
-            </div>
-
-            {isAdmin ? (
-              <div className="card" style={{ padding: 14, marginTop: 12 }}>
-                <div style={{ fontWeight: 900 }}>清除設定（admin）</div>
-                <div style={{ color: "#94a3b8", fontSize: 12, marginTop: 4, lineHeight: 1.6 }}>
-                  這裡的「定時清除」為<strong>前端觸發</strong>：需有人開著系統（或每日首次開啟）才會執行。
-                  若要完全自動化（不依賴前端），需改用 Cloud Functions + Scheduler（通常需要 Blaze）。
-                </div>
-
-                <div className="filters" style={{ marginTop: 12 }}>
-                  <div className="field">
-                    <div className="label">保留 auditLogs（天）</div>
-                    <input type="number" min={0} max={3650} value={retAuditDays}
-                      onChange={(e) => setRetAuditDays(clamp(Number(e.target.value || 0), 0, 3650))} />
-                  </div>
-                  <div className="field">
-                    <div className="label">保留 events（天）</div>
-                    <input type="number" min={0} max={3650} value={retEventDays}
-                      onChange={(e) => setRetEventDays(clamp(Number(e.target.value || 0), 0, 3650))} />
-                  </div>
-                  <div className="field">
-                    <div className="label">定時清除</div>
-                    <select value={retAutoEnabled ? "on" : "off"} onChange={(e) => setRetAutoEnabled(e.target.value === "on")}>
-                      <option value="off">關閉</option>
-                      <option value="on">啟用</option>
-                    </select>
-                  </div>
-                  <div className="field">
-                    <div className="label">每日時間（台灣）</div>
-                    <input type="time" value={retAutoTime} onChange={(e) => setRetAutoTime(e.target.value || "03:00")} />
-                  </div>
-
-                  <button className="btn" onClick={() => saveRetention({
-                    version: `retention-${today}`,
-                    auditLogsRetentionDays: retAuditDays,
-                    eventsRetentionDays: retEventDays,
-                    autoPurgeEnabled: retAutoEnabled,
-                    autoPurgeTime: retAutoTime,
-                  })}>
-                    儲存設定
-                  </button>
-
-                  <button className="btn" onClick={doPurgeByRetention} disabled={purgeBusy}>
-                    立即清除（依保留天數）
-                  </button>
-
-                  <button className="btn btnDanger" onClick={doClearAllLogs} disabled={purgeBusy}>
-                    清除全部
-                  </button>
-
-                  <div style={{ marginLeft: "auto", color: "#94a3b8", fontSize: 12, fontWeight: 900 }}>
-                    {purgeHint || (retentionCfg.lastAutoPurgeAt ? `上次自動清除：${fmtDate(retentionCfg.lastAutoPurgeAt)}` : "尚未自動清除")}
-                  </div>
-                </div>
-              </div>
-            ) : null}
-
-            <div className="card" style={{ marginTop: 12 }}>
-              <div className="tableWrap">
-                <table className="table tableSmall">
-                  <thead>
-                    <tr>
-                      <th>時間</th>
-                      <th>action</th>
-                      <th>target</th>
-                      <th>detail</th>
-                      <th>actor</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {auditLogs.map((r) => (
-                      <tr key={r.id}>
-                        <td style={{ color: "#94a3b8", fontSize: 12 }}>{r.createdAt?.toDate?.().toISOString?.().slice(0, 19).replace("T", " ") ?? "-"}</td>
-                        <td><Badge text={r.action} color="#3b82f6" subtle /></td>
-                        <td style={{ fontWeight: 900 }}>{r.target}</td>
-                        <td style={{ color: "#94a3b8" }}>{r.detail}</td>
-                        <td style={{ color: "#94a3b8", fontSize: 12 }}>{r.actorEmail}</td>
-                      </tr>
-                    ))}
-                    {auditLogs.length === 0 ? (
-                      <tr>
-                        <td colSpan={5} className="dashboardEmptyCell">
-                          <DashboardEmptyState
-                            title="尚無治理紀錄"
-                            detail="新增、更新、刪除或批次治理後會出現在這裡。"
-                          />
-                        </td>
-                      </tr>
-                    ) : null}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            {isAdmin ? (
-              <div className="card" style={{ marginTop: 12 }}>
-                <div style={{ padding: 12, borderBottom: "1px solid var(--border)", fontWeight: 900 }}>events（僅 admin）</div>
-                <div className="tableWrap">
-                  <table className="table tableSmall">
-                    <thead>
-                      <tr>
-                        <th>時間</th>
-                        <th>eventName</th>
-                        <th>payload</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {events.map((e) => (
-                        <tr key={e.id}>
-                          <td style={{ color: "#94a3b8", fontSize: 12 }}>{e.createdAt?.toDate?.().toISOString?.().slice(0, 19).replace("T", " ") ?? "-"}</td>
-                          <td className="mono" style={{ fontWeight: 900 }}>{e.eventName}</td>
-                          <td style={{ color: "#94a3b8", fontSize: 12, maxWidth: 640, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                            {e.payload ? JSON.stringify(e.payload) : "-"}
-                          </td>
-                        </tr>
-                      ))}
-                      {events.length === 0 ? (
-                        <tr>
-                          <td colSpan={3} className="dashboardEmptyCell">
-                            <DashboardEmptyState
-                              title="尚無事件"
-                              detail="使用者操作與系統事件寫入後會出現在這裡。"
-                            />
-                          </td>
-                        </tr>
-                      ) : null}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            ) : null}
           </>
         ) : null}
 

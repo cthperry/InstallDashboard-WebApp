@@ -37,6 +37,7 @@ function buildReleaseNotes(releaseLabel: string): string[] {
     "效能優化：Dashboard action queue entry 直接保留 target row，移除 UI mapping 時額外建立 rowsById Map 的配置成本。",
     "效能優化：Dashboard 批次治理改為直接 memo target ids/count，避免保留整批 row references 與送出時再 map id 陣列。",
     "效能優化：Dashboard 裝機與設備 realtime listener 支援 maxRows，install/equipment 一般路由改用保守上限以降低初始 snapshot 資料量。",
+    "效能優化：Dashboard route section 拆分為 install/equipment/insights/shared components，降低主工作區元件責任並保留 admin / engineer 角色模型。",
   ];
 }
 
