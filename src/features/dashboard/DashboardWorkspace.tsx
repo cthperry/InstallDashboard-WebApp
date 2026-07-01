@@ -1180,13 +1180,9 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
   const installActionQueue: MissionQueueItem[] = useMemo(
     () => {
       if (section !== "install") return EMPTY_MISSION_QUEUE;
-      const rowsById = new Map(filteredInstallations.map((row) => [row.id, row]));
-      return buildInstallActionQueue(filteredInstallations).map(({ targetId, priority: _priority, ...item }) => ({
+      return buildInstallActionQueue(filteredInstallations).map(({ target: row, targetId: _targetId, priority: _priority, ...item }) => ({
         ...item,
-        onClick: () => {
-          const row = rowsById.get(targetId);
-          if (row) openEditInstall(row);
-        },
+        onClick: () => openEditInstall(row),
       }));
     },
     [filteredInstallations, openEditInstall, section],
@@ -1194,13 +1190,9 @@ export function DashboardWorkspace({ section }: { section: DashboardSection }) {
   const equipmentActionQueue: MissionQueueItem[] = useMemo(
     () => {
       if (section !== "equipment") return EMPTY_MISSION_QUEUE;
-      const rowsById = new Map(filteredEquipments.map((row) => [row.id, row]));
-      return buildEquipmentActionQueue(filteredEquipments, regionLabel).map(({ targetId, priority: _priority, ...item }) => ({
+      return buildEquipmentActionQueue(filteredEquipments, regionLabel).map(({ target: row, targetId: _targetId, priority: _priority, ...item }) => ({
         ...item,
-        onClick: () => {
-          const row = rowsById.get(targetId);
-          if (row) openDrawer(row);
-        },
+        onClick: () => openDrawer(row),
       }));
     },
     [filteredEquipments, openDrawer, section],

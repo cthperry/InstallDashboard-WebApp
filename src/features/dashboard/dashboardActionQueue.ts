@@ -14,9 +14,10 @@ import { todayInTaipeiYmd } from "@/lib/utils";
 
 export type MissionQueueTone = "critical" | "warning" | "info" | "good";
 
-export type DashboardQueueEntry = {
+export type DashboardQueueEntry<TTarget = unknown> = {
   id: string;
   targetId: string;
+  target: TTarget;
   label: string;
   meta: string;
   value: string;
@@ -41,11 +42,11 @@ function calcCapacityLevel(uph: number, targetUph: number): "綠" | "黃" | "紅
   return "綠";
 }
 
-function compareQueueEntries(a: DashboardQueueEntry, b: DashboardQueueEntry): number {
+function compareQueueEntries<TTarget>(a: DashboardQueueEntry<TTarget>, b: DashboardQueueEntry<TTarget>): number {
   return a.priority - b.priority;
 }
 
-function pushTopQueueEntry(queue: DashboardQueueEntry[], entry: DashboardQueueEntry, limit: number): void {
+function pushTopQueueEntry<TTarget>(queue: DashboardQueueEntry<TTarget>[], entry: DashboardQueueEntry<TTarget>, limit: number): void {
   let index = 0;
   while (index < queue.length && compareQueueEntries(entry, queue[index]) >= 0) index++;
   if (index >= limit) return;
@@ -53,9 +54,9 @@ function pushTopQueueEntry(queue: DashboardQueueEntry[], entry: DashboardQueueEn
   if (queue.length > limit) queue.pop();
 }
 
-export function buildInstallActionQueue(rows: Installation[]): DashboardQueueEntry[] {
+export function buildInstallActionQueue(rows: Installation[]): DashboardQueueEntry<Installation>[] {
   const today = todayInTaipeiYmd();
-  const queue: DashboardQueueEntry[] = [];
+  const queue: DashboardQueueEntry<Installation>[] = [];
 
   for (const row of rows) {
     if (row.phase === "released") continue;
@@ -69,6 +70,7 @@ export function buildInstallActionQueue(rows: Installation[]): DashboardQueueEnt
       pushTopQueueEntry(queue, {
         id: `install-serial-${row.id}`,
         targetId: row.id,
+        target: row,
         label,
         meta,
         value: "缺序號",
@@ -82,6 +84,7 @@ export function buildInstallActionQueue(rows: Installation[]): DashboardQueueEnt
       pushTopQueueEntry(queue, {
         id: `install-owner-${row.id}`,
         targetId: row.id,
+        target: row,
         label,
         meta,
         value: "未指派",
@@ -98,6 +101,7 @@ export function buildInstallActionQueue(rows: Installation[]): DashboardQueueEnt
       pushTopQueueEntry(queue, {
         id: `install-sla-${row.id}`,
         targetId: row.id,
+        target: row,
         label,
         meta: `${meta} · ${sla.basisLabel}${sla.basisDate ? ` ${sla.basisDate}` : ""}`,
         value: missingGovernance || missingReason ? `${sla.label} · 缺治理` : sla.label,
@@ -111,6 +115,7 @@ export function buildInstallActionQueue(rows: Installation[]): DashboardQueueEnt
       pushTopQueueEntry(queue, {
         id: `install-date-${row.id}`,
         targetId: row.id,
+        target: row,
         label,
         meta,
         value: "缺預計日",
@@ -124,6 +129,7 @@ export function buildInstallActionQueue(rows: Installation[]): DashboardQueueEnt
       pushTopQueueEntry(queue, {
         id: `install-next-due-${row.id}`,
         targetId: row.id,
+        target: row,
         label,
         meta: `${meta} · ${row.nextAction || "下一步未描述"}`,
         value: "下一步逾期",
@@ -137,6 +143,7 @@ export function buildInstallActionQueue(rows: Installation[]): DashboardQueueEnt
       pushTopQueueEntry(queue, {
         id: `install-sla-warning-${row.id}`,
         targetId: row.id,
+        target: row,
         label,
         meta,
         value: sla.label,
@@ -151,6 +158,7 @@ export function buildInstallActionQueue(rows: Installation[]): DashboardQueueEnt
       pushTopQueueEntry(queue, {
         id: `install-stale-${row.id}`,
         targetId: row.id,
+        target: row,
         label,
         meta,
         value: `${staleDays} 天未更新`,
@@ -166,8 +174,8 @@ export function buildInstallActionQueue(rows: Installation[]): DashboardQueueEnt
 export function buildEquipmentActionQueue(
   rows: Equipment[],
   regionLabel: (region: Equipment["region"]) => string,
-): DashboardQueueEntry[] {
-  const queue: DashboardQueueEntry[] = [];
+): DashboardQueueEntry<Equipment>[] {
+  const queue: DashboardQueueEntry<Equipment>[] = [];
 
   for (const row of rows) {
     const utilization = getLiveUtilization(row.capacity);
@@ -180,6 +188,7 @@ export function buildEquipmentActionQueue(
       pushTopQueueEntry(queue, {
         id: `equipment-blocked-${row.id}`,
         targetId: row.id,
+        target: row,
         label: serial,
         meta: `${meta} · ${blocking.reasonCode}`,
         value: "阻塞",
@@ -193,6 +202,7 @@ export function buildEquipmentActionQueue(
       pushTopQueueEntry(queue, {
         id: `equipment-capacity-${row.id}`,
         targetId: row.id,
+        target: row,
         label: serial,
         meta,
         value: `紅燈 ${utilization}%`,
@@ -206,6 +216,7 @@ export function buildEquipmentActionQueue(
       pushTopQueueEntry(queue, {
         id: `equipment-util-${row.id}`,
         targetId: row.id,
+        target: row,
         label: serial,
         meta,
         value: `高稼動 ${utilization}%`,

@@ -225,6 +225,7 @@ assert.deepEqual(installQueue.map((row) => row.id), [
   "install-owner-queue-owner",
   "install-stale-queue-stale",
 ]);
+assert.equal(installQueue[0]?.target.id, "queue-serial");
 
 const boundedInstallQueue = buildInstallActionQueue(Array.from({ length: 8 }, (_, index) => install({
   id: `bounded-stale-${index}`,
@@ -254,6 +255,7 @@ assert.deepEqual(equipmentQueue.map((row) => row.id), [
   "equipment-capacity-queue-red",
   "equipment-util-queue-high-util",
 ]);
+assert.equal(equipmentQueue[0]?.target.id, "blocked-equipment");
 
 const boundedEquipmentQueue = buildEquipmentActionQueue(Array.from({ length: 8 }, (_, index) => equipment({
   id: `bounded-capacity-${index}`,
