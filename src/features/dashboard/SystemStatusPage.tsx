@@ -34,6 +34,7 @@ function buildReleaseNotes(releaseLabel: string): string[] {
     "效能優化：甘特圖 view model 改為單次建立 rows 並同步累積時間邊界，避免大型清單用 map + spread 重複計算 min/max。",
     "效能優化：War Room view model 抽成純函式並以 bounded queue 建構決策佇列，避免大型 overdue/blocking/due soon 清單全量展開後再排序裁切。",
     "效能優化：Dashboard directory options 改為單一純函式建構工程師、客戶與 customer-region lookup，減少資料更新時多段 map/filter/set 掃描。",
+    "效能優化：Dashboard action queue entry 直接保留 target row，移除 UI mapping 時額外建立 rowsById Map 的配置成本。",
   ];
 }
 
