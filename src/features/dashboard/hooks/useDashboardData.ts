@@ -11,6 +11,8 @@ import { listenAuditLogs, listenEventsLastDays, type AuditLogRow, type EventRow 
 
 type DashboardSection = "install" | "equipment" | "insights";
 type InsightsTab = "analytics" | "logs";
+const DASHBOARD_INSTALL_LIMIT = 600;
+const DASHBOARD_EQUIPMENT_LIMIT = 600;
 
 function safeStr(v: unknown): string {
   if (typeof v === "string") return v;
@@ -79,6 +81,7 @@ export function useDashboardData({
     }
     setInstallLoading(true);
     setInstallErr("");
+    const needsFullInstallDataset = section === "insights" && insightsTab === "analytics";
     const unsubInst = listenInstallations(
       (rows) => {
         setInstallations(rows);
@@ -89,6 +92,7 @@ export function useDashboardData({
         setInstallErr(safeStr(e));
         setInstallLoading(false);
       },
+      needsFullInstallDataset ? {} : { maxRows: DASHBOARD_INSTALL_LIMIT },
     );
     return () => unsubInst?.();
   }, [section, insightsTab]);
@@ -102,6 +106,7 @@ export function useDashboardData({
     }
     setEquipLoading(true);
     setEquipErr("");
+    const needsFullEquipmentDataset = section === "insights" && insightsTab === "analytics";
     const unsubEq = listenEquipments(
       (rows) => {
         setEquipments(rows);
@@ -112,6 +117,7 @@ export function useDashboardData({
         setEquipErr(safeStr(e));
         setEquipLoading(false);
       },
+      needsFullEquipmentDataset ? {} : { maxRows: DASHBOARD_EQUIPMENT_LIMIT },
     );
     return () => unsubEq?.();
   }, [section, insightsTab]);

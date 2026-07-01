@@ -13,6 +13,7 @@ import { buildGanttViewModel } from "@/features/dashboard/ganttViewModel";
 import { buildEquipmentImportPreviewMetrics, buildInstallationImportPreviewMetrics } from "@/features/dashboard/importPreviewMetrics";
 import { buildInsightsMarkdownReport } from "@/features/dashboard/insightsReport";
 import { buildWarRoomViewModel } from "@/features/dashboard/warRoomViewModel";
+import { resolveRealtimeListenLimit } from "@/features/data/listenOptions";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -128,6 +129,13 @@ const bulkInstallTargets = buildBulkInstallTargets([
 ]);
 assert.deepEqual(bulkInstallTargets.ids, ["bulk-ordered", "bulk-installing"]);
 assert.equal(bulkInstallTargets.count, 2);
+
+assert.equal(resolveRealtimeListenLimit(), null);
+assert.equal(resolveRealtimeListenLimit({ maxRows: 0 }), null);
+assert.equal(resolveRealtimeListenLimit({ maxRows: -10 }), null);
+assert.equal(resolveRealtimeListenLimit({ maxRows: Number.NaN }), null);
+assert.equal(resolveRealtimeListenLimit({ maxRows: 600.9 }), 600);
+assert.equal(resolveRealtimeListenLimit({ maxRows: 450.5 }), 450);
 assert.ok(analytics.phaseAging.some((row) => row.key === "installing" && row.breached === 1));
 assert.ok(analytics.region.some((row) => row.key === "north" && row.total === 3 && row.avg === 83 && row.rows.length === 3));
 assert.deepEqual(analytics.engineer.find((row) => row.name === "Alice"), { name: "Alice", total: 2, active: 0, pct: 67 });

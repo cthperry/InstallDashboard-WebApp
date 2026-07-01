@@ -16,10 +16,12 @@ import {
   where,
   writeBatch,
   type FieldValue,
+  type QueryConstraint,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase/client";
 import type { Equipment } from "@/domain/types";
 import { EQUIPMENTS_COL } from "@/domain/constants";
+import { resolveRealtimeListenLimit, type RealtimeListenOptions } from "@/features/data/listenOptions";
 import { normalizeCompactKey, normalizeString } from "@/lib/utils";
 
 const COL = EQUIPMENTS_COL;
@@ -31,6 +33,8 @@ type EquipmentDocLike = Partial<Omit<Equipment, "id">> & {
 export type EquipmentUpdatePatch = Partial<Omit<Equipment, "id" | "blocking">> & {
   blocking?: Equipment["blocking"] | FieldValue;
 };
+
+export type EquipmentListenOptions = RealtimeListenOptions;
 
 function normalizeSerialKey(v: unknown): string {
   return normalizeCompactKey(v);
@@ -142,8 +146,15 @@ export async function findEquipmentBySerialKey(serialNo: string): Promise<Equipm
   return null;
 }
 
-export function listenEquipments(onData: (rows: Equipment[]) => void, onError?: (e: unknown) => void) {
-  const q = query(collection(db, COL), orderBy("updatedAt", "desc"));
+export function listenEquipments(
+  onData: (rows: Equipment[]) => void,
+  onError?: (e: unknown) => void,
+  options: EquipmentListenOptions = {},
+) {
+  const constraints: QueryConstraint[] = [orderBy("updatedAt", "desc")];
+  const maxRows = resolveRealtimeListenLimit(options);
+  if (maxRows !== null) constraints.push(limit(maxRows));
+  const q = query(collection(db, COL), ...constraints);
   return onSnapshot(q, (snap) => {
     const rows: Equipment[] = snap.docs.map((d) => mapEquipmentRow(d.id, d.data()));
     onData(rows);

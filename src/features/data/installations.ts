@@ -6,6 +6,7 @@ import {
   deleteDoc,
   doc,
   getDocs,
+  limit,
   onSnapshot,
   orderBy,
   query,
@@ -13,14 +14,18 @@ import {
   updateDoc,
   where,
   writeBatch,
+  type QueryConstraint,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase/client";
 import { INSTALLATIONS_COL } from "@/domain/constants";
 import type { Installation } from "@/domain/types";
 import { getInstallationSerial, getInstallationSerialKey, normalizeInstallationSerialCandidate } from "@/domain/installationDisplay";
+import { resolveRealtimeListenLimit, type RealtimeListenOptions } from "@/features/data/listenOptions";
 import { normalizeCompactKey, normalizeDateYmd, normalizeString } from "@/lib/utils";
 
 const COL = INSTALLATIONS_COL;
+
+export type InstallationListenOptions = RealtimeListenOptions;
 
 function normalizeInstallationSerial(value: unknown): string {
   return normalizeCompactKey(value);
@@ -119,8 +124,15 @@ export async function listExistingInstallationDocIdsBySerialName(serialNos: stri
   return found;
 }
 
-export function listenInstallations(onData: (rows: Installation[]) => void, onError?: (e: unknown) => void) {
-  const q = query(collection(db, COL), orderBy("updatedAt", "desc"));
+export function listenInstallations(
+  onData: (rows: Installation[]) => void,
+  onError?: (e: unknown) => void,
+  options: InstallationListenOptions = {},
+) {
+  const constraints: QueryConstraint[] = [orderBy("updatedAt", "desc")];
+  const maxRows = resolveRealtimeListenLimit(options);
+  if (maxRows !== null) constraints.push(limit(maxRows));
+  const q = query(collection(db, COL), ...constraints);
   return onSnapshot(
     q,
     (snap) => {
